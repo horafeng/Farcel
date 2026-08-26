@@ -22,6 +22,7 @@ class ContractBoundaryTests(unittest.TestCase):
             models.StepResult,
             models.ResultChunk,
             models.ExportReport,
+            models.RunSummary,
         )
 
         annotations = []

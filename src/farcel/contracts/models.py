@@ -105,6 +105,7 @@ class ValidationReport:
 
 
 class SimulationState(str, Enum):
+    CREATED = "created"
     READY = "ready"
     RUNNING = "running"
     STOPPING = "stopping"
@@ -119,11 +120,17 @@ class SessionHandle:
     session_id: str
 
 
+class StepStatus(str, Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class StepResult:
     requested_time: float
     reached_time: float
     step_size: float
+    status: StepStatus = StepStatus.SUCCESS
     event_encountered: bool = False
     early_return: bool = False
     terminate_requested: bool = False
@@ -142,3 +149,14 @@ class ResultChunk:
 class ExportReport:
     destination: str
     row_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunSummary:
+    fmu_path: str
+    start_time: float
+    stop_time: float
+    step_size: float
+    completed_steps: int
+    final_time: float
+    successful: bool

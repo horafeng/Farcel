@@ -1,4 +1,4 @@
 from farcel.infrastructure.fmpy.importer import FmpyImporter
+from farcel.infrastructure.fmpy.session import FmpyFmi2SessionFactory
 
-__all__ = ["FmpyImporter"]
-
+__all__ = ["FmpyFmi2SessionFactory", "FmpyImporter"]

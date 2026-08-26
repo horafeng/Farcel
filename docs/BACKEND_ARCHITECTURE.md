@@ -73,4 +73,8 @@ docs/
 
 当前已打通真实 FMU → FMPy → Farcel `ModelMetadata` → CLI `inspect` 链路。元数据导入支持 FMI 2.0 / 3.0，并识别 Co-Simulation、Model Exchange 和 Scheduled Execution；只有当前平台具备二进制且不要求外部执行工具的 Co-Simulation 才标记为当前可执行。ME/SE 只识别，不执行。
 
-尚未实现 session、真实仿真、CSV、GUI、worker、多 FMU 和 ME solver。CLI 的 `validate / run / export` 仍为占位入口。
+`SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
+
+FMI 2.0 Co-Simulation 的最小 Session 生命周期也已实现：application 通过 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；FMPy instance、native library 与临时解压目录始终由 infrastructure session 持有。CLI `run` 只调用 application 编排并输出执行摘要。
+
+尚未实现结果时序采集、CSV、GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。CLI 的 `export` 仍为占位入口。

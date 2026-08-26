@@ -8,21 +8,51 @@ from dataclasses import asdict
 from enum import Enum
 
 from farcel.application.engine import FarcelEngine
-from farcel.contracts.errors import EngineError
-from farcel.contracts.models import ModelMetadata
-from farcel.infrastructure.fmpy import FmpyImporter
+from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.models import ModelMetadata, SimulationConfig
+from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="farcel", description="Farcel FMU 后端（当前为最小骨架）"
+        prog="farcel", description="Farcel FMU 后端"
     )
     subparsers = parser.add_subparsers(dest="command")
     inspect_parser = subparsers.add_parser("inspect", help="读取并显示 FMU 元数据")
     inspect_parser.add_argument("fmu", help="要检查的 .fmu 文件")
     inspect_parser.add_argument("--json", action="store_true", help="输出 JSON")
-    for command in ("validate", "run", "export"):
-        subparsers.add_parser(command, help=f"{command} 命令将在后续 MVP 步骤实现")
+    validate_parser = subparsers.add_parser("validate", help="验证仿真配置")
+    validate_parser.add_argument("fmu", help="要验证配置的 .fmu 文件")
+    validate_parser.add_argument("--start-time", type=float, default=0.0)
+    validate_parser.add_argument("--stop-time", type=float, default=1.0)
+    validate_parser.add_argument("--step-size", type=float, default=0.01)
+    validate_parser.add_argument(
+        "--parameter",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="参数覆盖；VALUE 使用 JSON 标量语法",
+    )
+    validate_parser.add_argument(
+        "--output",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="选择输出变量；可重复指定",
+    )
+    run_parser = subparsers.add_parser("run", help="执行最小 FMI 2.0 Co-Simulation")
+    run_parser.add_argument("fmu", help="要执行的 .fmu 文件")
+    run_parser.add_argument("--start-time", type=float, default=0.0)
+    run_parser.add_argument("--stop-time", type=float, default=1.0)
+    run_parser.add_argument("--step-size", type=float, default=0.01)
+    run_parser.add_argument(
+        "--parameter",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="参数覆盖；VALUE 使用 JSON 标量语法",
+    )
+    subparsers.add_parser("export", help="export 命令将在后续 MVP 步骤实现")
     return parser
 
 
@@ -45,6 +75,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             _print_metadata(metadata)
         return 0
+    if args.command == "validate":
+        try:
+            engine = FarcelEngine(FmpyImporter())
+            metadata = engine.load_fmu(args.fmu)
+            config = _build_config(args, selected_outputs=tuple(args.output))
+            engine.validate_config(metadata, config)
+        except EngineError as exc:
+            _print_engine_error(exc)
+            return 1
+        print("validation successful")
+        return 0
+    if args.command == "run":
+        try:
+            engine = FarcelEngine(FmpyImporter(), FmpyFmi2SessionFactory())
+            summary = engine.run_fmu(args.fmu, _build_config(args))
+        except EngineError as exc:
+            _print_engine_error(exc)
+            return 1
+        print(f"FMU: {summary.fmu_path}")
+        print(f"start time: {summary.start_time}")
+        print(f"stop time: {summary.stop_time}")
+        print(f"step size: {summary.step_size}")
+        print(f"completed steps: {summary.completed_steps}")
+        print(f"final simulation time: {summary.final_time}")
+        print(f"execution successful: {'yes' if summary.successful else 'no'}")
+        return 0
     parser.error(f"{args.command} 尚未实现；当前版本只提供后端契约和骨架")
     return 2
 
@@ -53,6 +109,52 @@ def _json_default(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
     raise TypeError(f"无法序列化 {type(value).__name__}")
+
+
+def _parse_parameters(items: Sequence[str]) -> dict[str, object]:
+    parameters: dict[str, object] = {}
+    for item in items:
+        name, separator, raw_value = item.partition("=")
+        if not separator or not name:
+            raise EngineError(
+                code=ErrorCode.CONFIG_ERROR,
+                message="参数覆盖必须使用 NAME=VALUE 格式",
+            )
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        parameters[name] = value
+    return parameters
+
+
+def _build_config(
+    args: argparse.Namespace, selected_outputs: tuple[str, ...] = ()
+) -> SimulationConfig:
+    return SimulationConfig(
+        start_time=args.start_time,
+        stop_time=args.stop_time,
+        communication_step=args.step_size,
+        parameters=_parse_parameters(args.parameter),
+        selected_outputs=selected_outputs,
+    )
+
+
+def _print_engine_error(error: EngineError) -> None:
+    print(str(error), file=sys.stderr)
+    for issue in error.details.get("issues", ()):
+        print(
+            f"- [{issue['code']}] {issue['field']}: {issue['message']}",
+            file=sys.stderr,
+        )
+    for diagnostic in error.details.get("diagnostics", ()):
+        print(f"- {diagnostic}", file=sys.stderr)
+    cleanup_error = error.details.get("cleanup_error")
+    if cleanup_error:
+        print(
+            f"- cleanup [{cleanup_error['code']}]: {cleanup_error['message']}",
+            file=sys.stderr,
+        )
 
 
 def _print_metadata(metadata: ModelMetadata) -> None:

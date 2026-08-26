@@ -11,6 +11,9 @@ from farcel.contracts.models import InterfaceType
 from farcel.infrastructure.fmpy import FmpyImporter
 
 
+FMU_FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "fmus"
+
+
 FMI2_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <fmiModelDescription
   fmiVersion="2.0"
@@ -124,7 +127,7 @@ class FmpyImporterIntegrationTests(unittest.TestCase):
 
 
 class WorkspaceSampleIntegrationTests(unittest.TestCase):
-    sample = Path(r"D:\fmu示例文件\VanDerPol.fmu")
+    sample = FMU_FIXTURES / "VanDerPol.fmu"
 
     @unittest.skipUnless(sample.is_file(), "workspace Reference FMU is unavailable")
     def test_inspects_workspace_reference_fmu(self) -> None:

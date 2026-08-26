@@ -9,15 +9,22 @@ from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
     ResultChunk,
+    RunSummary,
     SessionHandle,
     SimulationConfig,
     SimulationState,
     StepResult,
+    StepStatus,
     ValidationIssue,
     ValidationReport,
     VariableMetadata,
 )
-from farcel.contracts.ports import ModelImporter, SimulationEngine
+from farcel.contracts.ports import (
+    ModelImporter,
+    SessionFactory,
+    SimulationEngine,
+    SimulationSession,
+)
 
 __all__ = [
     "CapabilitySet",
@@ -30,11 +37,15 @@ __all__ = [
     "ModelImporter",
     "ModelMetadata",
     "ResultChunk",
+    "RunSummary",
+    "SessionFactory",
     "SessionHandle",
     "SimulationConfig",
     "SimulationEngine",
+    "SimulationSession",
     "SimulationState",
     "StepResult",
+    "StepStatus",
     "ValidationIssue",
     "ValidationReport",
     "VariableMetadata",
