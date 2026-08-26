@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "farcel"
+version = "0.1.0"
+description = "Local-first FMU simulation engine contracts and CLI"
+requires-python = ">=3.10"
+dependencies = ["FMPy==0.3.31"]
+
+[project.scripts]
+farcel = "farcel.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/farcel"]

@@ -1,0 +1,2 @@
+"""Farcel application use cases."""
+
