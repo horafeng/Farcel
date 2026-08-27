@@ -36,6 +36,8 @@ docs/
 
 依赖方向固定为：`CLI/GUI -> application -> contracts <- infrastructure`。组合根负责把具体 adapter 注入 application。
 
+公开组合根为 `farcel.create_backend()`。CLI 与未来 GUI 均通过它获得完整配置的 application facade；消费者不自行导入或组装 infrastructure adapter。具体前端集成契约见 `docs/FRONTEND_BACKEND_INTEGRATION.md`。
+
 ## 4. 第一阶段 MVP 开发顺序
 
 1. 冻结最小 DTO、错误码、端口和 JSON 表达；用架构测试禁止 FMPy 类型越界。

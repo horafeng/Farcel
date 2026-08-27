@@ -7,11 +7,9 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from enum import Enum
 
-from farcel.application.engine import FarcelEngine
+from farcel import create_backend
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import ModelMetadata, SimulationConfig, SimulationResult
-from farcel.infrastructure.export import CsvResultExporter
-from farcel.infrastructure.fmpy import FmpyImporter, FmpySessionFactory
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -96,7 +94,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "inspect":
         try:
-            metadata = FarcelEngine(FmpyImporter()).load_fmu(args.fmu)
+            metadata = create_backend().load_fmu(args.fmu)
         except EngineError as exc:
             print(str(exc), file=sys.stderr)
             for diagnostic in exc.details.get("diagnostics", ()):
@@ -109,7 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "validate":
         try:
-            engine = FarcelEngine(FmpyImporter())
+            engine = create_backend()
             metadata = engine.load_fmu(args.fmu)
             config = _build_config(args, selected_outputs=tuple(args.output))
             engine.validate_config(metadata, config)
@@ -120,7 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "run":
         try:
-            engine = FarcelEngine(FmpyImporter(), FmpySessionFactory())
+            engine = create_backend()
             result = engine.run_fmu(
                 args.fmu,
                 _build_config(args, selected_outputs=tuple(args.output)),
@@ -142,11 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "export":
         try:
-            engine = FarcelEngine(
-                FmpyImporter(),
-                FmpySessionFactory(),
-                CsvResultExporter(),
-            )
+            engine = create_backend()
             result = engine.run_fmu(
                 args.fmu,
                 _build_config(args, selected_outputs=tuple(args.output)),
