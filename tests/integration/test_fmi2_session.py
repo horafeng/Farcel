@@ -41,12 +41,16 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 stop_time=0.05,
                 communication_step=0.01,
                 parameters={"mu": 2.0},
+                selected_outputs=("x0",),
             ),
         )
 
         self.assertTrue(summary.successful)
         self.assertEqual(summary.completed_steps, 5)
         self.assertAlmostEqual(summary.final_time, 0.05)
+        self.assertEqual(summary.sample_count, 6)
+        self.assertEqual(tuple(summary.outputs), ("x0",))
+        self.assertEqual(len(summary.outputs["x0"]), summary.sample_count)
         self.assertIsNotNone(factory.session)
         self.assertTrue(factory.session._terminated)
         self.assertTrue(factory.session._closed)
@@ -77,9 +81,12 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 "run", str(self.van_der_pol), "--start-time", "0",
                 "--stop-time", "2", "--step-size", "0.01",
                 "--parameter", "mu=2.0",
+                "--output", "x0",
             ])
         self.assertEqual(exit_code, 0)
         self.assertIn("completed steps: 200", stdout.getvalue())
+        self.assertIn("samples: 201", stdout.getvalue())
+        self.assertIn("selected outputs: x0", stdout.getvalue())
         self.assertIn("final simulation time: 2.0", stdout.getvalue())
         self.assertIn("execution successful: yes", stdout.getvalue())
 
@@ -93,11 +100,61 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 start_time=0.0,
                 stop_time=1.0,
                 communication_step=0.1,
+                selected_outputs=("counter",),
             ),
         )
         self.assertTrue(summary.successful)
         self.assertEqual(summary.completed_steps, 10)
-        self.assertEqual(summary.final_time, 1.0)
+        self.assertAlmostEqual(summary.final_time, 1.0)
+        self.assertEqual(summary.sample_count, 11)
+        self.assertEqual(tuple(summary.outputs), ("counter",))
+        self.assertEqual(summary.outputs["counter"][0], 1)
+        self.assertEqual(len(summary.outputs["counter"]), 11)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_result_uses_actual_times_and_only_selected_outputs(self) -> None:
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=2.0,
+                communication_step=0.01,
+                parameters={"mu": 2.0},
+                selected_outputs=("x0",),
+            ),
+        )
+
+        self.assertEqual(result.completed_steps, 200)
+        self.assertEqual(result.sample_count, 201)
+        self.assertEqual(result.timestamps[0], 0.0)
+        self.assertAlmostEqual(result.timestamps[-1], 2.0)
+        self.assertTrue(
+            all(left < right for left, right in zip(result.timestamps, result.timestamps[1:]))
+        )
+        self.assertEqual(tuple(result.outputs), ("x0",))
+        self.assertEqual(len(result.outputs["x0"]), result.sample_count)
+        self.assertEqual(result.outputs["x0"][0], 2.0)
+        self.assertNotEqual(result.outputs["x0"][-1], result.outputs["x0"][0])
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_run_without_outputs_keeps_timeline(self) -> None:
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.02,
+                communication_step=0.01,
+            ),
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 2)
+        self.assertEqual(result.sample_count, 3)
+        self.assertEqual(result.outputs, {})
 
     @unittest.skipUnless(manipulator.is_file(), "manipulator FMU is unavailable")
     def test_real_step_failure_is_stable_and_releases_resources(self) -> None:

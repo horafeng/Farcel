@@ -45,6 +45,7 @@ class FakeNativeFmu:
         self.fail_initialization = False
         self.fail_parameter = False
         self.fail_step = False
+        self.fail_output = False
         self.fail_terminate = False
         self.fail_free = False
 
@@ -68,6 +69,12 @@ class FakeNativeFmu:
         self.events.append("doStep")
         if self.fail_step:
             raise RuntimeError("native step failed")
+
+    def getReal(self, _: list[int]) -> list[float]:
+        self.events.append("getReal")
+        if self.fail_output:
+            raise RuntimeError("native output read failed")
+        return [1.25]
 
     def terminate(self) -> None:
         self.events.append("terminate")
@@ -171,6 +178,36 @@ class SessionLifecycleTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
             session.close()
             self.assertFalse(extraction.exists())
+        self.assertIn("freeInstance", native.events)
+
+    def test_output_read_failure_is_mapped_and_application_cleans_up(self) -> None:
+        metadata = replace(
+            executable_metadata(),
+            variables=(
+                VariableMetadata(
+                    "speed", 8, "Real", causality="output", variability="continuous"
+                ),
+            ),
+        )
+        native = FakeNativeFmu()
+        native.fail_output = True
+        config = SimulationConfig(selected_outputs=("speed",))
+        with tempfile.TemporaryDirectory() as parent:
+            extraction = Path(parent) / "extracted"
+            extraction.mkdir()
+            lifecycle = FmpyFmi2Session(metadata, config, native, extraction)
+            factory = Mock()
+            factory.create.return_value = lifecycle
+            importer = Mock()
+            importer.load.return_value = metadata
+
+            with self.assertRaises(EngineError) as raised:
+                FarcelEngine(importer, factory).run_fmu("runtime-test.fmu", config)
+
+            self.assertEqual(raised.exception.code, ErrorCode.OUTPUT_READ_ERROR)
+            self.assertNotIn("native output read failed", str(raised.exception))
+            self.assertFalse(extraction.exists())
+        self.assertIn("terminate", native.events)
         self.assertIn("freeInstance", native.events)
 
     def test_termination_failure_is_mapped_and_close_still_frees(self) -> None:

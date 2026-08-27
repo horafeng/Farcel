@@ -179,6 +179,37 @@ class FmpyFmi2Session:
             status=StepStatus.SUCCESS,
         )
 
+    def read_outputs(self) -> dict[str, Any]:
+        if not self._initialized or self._terminated or self._closed:
+            raise EngineError(
+                ErrorCode.OUTPUT_READ_ERROR,
+                "Session 状态不允许读取输出变量",
+            )
+
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        values: dict[str, Any] = {}
+        for name in self._config.selected_outputs:
+            variable = variables.get(name)
+            if variable is None:
+                raise EngineError(
+                    ErrorCode.OUTPUT_READ_ERROR,
+                    "所选输出变量不在已加载模型中",
+                    {"variable": name},
+                )
+            try:
+                getter = getattr(self._fmu, _getter_name(variable))
+                raw_value = getter([variable.value_reference])[0]
+                values[name] = _python_scalar(raw_value, variable)
+            except EngineError:
+                raise
+            except Exception as exc:
+                raise EngineError(
+                    ErrorCode.OUTPUT_READ_ERROR,
+                    "FMU 输出变量读取失败",
+                    {"variable": name, "diagnostic": str(exc)},
+                ) from None
+        return values
+
     def terminate(self) -> None:
         if self._terminated:
             return
@@ -238,6 +269,42 @@ def _setter_name(variable: VariableMetadata) -> str:
     if variable.data_type == "Enumeration":
         return "setInteger"
     return f"set{variable.data_type}"
+
+
+def _getter_name(variable: VariableMetadata) -> str:
+    if variable.shape:
+        raise EngineError(
+            ErrorCode.OUTPUT_READ_ERROR,
+            "本阶段不支持读取数组输出变量",
+            {"variable": variable.name},
+        )
+    if variable.data_type == "Enumeration":
+        return "getInteger"
+    if variable.data_type not in {"Real", "Integer", "Boolean", "String"}:
+        raise EngineError(
+            ErrorCode.OUTPUT_READ_ERROR,
+            "本阶段不支持读取该输出变量类型",
+            {"variable": variable.name, "data_type": variable.data_type},
+        )
+    return f"get{variable.data_type}"
+
+
+def _python_scalar(value: Any, variable: VariableMetadata) -> Any:
+    if variable.data_type == "Real":
+        return float(value)
+    if variable.data_type in {"Integer", "Enumeration"}:
+        return int(value)
+    if variable.data_type == "Boolean":
+        return bool(value)
+    if variable.data_type == "String":
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
+    raise EngineError(
+        ErrorCode.OUTPUT_READ_ERROR,
+        "本阶段不支持读取该输出变量类型",
+        {"variable": variable.name, "data_type": variable.data_type},
+    )
 
 
 def _quiet_callbacks() -> fmi2CallbackFunctions:

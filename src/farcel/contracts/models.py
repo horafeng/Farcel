@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
@@ -160,3 +161,43 @@ class RunSummary:
     completed_steps: int
     final_time: float
     successful: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationResult:
+    fmu_path: str
+    start_time: float
+    stop_time: float
+    step_size: float
+    completed_steps: int
+    final_time: float
+    completion_state: SimulationState
+    timestamps: tuple[float, ...]
+    outputs: Mapping[str, tuple[Any, ...]]
+
+    def __post_init__(self) -> None:
+        if not self.timestamps:
+            raise ValueError("SimulationResult 必须包含初始时间样本")
+        if len(self.timestamps) != self.completed_steps + 1:
+            raise ValueError("时间样本数量必须等于 completed_steps + 1")
+        if not all(math.isfinite(timestamp) for timestamp in self.timestamps):
+            raise ValueError("时间轴只能包含有限数值")
+        if any(
+            left >= right
+            for left, right in zip(self.timestamps, self.timestamps[1:])
+        ):
+            raise ValueError("时间轴必须严格单调递增")
+        if self.timestamps[0] != self.start_time:
+            raise ValueError("首个时间样本必须等于 start_time")
+        if self.timestamps[-1] != self.final_time:
+            raise ValueError("最后时间样本必须等于 final_time")
+        if any(len(values) != len(self.timestamps) for values in self.outputs.values()):
+            raise ValueError("每个输出变量的样本数量必须与时间轴一致")
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.timestamps)
+
+    @property
+    def successful(self) -> bool:
+        return self.completion_state is SimulationState.COMPLETED

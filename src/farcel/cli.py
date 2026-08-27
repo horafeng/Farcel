@@ -9,7 +9,7 @@ from enum import Enum
 
 from farcel.application.engine import FarcelEngine
 from farcel.contracts.errors import EngineError, ErrorCode
-from farcel.contracts.models import ModelMetadata, SimulationConfig
+from farcel.contracts.models import ModelMetadata, SimulationConfig, SimulationResult
 from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
@@ -52,6 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME=VALUE",
         help="参数覆盖；VALUE 使用 JSON 标量语法",
     )
+    run_parser.add_argument(
+        "--output",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="选择采集的输出变量；可重复指定",
+    )
     subparsers.add_parser("export", help="export 命令将在后续 MVP 步骤实现")
     return parser
 
@@ -89,17 +96,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run":
         try:
             engine = FarcelEngine(FmpyImporter(), FmpyFmi2SessionFactory())
-            summary = engine.run_fmu(args.fmu, _build_config(args))
+            result = engine.run_fmu(
+                args.fmu,
+                _build_config(args, selected_outputs=tuple(args.output)),
+            )
         except EngineError as exc:
             _print_engine_error(exc)
             return 1
-        print(f"FMU: {summary.fmu_path}")
-        print(f"start time: {summary.start_time}")
-        print(f"stop time: {summary.stop_time}")
-        print(f"step size: {summary.step_size}")
-        print(f"completed steps: {summary.completed_steps}")
-        print(f"final simulation time: {summary.final_time}")
-        print(f"execution successful: {'yes' if summary.successful else 'no'}")
+        print(f"FMU: {result.fmu_path}")
+        print(f"start time: {result.start_time}")
+        print(f"stop time: {result.stop_time}")
+        print(f"step size: {result.step_size}")
+        print(f"completed steps: {result.completed_steps}")
+        print(f"samples: {result.sample_count}")
+        print(f"final simulation time: {result.final_time}")
+        print(f"selected outputs: {', '.join(result.outputs) or 'none'}")
+        print(f"execution successful: {'yes' if result.successful else 'no'}")
+        _print_sample("first sample", result, 0)
+        _print_sample("last sample", result, -1)
         return 0
     parser.error(f"{args.command} 尚未实现；当前版本只提供后端契约和骨架")
     return 2
@@ -155,6 +169,13 @@ def _print_engine_error(error: EngineError) -> None:
             f"- cleanup [{cleanup_error['code']}]: {cleanup_error['message']}",
             file=sys.stderr,
         )
+
+
+def _print_sample(label: str, result: SimulationResult, index: int) -> None:
+    print(f"{label}:")
+    print(f"  time: {result.timestamps[index]}")
+    for name, values in result.outputs.items():
+        print(f"  {name}: {values[index]}")
 
 
 def _print_metadata(metadata: ModelMetadata) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 from uuid import uuid4
 
 from farcel.application.validation import validate_config
@@ -10,9 +11,9 @@ from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
-    RunSummary,
     SessionHandle,
     SimulationConfig,
+    SimulationResult,
     SimulationState,
     StepResult,
     StepStatus,
@@ -105,15 +106,38 @@ class FarcelEngine:
         result = record.session.step(current_time, actual_step)
         if result.status is not StepStatus.SUCCESS:
             raise EngineError(ErrorCode.STEP_ERROR, "FMU step 未成功完成")
+        if not math.isfinite(result.reached_time) or result.reached_time <= current_time:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMU step 未返回单调递增的 reached time",
+                {
+                    "current_time": current_time,
+                    "reached_time": result.reached_time,
+                },
+            )
         record.current_time = result.reached_time
         record.state = SimulationState.RUNNING
         return result
+
+    def read_outputs(self, handle: SessionHandle) -> Mapping[str, Any]:
+        record = self._get_session(handle)
+        if record.state not in {SimulationState.READY, SimulationState.RUNNING}:
+            raise EngineError(
+                ErrorCode.OUTPUT_READ_ERROR,
+                "Session 尚未完成初始化",
+            )
+        return record.session.read_outputs()
 
     def terminate(self, handle: SessionHandle) -> None:
         record = self._get_session(handle)
         if record.state is SimulationState.STOPPED:
             return
-        record.session.terminate()
+        record.state = SimulationState.STOPPING
+        try:
+            record.session.terminate()
+        except BaseException:
+            record.state = SimulationState.ERROR
+            raise
         record.state = SimulationState.STOPPED
 
     def get_state(self, handle: SessionHandle) -> SimulationState:
@@ -125,11 +149,11 @@ class FarcelEngine:
             return
         record.session.close()
 
-    def run_fmu(self, path: str | Path, config: SimulationConfig) -> RunSummary:
+    def run_fmu(self, path: str | Path, config: SimulationConfig) -> SimulationResult:
         handle: SessionHandle | None = None
         primary_error: EngineError | None = None
         base_error: BaseException | None = None
-        summary: RunSummary | None = None
+        simulation_result: SimulationResult | None = None
 
         try:
             metadata = self.load_fmu(path)
@@ -138,6 +162,13 @@ class FarcelEngine:
 
             current_time = config.start_time
             completed_steps = 0
+            timestamps = [current_time]
+            output_columns = {name: [] for name in config.selected_outputs}
+            _append_output_sample(
+                output_columns,
+                config.selected_outputs,
+                self.read_outputs(handle),
+            )
             tolerance = max(1e-12, config.communication_step * 1e-9)
             supports_variable_step = _supports_variable_step(metadata)
 
@@ -151,21 +182,26 @@ class FarcelEngine:
                 result = self.step(handle, step_size)
                 current_time = result.reached_time
                 completed_steps += 1
-
-            if math.isclose(
-                current_time, config.stop_time, rel_tol=0.0, abs_tol=tolerance
-            ):
-                current_time = config.stop_time
+                timestamps.append(current_time)
+                _append_output_sample(
+                    output_columns,
+                    config.selected_outputs,
+                    self.read_outputs(handle),
+                )
 
             self.terminate(handle)
-            summary = RunSummary(
+            simulation_result = SimulationResult(
                 fmu_path=str(Path(path).expanduser().resolve()),
                 start_time=config.start_time,
                 stop_time=config.stop_time,
                 step_size=config.communication_step,
                 completed_steps=completed_steps,
                 final_time=current_time,
-                successful=True,
+                completion_state=SimulationState.COMPLETED,
+                timestamps=tuple(timestamps),
+                outputs={
+                    name: tuple(values) for name, values in output_columns.items()
+                },
             )
         except EngineError as exc:
             primary_error = exc
@@ -178,12 +214,23 @@ class FarcelEngine:
         except BaseException as exc:
             base_error = exc
 
-        cleanup_error: EngineError | None = None
+        cleanup_errors: list[EngineError] = []
         if handle is not None:
+            record = self._sessions.get(handle.session_id)
+            if record is not None and record.state in {
+                SimulationState.READY,
+                SimulationState.RUNNING,
+            }:
+                try:
+                    self.terminate(handle)
+                except EngineError as exc:
+                    cleanup_errors.append(exc)
             try:
                 self.close_session(handle)
             except EngineError as exc:
-                cleanup_error = exc
+                cleanup_errors.append(exc)
+
+        cleanup_error = _combine_cleanup_errors(cleanup_errors)
 
         if base_error is not None:
             if cleanup_error is not None:
@@ -203,9 +250,9 @@ class FarcelEngine:
             raise primary_error from None
         if cleanup_error is not None:
             raise cleanup_error from None
-        if summary is None:
-            raise EngineError(ErrorCode.INTERNAL_ERROR, "仿真未生成执行摘要")
-        return summary
+        if simulation_result is None:
+            raise EngineError(ErrorCode.INTERNAL_ERROR, "仿真未生成结果")
+        return simulation_result
 
     def _get_session(self, handle: SessionHandle) -> _SessionRecord:
         try:
@@ -220,3 +267,37 @@ def _supports_variable_step(metadata: ModelMetadata) -> bool:
         and capability.can_handle_variable_step
         for capability in metadata.interface_capabilities
     )
+
+
+def _append_output_sample(
+    columns: dict[str, list[Any]],
+    selected_outputs: tuple[str, ...],
+    sample: Mapping[str, Any],
+) -> None:
+    missing = tuple(name for name in selected_outputs if name not in sample)
+    if missing:
+        raise EngineError(
+            ErrorCode.OUTPUT_READ_ERROR,
+            "Session 未返回全部所选输出变量",
+            {"variables": missing},
+        )
+    for name in selected_outputs:
+        columns[name].append(sample[name])
+
+
+def _combine_cleanup_errors(errors: list[EngineError]) -> EngineError | None:
+    if not errors:
+        return None
+    primary = errors[0]
+    if len(errors) == 1:
+        return primary
+    details = dict(primary.details)
+    details["additional_cleanup_errors"] = tuple(
+        {
+            "code": error.code.value,
+            "message": error.message,
+            "details": dict(error.details),
+        }
+        for error in errors[1:]
+    )
+    return EngineError(primary.code, primary.message, details)

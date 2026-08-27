@@ -75,6 +75,8 @@ docs/
 
 `SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
 
-FMI 2.0 Co-Simulation 的最小 Session 生命周期也已实现：application 通过 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；FMPy instance、native library 与临时解压目录始终由 infrastructure session 持有。CLI `run` 只调用 application 编排并输出执行摘要。
+FMI 2.0 Co-Simulation 的最小 Session 生命周期也已实现：application 通过 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；FMPy instance、native library 与临时解压目录始终由 infrastructure session 持有。
 
-尚未实现结果时序采集、CSV、GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。CLI 的 `export` 仍为占位入口。
+`SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并在每个成功 step 的实际 `reached_time` 采集配置选中的标量输出。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
+
+尚未实现 CSV、GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。CLI 的 `export` 仍为占位入口。

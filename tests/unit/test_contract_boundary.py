@@ -23,6 +23,7 @@ class ContractBoundaryTests(unittest.TestCase):
             models.ResultChunk,
             models.ExportReport,
             models.RunSummary,
+            models.SimulationResult,
         )
 
         annotations = []

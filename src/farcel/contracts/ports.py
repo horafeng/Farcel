@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Mapping, Protocol
 
 from farcel.contracts.models import (
     ModelMetadata,
-    RunSummary,
     SessionHandle,
     SimulationConfig,
+    SimulationResult,
     SimulationState,
     StepResult,
     ValidationReport,
@@ -27,6 +27,8 @@ class SimulationSession(Protocol):
     def initialize(self) -> None: ...
 
     def step(self, current_time: float, step_size: float) -> StepResult: ...
+
+    def read_outputs(self) -> Mapping[str, Any]: ...
 
     def terminate(self) -> None: ...
 
@@ -60,10 +62,14 @@ class SimulationEngine(Protocol):
         self, session: SessionHandle, step_size: float | None = None
     ) -> StepResult: ...
 
+    def read_outputs(self, session: SessionHandle) -> Mapping[str, Any]: ...
+
     def terminate(self, session: SessionHandle) -> None: ...
 
     def get_state(self, session: SessionHandle) -> SimulationState: ...
 
     def close_session(self, session: SessionHandle) -> None: ...
 
-    def run_fmu(self, path: str | Path, config: SimulationConfig) -> RunSummary: ...
+    def run_fmu(
+        self, path: str | Path, config: SimulationConfig
+    ) -> SimulationResult: ...
