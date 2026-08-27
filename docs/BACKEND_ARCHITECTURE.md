@@ -75,10 +75,12 @@ docs/
 
 `SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
 
-FMI 2.0 Co-Simulation 的最小 Session 生命周期也已实现：application 通过 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；FMPy instance、native library 与临时解压目录始终由 infrastructure session 持有。
+FMI 2.0 与基础 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
 
 `SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并在每个成功 step 的实际 `reached_time` 采集配置选中的标量输出。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
 
 CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
 
-尚未实现 GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。
+基础 FMI 3.0 runtime 使用普通 Co-Simulation step mode，不启用 Event Mode、Early Return 或 Intermediate Update。若 FMU 在执行时返回这些未支持条件，adapter 会报告稳定 `STEP_ERROR`，而不是将其当成完整 communication step。
+
+尚未实现 GUI、FMI 3 Event Mode / Early Return 调度、Scheduled Execution、worker、多 FMU 和 ME solver。

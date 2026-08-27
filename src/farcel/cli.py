@@ -11,7 +11,7 @@ from farcel.application.engine import FarcelEngine
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import ModelMetadata, SimulationConfig, SimulationResult
 from farcel.infrastructure.export import CsvResultExporter
-from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
+from farcel.infrastructure.fmpy import FmpyImporter, FmpySessionFactory
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -120,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "run":
         try:
-            engine = FarcelEngine(FmpyImporter(), FmpyFmi2SessionFactory())
+            engine = FarcelEngine(FmpyImporter(), FmpySessionFactory())
             result = engine.run_fmu(
                 args.fmu,
                 _build_config(args, selected_outputs=tuple(args.output)),
@@ -144,7 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             engine = FarcelEngine(
                 FmpyImporter(),
-                FmpyFmi2SessionFactory(),
+                FmpySessionFactory(),
                 CsvResultExporter(),
             )
             result = engine.run_fmu(
