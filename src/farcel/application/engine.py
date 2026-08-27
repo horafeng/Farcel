@@ -11,6 +11,7 @@ from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
+    ExportReport,
     SessionHandle,
     SimulationConfig,
     SimulationResult,
@@ -19,7 +20,12 @@ from farcel.contracts.models import (
     StepStatus,
     ValidationReport,
 )
-from farcel.contracts.ports import ModelImporter, SessionFactory, SimulationSession
+from farcel.contracts.ports import (
+    ModelImporter,
+    ResultExporter,
+    SessionFactory,
+    SimulationSession,
+)
 
 
 @dataclass(slots=True)
@@ -37,9 +43,11 @@ class FarcelEngine:
         self,
         importer: ModelImporter,
         session_factory: SessionFactory | None = None,
+        result_exporter: ResultExporter | None = None,
     ) -> None:
         self._importer = importer
         self._session_factory = session_factory
+        self._result_exporter = result_exporter
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
 
@@ -253,6 +261,13 @@ class FarcelEngine:
         if simulation_result is None:
             raise EngineError(ErrorCode.INTERNAL_ERROR, "仿真未生成结果")
         return simulation_result
+
+    def export_result(
+        self, result: SimulationResult, destination: str | Path
+    ) -> ExportReport:
+        if self._result_exporter is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置结果导出实现")
+        return self._result_exporter.export(result, Path(destination))
 
     def _get_session(self, handle: SessionHandle) -> _SessionRecord:
         try:

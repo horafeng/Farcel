@@ -22,6 +22,7 @@ from farcel.contracts.models import (
 )
 from farcel.contracts.ports import (
     ModelImporter,
+    ResultExporter,
     SessionFactory,
     SimulationEngine,
     SimulationSession,
@@ -38,6 +39,7 @@ __all__ = [
     "ModelImporter",
     "ModelMetadata",
     "ResultChunk",
+    "ResultExporter",
     "RunSummary",
     "SessionFactory",
     "SessionHandle",

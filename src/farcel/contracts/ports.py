@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from farcel.contracts.models import (
+    ExportReport,
     ModelMetadata,
     SessionHandle,
     SimulationConfig,
@@ -43,6 +44,14 @@ class SessionFactory(Protocol):
     ) -> SimulationSession: ...
 
 
+class ResultExporter(Protocol):
+    """Persist an existing canonical result without rerunning a simulation."""
+
+    def export(
+        self, result: SimulationResult, destination: Path
+    ) -> ExportReport: ...
+
+
 class SimulationEngine(Protocol):
     """Stable interface consumed by CLI and GUI."""
 
@@ -73,3 +82,7 @@ class SimulationEngine(Protocol):
     def run_fmu(
         self, path: str | Path, config: SimulationConfig
     ) -> SimulationResult: ...
+
+    def export_result(
+        self, result: SimulationResult, destination: str | Path
+    ) -> ExportReport: ...

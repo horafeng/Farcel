@@ -1,3 +1,5 @@
+import csv
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -155,6 +157,31 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(result.completed_steps, 2)
         self.assertEqual(result.sample_count, 3)
         self.assertEqual(result.outputs, {})
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_cli_exports_real_simulation_result_to_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "VanDerPol.csv"
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main([
+                    "export", str(self.van_der_pol), "--start-time", "0",
+                    "--stop-time", "0.02", "--step-size", "0.01",
+                    "--output", "x0", "--csv", str(destination),
+                ])
+
+            with destination.open("r", encoding="utf-8", newline="") as stream:
+                rows = list(csv.reader(stream))
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("data rows: 3", stdout.getvalue())
+        self.assertIn("export successful", stdout.getvalue())
+        self.assertEqual(rows[0], ["time", "x0"])
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(float(rows[1][0]), 0.0)
+        self.assertAlmostEqual(float(rows[-1][0]), 0.02)
+        self.assertEqual(float(rows[1][1]), 2.0)
+        self.assertNotEqual(float(rows[-1][1]), float(rows[1][1]))
 
     @unittest.skipUnless(manipulator.is_file(), "manipulator FMU is unavailable")
     def test_real_step_failure_is_stable_and_releases_resources(self) -> None:

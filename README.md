@@ -21,6 +21,9 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m farcel.cli inspect .\examples\fmus\VanDerPol.fmu --json
 .\.venv\Scripts\python.exe -m farcel.cli validate .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0
 .\.venv\Scripts\python.exe -m farcel.cli run .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0
+.\.venv\Scripts\python.exe -m farcel.cli export .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0 --csv .\artifacts\VanDerPol.csv
 ```
 
 如果本机策略允许，也可以自行激活 `.venv`，但 Farcel 的安装和验证不依赖虚拟环境激活。
+
+CSV 导出按指定路径写入 UTF-8 文件，自动创建父目录并覆盖同名文件；不会自动补充 `.csv` 扩展名。仓库内 `artifacts/` 用于本地验证输出，并已加入 Git ignore。

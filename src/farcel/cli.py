@@ -10,6 +10,7 @@ from enum import Enum
 from farcel.application.engine import FarcelEngine
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import ModelMetadata, SimulationConfig, SimulationResult
+from farcel.infrastructure.export import CsvResultExporter
 from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
@@ -59,7 +60,31 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="选择采集的输出变量；可重复指定",
     )
-    subparsers.add_parser("export", help="export 命令将在后续 MVP 步骤实现")
+    export_parser = subparsers.add_parser("export", help="执行仿真并导出 CSV")
+    export_parser.add_argument("fmu", help="要执行的 .fmu 文件")
+    export_parser.add_argument("--start-time", type=float, default=0.0)
+    export_parser.add_argument("--stop-time", type=float, default=1.0)
+    export_parser.add_argument("--step-size", type=float, default=0.01)
+    export_parser.add_argument(
+        "--parameter",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="参数覆盖；VALUE 使用 JSON 标量语法",
+    )
+    export_parser.add_argument(
+        "--output",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="选择导出的输出变量；可重复指定",
+    )
+    export_parser.add_argument(
+        "--csv",
+        required=True,
+        metavar="PATH",
+        help="CSV 目标文件路径",
+    )
     return parser
 
 
@@ -114,6 +139,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"execution successful: {'yes' if result.successful else 'no'}")
         _print_sample("first sample", result, 0)
         _print_sample("last sample", result, -1)
+        return 0
+    if args.command == "export":
+        try:
+            engine = FarcelEngine(
+                FmpyImporter(),
+                FmpyFmi2SessionFactory(),
+                CsvResultExporter(),
+            )
+            result = engine.run_fmu(
+                args.fmu,
+                _build_config(args, selected_outputs=tuple(args.output)),
+            )
+            report = engine.export_result(result, args.csv)
+        except EngineError as exc:
+            _print_engine_error(exc)
+            return 1
+        print(f"CSV: {report.destination}")
+        print(f"data rows: {report.row_count}")
+        print("export successful")
         return 0
     parser.error(f"{args.command} 尚未实现；当前版本只提供后端契约和骨架")
     return 2

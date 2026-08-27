@@ -79,4 +79,6 @@ FMI 2.0 Co-Simulation 的最小 Session 生命周期也已实现：application �
 
 `SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并在每个成功 step 的实际 `reached_time` 采集配置选中的标量输出。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
 
-尚未实现 CSV、GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。CLI 的 `export` 仍为占位入口。
+CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
+
+尚未实现 GUI、FMI 3 runtime、worker、多 FMU 和 ME solver。
