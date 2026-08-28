@@ -94,8 +94,8 @@ class SimulationConfig:
     relative_tolerance: float | None = None
     parameters: Mapping[str, Any] = field(default_factory=dict)
     initial_inputs: Mapping[str, Any] = field(default_factory=dict)
-    input_schedule: tuple[InputUpdate, ...] = ()
     selected_outputs: tuple[str, ...] = ()
+    input_schedule: tuple[InputUpdate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

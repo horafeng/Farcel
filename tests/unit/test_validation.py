@@ -45,6 +45,22 @@ def metadata(
 
 
 class ValidationTests(unittest.TestCase):
+    def test_legacy_positional_config_keeps_selected_outputs_position(self) -> None:
+        config = SimulationConfig(
+            "1.0",
+            0.0,
+            2.0,
+            0.1,
+            0.2,
+            None,
+            {"gain": 2.0},
+            {"command": 1.0},
+            ("speed",),
+        )
+
+        self.assertEqual(config.selected_outputs, ("speed",))
+        self.assertEqual(config.input_schedule, ())
+
     def test_valid_co_simulation_config(self) -> None:
         report = validate_config(
             metadata(),
