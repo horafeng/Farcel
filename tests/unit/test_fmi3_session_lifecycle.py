@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -64,6 +65,13 @@ class FakeNativeFmi3:
         self.events.append(f"setFloat64:{values[0]}")
         if self.fail_parameter:
             raise RuntimeError("native FMI 3 parameter failure")
+
+    def __getattr__(self, name: str):
+        if name.startswith("set"):
+            def setter(_: list[int], values: list[object]) -> None:
+                self.events.append(f"{name}:{values[0]}")
+            return setter
+        raise AttributeError(name)
 
     def enterInitializationMode(self, **_: object) -> None:
         self.events.append("enterInitialization")
@@ -163,6 +171,42 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             self.assertIn("freeInstance", native.events)
         finally:
             temporary.cleanup()
+
+    def test_fmi3_initial_inputs_use_matching_scalar_setters(self) -> None:
+        scalar_types = (
+            "Float32", "Float64", "Int8", "UInt8", "Int16", "UInt16",
+            "Int32", "UInt32", "Int64", "UInt64", "Boolean", "String",
+            "Enumeration",
+        )
+        model = replace(
+            executable_metadata(),
+            variables=tuple(
+                VariableMetadata(f"input_{kind}", index + 10, kind, causality="input")
+                for index, kind in enumerate(scalar_types)
+            ),
+        )
+        values = {
+            "Float32": 1.25, "Float64": 2.5, "Int8": -8, "UInt8": 8,
+            "Int16": -16, "UInt16": 16, "Int32": -32, "UInt32": 32,
+            "Int64": -64, "UInt64": 64, "Boolean": True, "String": "ready",
+            "Enumeration": 3,
+        }
+        native = FakeNativeFmi3()
+        with tempfile.TemporaryDirectory() as parent:
+            extraction = Path(parent) / "extracted"
+            extraction.mkdir()
+            session = FmpyFmi3Session(
+                model,
+                SimulationConfig(initial_inputs={f"input_{kind}": values[kind] for kind in scalar_types}),
+                native,
+                extraction,
+            )
+            session.initialize()
+            session.terminate()
+            session.close()
+        for kind in scalar_types:
+            setter_kind = "Int64" if kind == "Enumeration" else kind
+            self.assertIn(f"set{setter_kind}:{values[kind]}", native.events)
 
     def test_step_failure_and_unsupported_early_return_are_stable(self) -> None:
         for failure in ("exception", "early_return"):

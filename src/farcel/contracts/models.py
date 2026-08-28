@@ -77,6 +77,14 @@ class ModelMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class InputUpdate:
+    """Input values applied at a communication point and held until changed."""
+
+    time: float
+    values: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     schema_version: str = "1.0"
     start_time: float = 0.0
@@ -87,6 +95,7 @@ class SimulationConfig:
     parameters: Mapping[str, Any] = field(default_factory=dict)
     initial_inputs: Mapping[str, Any] = field(default_factory=dict)
     selected_outputs: tuple[str, ...] = ()
+    input_schedule: tuple[InputUpdate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

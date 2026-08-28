@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from unittest.mock import Mock
 
 from farcel.application.engine import FarcelEngine
@@ -7,6 +8,7 @@ from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     CapabilitySet,
     InterfaceType,
+    InputUpdate,
     ModelMetadata,
     SimulationConfig,
     VariableMetadata,
@@ -43,6 +45,22 @@ def metadata(
 
 
 class ValidationTests(unittest.TestCase):
+    def test_legacy_positional_config_keeps_selected_outputs_position(self) -> None:
+        config = SimulationConfig(
+            "1.0",
+            0.0,
+            2.0,
+            0.1,
+            0.2,
+            None,
+            {"gain": 2.0},
+            {"command": 1.0},
+            ("speed",),
+        )
+
+        self.assertEqual(config.selected_outputs, ("speed",))
+        self.assertEqual(config.input_schedule, ())
+
     def test_valid_co_simulation_config(self) -> None:
         report = validate_config(
             metadata(),
@@ -78,6 +96,100 @@ class ValidationTests(unittest.TestCase):
             metadata(), SimulationConfig(selected_outputs=("missing",))
         )
         self.assertIn("UNKNOWN_OUTPUT", {i.code for i in report.issues})
+
+    def test_validates_initial_inputs_names_causality_types_ranges_and_arrays(self) -> None:
+        model = replace(
+            metadata(),
+            variables=metadata().variables + (
+                VariableMetadata("real_in", 3, "Real", causality="input", minimum=0.0, maximum=2.0),
+                VariableMetadata("int_in", 4, "Integer", causality="input"),
+                VariableMetadata("bool_in", 5, "Boolean", causality="input"),
+                VariableMetadata("string_in", 6, "String", causality="input"),
+                VariableMetadata("array_in", 7, "Real", causality="input", shape=(2,)),
+            ),
+        )
+        valid = validate_config(
+            model,
+            SimulationConfig(initial_inputs={
+                "real_in": 1.0, "int_in": 2, "bool_in": True, "string_in": "ok",
+            }),
+        )
+        self.assertTrue(valid.is_valid)
+
+        cases = {
+            "missing": "UNKNOWN_INPUT",
+            "speed": "INVALID_INPUT_CAUSALITY",
+            "int_in": "INVALID_INPUT_TYPE",
+            "array_in": "UNSUPPORTED_INPUT_TYPE",
+        }
+        values = {"missing": 1.0, "speed": 1.0, "int_in": True, "array_in": (1.0, 2.0)}
+        for name, code in cases.items():
+            with self.subTest(name=name):
+                report = validate_config(model, SimulationConfig(initial_inputs={name: values[name]}))
+                self.assertIn(code, {issue.code for issue in report.issues})
+
+        for value, code in ((-0.1, "INPUT_BELOW_MINIMUM"), (2.1, "INPUT_ABOVE_MAXIMUM")):
+            with self.subTest(value=value):
+                report = validate_config(model, SimulationConfig(initial_inputs={"real_in": value}))
+                self.assertIn(code, {issue.code for issue in report.issues})
+
+    def test_validates_fmi3_integer_scalar_ranges(self) -> None:
+        model = replace(
+            metadata(),
+            fmi_version="3.0",
+            variables=metadata().variables + tuple(
+                VariableMetadata(name, index + 10, data_type, causality="input")
+                for index, (name, data_type) in enumerate((
+                    ("i8", "Int8"), ("u8", "UInt8"), ("i16", "Int16"),
+                    ("u16", "UInt16"), ("i32", "Int32"), ("u32", "UInt32"),
+                    ("i64", "Int64"), ("u64", "UInt64"),
+                ))
+            ),
+        )
+        self.assertTrue(validate_config(model, SimulationConfig(initial_inputs={
+            "i8": -128, "u8": 255, "i16": -32768, "u16": 65535,
+            "i32": -(2**31), "u32": 2**32 - 1,
+            "i64": -(2**63), "u64": 2**64 - 1,
+        })).is_valid)
+        for name, value in (("i8", 128), ("u8", -1), ("u64", 2**64)):
+            with self.subTest(name=name):
+                report = validate_config(model, SimulationConfig(initial_inputs={name: value}))
+                self.assertIn("INPUT_OUT_OF_TYPE_RANGE", {issue.code for issue in report.issues})
+
+    def test_input_schedule_requires_ordered_communication_points_and_valid_values(self) -> None:
+        model = replace(
+            metadata(),
+            variables=metadata().variables + (
+                VariableMetadata("command", 3, "Float64", causality="input"),
+            ),
+        )
+        valid = validate_config(
+            model,
+            SimulationConfig(
+                stop_time=0.03,
+                communication_step=0.01,
+                input_schedule=(
+                    InputUpdate(0.0, {"command": 1.0}),
+                    InputUpdate(0.01, {"command": 2.0}),
+                ),
+            ),
+        )
+        self.assertTrue(valid.is_valid)
+        invalid = validate_config(
+            model,
+            SimulationConfig(
+                stop_time=0.03,
+                communication_step=0.01,
+                input_schedule=(
+                    InputUpdate(0.015, {"command": 1.0}),
+                    InputUpdate(0.01, {"missing": 2.0}),
+                ),
+            ),
+        )
+        self.assertEqual(
+            {issue.code for issue in invalid.issues},
+            {"INPUT_TIME_NOT_COMMUNICATION_POINT", "INPUT_TIMES_NOT_INCREASING", "UNKNOWN_INPUT"},
+        )
 
     def test_rejects_parameter_with_wrong_type_or_causality(self) -> None:
         report = validate_config(

@@ -8,7 +8,7 @@ from pathlib import Path
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
 from farcel.contracts.errors import EngineError, ErrorCode
-from farcel.contracts.models import SimulationConfig
+from farcel.contracts.models import InputUpdate, SimulationConfig
 from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
@@ -31,6 +31,7 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
     van_der_pol = FMU_FIXTURES / "VanDerPol.fmu"
     manipulator = FMU_FIXTURES / "manipulator.fmu"
     stair = FMU_FIXTURES / "Stair.fmu"
+    lateral_motion_control = FMU_FIXTURES / "LateralMotionControl.fmu"
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_real_fmu_runs_multiple_steps_and_releases_resources(self) -> None:
@@ -111,6 +112,8 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(summary.sample_count, 11)
         self.assertEqual(tuple(summary.outputs), ("counter",))
         self.assertEqual(summary.outputs["counter"][0], 1)
+        self.assertEqual(summary.outputs["counter"][-1], 2)
+        self.assertGreater(len(set(summary.outputs["counter"])), 1)
         self.assertEqual(len(summary.outputs["counter"]), 11)
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
@@ -184,7 +187,7 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertNotEqual(float(rows[-1][1]), float(rows[1][1]))
 
     @unittest.skipUnless(manipulator.is_file(), "manipulator FMU is unavailable")
-    def test_real_step_failure_is_stable_and_releases_resources(self) -> None:
+    def test_manipulator_reports_native_singular_matrix_and_releases_resources(self) -> None:
         factory = CapturingFactory()
         engine = FarcelEngine(FmpyImporter(), factory)
         with self.assertRaises(EngineError) as raised:
@@ -197,5 +200,53 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 ),
             )
         self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
+        self.assertIn(
+            "Singular matrix not invertible (getrf).",
+            raised.exception.details["fmu_diagnostics"],
+        )
+        self.assertTrue(factory.session._closed)
+        self.assertFalse(factory.extraction_directory.exists())
+
+    @unittest.skipUnless(
+        lateral_motion_control.is_file(), "LateralMotionControl FMU is unavailable"
+    )
+    def test_lateral_motion_control_runs_with_generic_initial_and_scheduled_inputs(self) -> None:
+        factory = CapturingFactory()
+        engine = FarcelEngine(FmpyImporter(), factory)
+        metadata = engine.load_fmu(self.lateral_motion_control)
+        self.assertTrue(metadata.capabilities.can_execute)
+        self.assertEqual(
+            len([variable for variable in metadata.variables if variable.causality == "input"]),
+            19,
+        )
+        self.assertEqual(
+            len([variable for variable in metadata.variables if variable.causality == "output"]),
+            40,
+        )
+        self.assertTrue(any("unit \"m/s\"" in item for item in metadata.diagnostics))
+
+        result = engine.run_fmu(
+            self.lateral_motion_control,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.03,
+                communication_step=0.01,
+                initial_inputs={"velocity": 20.0},
+                input_schedule=(
+                    InputUpdate(0.0, {"sensor_trigger_activated_in": True}),
+                    InputUpdate(0.01, {
+                        "sensor_trigger_activated_in": False,
+                        "sensor_trigger_finished_in": True,
+                    }),
+                    InputUpdate(0.02, {"sensor_trigger_finished_in": False}),
+                ),
+                selected_outputs=("sens_out_4", "current_time_out", "current_step_out"),
+            ),
+        )
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 3)
+        self.assertEqual(result.outputs["sens_out_4"], (10.0, 10.0, 20.0, 20.0))
+        self.assertEqual(result.outputs["current_step_out"], (0, 100, 200, 300))
+        self.assertTrue(factory.session._terminated)
         self.assertTrue(factory.session._closed)
         self.assertFalse(factory.extraction_directory.exists())

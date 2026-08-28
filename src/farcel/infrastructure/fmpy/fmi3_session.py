@@ -4,7 +4,7 @@ import math
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from fmpy import extract
@@ -130,6 +130,8 @@ class FmpyFmi3Session:
             return
 
         self._apply_parameters()
+        if self._config.initial_inputs:
+            self.set_inputs(self._config.initial_inputs)
 
         try:
             self._fmu.enterInitializationMode(
@@ -199,6 +201,24 @@ class FmpyFmi3Session:
             step_size=step_size,
             status=StepStatus.SUCCESS,
         )
+
+    def set_inputs(self, values: Mapping[str, Any]) -> None:
+        if self._terminated or self._closed:
+            raise EngineError(ErrorCode.INPUT_SET_ERROR, "Session 状态不允许设置 input")
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        try:
+            for name, value in values.items():
+                variable = variables[name]
+                setter = getattr(self._fmu, _accessor_name("set", variable))
+                setter([variable.value_reference], [value])
+        except EngineError:
+            raise
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INPUT_SET_ERROR,
+                "FMU input 设置失败",
+                {"input": name, "diagnostic": str(exc)},
+            ) from None
 
     def read_outputs(self) -> dict[str, Any]:
         if not self._initialized or self._terminated or self._closed:
@@ -299,6 +319,8 @@ def _accessor_name(prefix: str, variable: VariableMetadata) -> str:
             "本阶段不支持 FMI 3 数组变量",
             {"variable": variable.name},
         )
+    if variable.data_type == "Enumeration":
+        return f"{prefix}Int64"
     supported_types = {
         "Float32",
         "Float64",
@@ -339,6 +361,7 @@ def _python_scalar(value: Any, variable: VariableMetadata) -> Any:
         "UInt32",
         "Int64",
         "UInt64",
+        "Enumeration",
     }:
         return int(value)
     if variable.data_type == "Boolean":

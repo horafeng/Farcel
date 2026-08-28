@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from farcel.cli import main
+from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import InterfaceType
 from farcel.infrastructure.fmpy import FmpyImporter
 
@@ -100,6 +101,16 @@ class FmpyImporterIntegrationTests(unittest.TestCase):
         self.assertFalse(metadata.capabilities.can_execute)
         self.assertIsNone(metadata.executable_interface)
         self.assertIn("缺少当前平台二进制", metadata.diagnostics[0])
+
+    def test_fmi1_bouncing_ball_is_rejected_with_explicit_scope_reason(self) -> None:
+        sample = FMU_FIXTURES / "bouncingBall.fmu"
+        if not sample.is_file():
+            self.skipTest("bouncingBall FMU is unavailable")
+        with self.assertRaises(EngineError) as raised:
+            FmpyImporter().load(sample)
+        self.assertEqual(raised.exception.code, ErrorCode.UNSUPPORTED_FMI)
+        self.assertEqual(raised.exception.details["fmi_version"], "1.0")
+        self.assertTrue(raised.exception.details["parseable"])
 
     def test_cli_inspect_json_uses_the_real_adapter_chain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

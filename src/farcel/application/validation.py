@@ -5,6 +5,7 @@ from typing import Any
 
 from farcel.contracts.errors import ErrorCode
 from farcel.contracts.models import (
+    InputUpdate,
     InterfaceType,
     ModelMetadata,
     SimulationConfig,
@@ -108,6 +109,62 @@ def validate_config(
         if parameter_issue is not None:
             issues.append(parameter_issue)
 
+    for name, value in config.initial_inputs.items():
+        input_issue = _validate_input_value(
+            name, value, known_variables, "initial_inputs"
+        )
+        if input_issue is not None:
+            issues.append(input_issue)
+
+    previous_update_time: float | None = None
+    for index, update in enumerate(config.input_schedule):
+        field = f"input_schedule[{index}]"
+        if not isinstance(update, InputUpdate):
+            issues.append(
+                ValidationIssue(
+                    field,
+                    "INVALID_INPUT_UPDATE",
+                    "input_schedule 只能包含 InputUpdate",
+                )
+            )
+            continue
+        if not _is_finite_number(update.time):
+            issues.append(
+                ValidationIssue(field, "INVALID_INPUT_TIME", "input update time 必须是有限数值")
+            )
+        elif not (config.start_time <= update.time < config.stop_time):
+            issues.append(
+                ValidationIssue(
+                    field,
+                    "INPUT_TIME_OUT_OF_RANGE",
+                    "input update time 必须位于 [start_time, stop_time) 内",
+                )
+            )
+        elif previous_update_time is not None and update.time <= previous_update_time:
+            issues.append(
+                ValidationIssue(
+                    field,
+                    "INPUT_TIMES_NOT_INCREASING",
+                    "input_schedule 时间必须严格递增",
+                )
+            )
+        elif _is_finite_number(config.communication_step):
+            step_index = (update.time - config.start_time) / config.communication_step
+            if not math.isclose(step_index, round(step_index), rel_tol=0.0, abs_tol=1e-9):
+                issues.append(
+                    ValidationIssue(
+                        field,
+                        "INPUT_TIME_NOT_COMMUNICATION_POINT",
+                        "input update time 必须与 communication point 对齐",
+                    )
+                )
+        if _is_finite_number(update.time):
+            previous_update_time = float(update.time)
+        for name, value in update.values.items():
+            input_issue = _validate_input_value(name, value, known_variables, field)
+            if input_issue is not None:
+                issues.append(input_issue)
+
     for output in config.selected_outputs:
         if output not in known_variables:
             issues.append(
@@ -176,6 +233,98 @@ def _validate_parameter_value(
             f"参数 {name} 大于允许的最大值 {variable.maximum}",
         )
     return None
+
+
+def _validate_input_value(
+    name: str,
+    value: Any,
+    known_variables: dict[str, VariableMetadata],
+    field: str,
+) -> ValidationIssue | None:
+    variable = known_variables.get(name)
+    if variable is None:
+        return ValidationIssue(field, "UNKNOWN_INPUT", f"未知 input 变量: {name}")
+    if variable.causality != "input":
+        return ValidationIssue(
+            field,
+            "INVALID_INPUT_CAUSALITY",
+            f"变量不是可写 input: {name}",
+        )
+    return _validate_scalar_value(name, value, variable, field, "INPUT")
+
+
+def _validate_scalar_value(
+    name: str,
+    value: Any,
+    variable: VariableMetadata,
+    field: str,
+    code_prefix: str,
+) -> ValidationIssue | None:
+    if variable.shape:
+        return ValidationIssue(
+            field,
+            f"UNSUPPORTED_{code_prefix}_TYPE",
+            f"本阶段暂不支持数组 input: {name}",
+        )
+
+    data_type = variable.data_type.lower()
+    if data_type in {"real", "float32", "float64"}:
+        valid_type = _is_finite_number(value)
+    elif data_type in {
+        "integer", "int8", "uint8", "int16", "uint16", "int32", "uint32",
+        "int64", "uint64", "enumeration",
+    }:
+        valid_type = isinstance(value, int) and not isinstance(value, bool)
+    elif data_type == "boolean":
+        valid_type = isinstance(value, bool)
+    elif data_type == "string":
+        valid_type = isinstance(value, str)
+    else:
+        return ValidationIssue(
+            field,
+            f"UNSUPPORTED_{code_prefix}_TYPE",
+            f"本阶段不支持 {variable.data_type} input: {name}",
+        )
+
+    if not valid_type:
+        return ValidationIssue(
+            field,
+            f"INVALID_{code_prefix}_TYPE",
+            f"input {name} 的值与 {variable.data_type} 类型不匹配",
+        )
+
+    integer_range = _INTEGER_TYPE_RANGES.get(data_type)
+    if integer_range is not None and not integer_range[0] <= value <= integer_range[1]:
+        return ValidationIssue(
+            field,
+            f"{code_prefix}_OUT_OF_TYPE_RANGE",
+            f"input {name} 超出 {variable.data_type} 的标量范围",
+        )
+    if variable.minimum is not None and value < variable.minimum:
+        return ValidationIssue(
+            field,
+            f"{code_prefix}_BELOW_MINIMUM",
+            f"input {name} 小于允许的最小值 {variable.minimum}",
+        )
+    if variable.maximum is not None and value > variable.maximum:
+        return ValidationIssue(
+            field,
+            f"{code_prefix}_ABOVE_MAXIMUM",
+            f"input {name} 大于允许的最大值 {variable.maximum}",
+        )
+    return None
+
+
+_INTEGER_TYPE_RANGES = {
+    "int8": (-(2**7), 2**7 - 1),
+    "uint8": (0, 2**8 - 1),
+    "int16": (-(2**15), 2**15 - 1),
+    "uint16": (0, 2**16 - 1),
+    "int32": (-(2**31), 2**31 - 1),
+    "uint32": (0, 2**32 - 1),
+    "int64": (-(2**63), 2**63 - 1),
+    "uint64": (0, 2**64 - 1),
+}
 
 
 def _is_finite_number(value: Any) -> bool:

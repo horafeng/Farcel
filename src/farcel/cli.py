@@ -33,6 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="参数覆盖；VALUE 使用 JSON 标量语法",
     )
     validate_parser.add_argument(
+        "--input", action="append", default=[], metavar="NAME=VALUE",
+        help="初始 input；VALUE 使用 JSON 标量语法",
+    )
+    validate_parser.add_argument(
         "--output",
         action="append",
         default=[],
@@ -52,6 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="参数覆盖；VALUE 使用 JSON 标量语法",
     )
     run_parser.add_argument(
+        "--input", action="append", default=[], metavar="NAME=VALUE",
+        help="初始 input；VALUE 使用 JSON 标量语法",
+    )
+    run_parser.add_argument(
         "--output",
         action="append",
         default=[],
@@ -69,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="NAME=VALUE",
         help="参数覆盖；VALUE 使用 JSON 标量语法",
+    )
+    export_parser.add_argument(
+        "--input", action="append", default=[], metavar="NAME=VALUE",
+        help="初始 input；VALUE 使用 JSON 标量语法",
     )
     export_parser.add_argument(
         "--output",
@@ -188,6 +200,7 @@ def _build_config(
         stop_time=args.stop_time,
         communication_step=args.step_size,
         parameters=_parse_parameters(args.parameter),
+        initial_inputs=_parse_parameters(args.input),
         selected_outputs=selected_outputs,
     )
 

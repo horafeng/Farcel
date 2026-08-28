@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from fmpy import calloc, extract, free
@@ -96,6 +96,7 @@ class FmpyFmi2Session:
         self._closed = False
         self._native_released = False
         self._applied_parameters: tuple[str, ...] = ()
+        self._fmu_diagnostics: list[str] = []
 
     @classmethod
     def open(
@@ -123,9 +124,12 @@ class FmpyFmi2Session:
                 )
             finally:
                 os.chdir(working_directory)
-            fmu.instantiate(callbacks=_quiet_callbacks())
+            diagnostics: list[str] = []
+            fmu.instantiate(callbacks=_quiet_callbacks(diagnostics), loggingOn=True)
             instantiated = True
-            return cls(metadata, config, fmu, extraction_directory)
+            session = cls(metadata, config, fmu, extraction_directory)
+            session._fmu_diagnostics = diagnostics
+            return session
         except Exception as exc:
             cleanup_diagnostics.extend(_release_native(fmu, instantiated))
             cleanup_diagnostics.extend(_remove_extraction_directory(extraction_directory))
@@ -158,6 +162,8 @@ class FmpyFmi2Session:
             ) from None
 
         self._apply_parameters()
+        if self._config.initial_inputs:
+            self.set_inputs(self._config.initial_inputs)
 
         try:
             self._fmu.enterInitializationMode()
@@ -184,10 +190,13 @@ class FmpyFmi2Session:
                 communicationStepSize=step_size,
             )
         except Exception as exc:
+            details: dict[str, Any] = {"diagnostic": str(exc)}
+            if self._fmu_diagnostics:
+                details["fmu_diagnostics"] = tuple(self._fmu_diagnostics[-20:])
             raise EngineError(
                 ErrorCode.STEP_ERROR,
                 "FMI doStep 失败",
-                {"diagnostic": str(exc)},
+                details,
             ) from None
 
         return StepResult(
@@ -196,6 +205,24 @@ class FmpyFmi2Session:
             step_size=step_size,
             status=StepStatus.SUCCESS,
         )
+
+    def set_inputs(self, values: Mapping[str, Any]) -> None:
+        if self._terminated or self._closed:
+            raise EngineError(ErrorCode.INPUT_SET_ERROR, "Session 状态不允许设置 input")
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        try:
+            for name, value in values.items():
+                variable = variables[name]
+                setter = getattr(self._fmu, _setter_name(variable))
+                setter([variable.value_reference], [value])
+        except EngineError:
+            raise
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INPUT_SET_ERROR,
+                "FMU input 设置失败",
+                {"input": name, "diagnostic": str(exc)},
+            ) from None
 
     def read_outputs(self) -> dict[str, Any]:
         if not self._initialized or self._terminated or self._closed:
@@ -325,9 +352,16 @@ def _python_scalar(value: Any, variable: VariableMetadata) -> Any:
     )
 
 
-def _quiet_callbacks() -> fmi2CallbackFunctions:
+def _quiet_callbacks(diagnostics: list[str] | None = None) -> fmi2CallbackFunctions:
     callbacks = fmi2CallbackFunctions()
-    callbacks.logger = fmi2CallbackLoggerTYPE(lambda *_: None)
+    def logger(*args: Any) -> None:
+        if diagnostics is None or len(diagnostics) >= 100:
+            return
+        message = args[-1] if args else b""
+        if isinstance(message, bytes):
+            message = message.decode("utf-8", errors="replace")
+        diagnostics.append(str(message))
+    callbacks.logger = fmi2CallbackLoggerTYPE(logger)
     callbacks.allocateMemory = fmi2CallbackAllocateMemoryTYPE(calloc)
     callbacks.freeMemory = fmi2CallbackFreeMemoryTYPE(free)
     return callbacks

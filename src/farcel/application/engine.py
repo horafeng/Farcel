@@ -34,6 +34,7 @@ class _SessionRecord:
     config: SimulationConfig
     state: SimulationState = SimulationState.CREATED
     current_time: float = 0.0
+    next_input_update: int = 0
 
 
 class FarcelEngine:
@@ -111,6 +112,7 @@ class FarcelEngine:
         actual_step = (
             record.config.communication_step if step_size is None else step_size
         )
+        self._apply_scheduled_inputs(record, current_time)
         result = record.session.step(current_time, actual_step)
         if result.status is not StepStatus.SUCCESS:
             raise EngineError(ErrorCode.STEP_ERROR, "FMU step 未成功完成")
@@ -126,6 +128,18 @@ class FarcelEngine:
         record.current_time = result.reached_time
         record.state = SimulationState.RUNNING
         return result
+
+    @staticmethod
+    def _apply_scheduled_inputs(record: _SessionRecord, current_time: float) -> None:
+        schedule = record.config.input_schedule
+        if record.next_input_update >= len(schedule):
+            return
+        update = schedule[record.next_input_update]
+        tolerance = max(1e-12, record.config.communication_step * 1e-9)
+        if math.isclose(update.time, current_time, rel_tol=0.0, abs_tol=tolerance):
+            if update.values:
+                record.session.set_inputs(update.values)
+            record.next_input_update += 1
 
     def read_outputs(self, handle: SessionHandle) -> Mapping[str, Any]:
         record = self._get_session(handle)

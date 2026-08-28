@@ -10,6 +10,7 @@ from farcel.contracts.models import (
     CapabilitySet,
     InterfaceCapability,
     InterfaceType,
+    InputUpdate,
     ModelMetadata,
     SimulationConfig,
     VariableMetadata,
@@ -56,6 +57,15 @@ class FakeNativeFmu:
         self.events.append(f"setReal:{values[0]}")
         if self.fail_parameter:
             raise RuntimeError("native parameter set failed")
+
+    def setInteger(self, _: list[int], values: list[int]) -> None:
+        self.events.append(f"setInteger:{values[0]}")
+
+    def setBoolean(self, _: list[int], values: list[bool]) -> None:
+        self.events.append(f"setBoolean:{values[0]}")
+
+    def setString(self, _: list[int], values: list[str]) -> None:
+        self.events.append(f"setString:{values[0]}")
 
     def enterInitializationMode(self) -> None:
         self.events.append("enterInitialization")
@@ -162,6 +172,76 @@ class SessionLifecycleTests(unittest.TestCase):
                 session.initialize()
             self.assertEqual(raised.exception.code, ErrorCode.PARAMETER_SET_ERROR)
             session.close()
+
+    def test_fmi2_initial_inputs_use_scalar_setters_before_initialization(self) -> None:
+        model = replace(
+            executable_metadata(),
+            variables=(
+                VariableMetadata("real_in", 1, "Real", causality="input"),
+                VariableMetadata("int_in", 2, "Integer", causality="input"),
+                VariableMetadata("bool_in", 3, "Boolean", causality="input"),
+                VariableMetadata("string_in", 4, "String", causality="input"),
+            ),
+        )
+        native = FakeNativeFmu()
+        config = SimulationConfig(initial_inputs={
+            "real_in": 1.5, "int_in": 2, "bool_in": True, "string_in": "ready",
+        })
+        with tempfile.TemporaryDirectory() as parent:
+            extraction = Path(parent) / "extracted"
+            extraction.mkdir()
+            session = FmpyFmi2Session(model, config, native, extraction)
+            session.initialize()
+            session.terminate()
+            session.close()
+        self.assertEqual(native.events[:6], [
+            "setup", "setReal:1.5", "setInteger:2", "setBoolean:True",
+            "setString:ready", "enterInitialization",
+        ])
+
+    def test_input_failure_is_mapped_separately_from_parameter_failure(self) -> None:
+        model = replace(
+            executable_metadata(),
+            variables=(VariableMetadata("command", 1, "Real", causality="input"),),
+        )
+        native = FakeNativeFmu()
+        native.fail_parameter = True
+        with tempfile.TemporaryDirectory() as parent:
+            extraction = Path(parent) / "extracted"
+            extraction.mkdir()
+            session = FmpyFmi2Session(model, SimulationConfig(), native, extraction)
+            with self.assertRaises(EngineError) as raised:
+                session.set_inputs({"command": 1.0})
+            self.assertEqual(raised.exception.code, ErrorCode.INPUT_SET_ERROR)
+            session.close()
+
+    def test_scheduled_inputs_are_applied_before_each_matching_do_step(self) -> None:
+        model = replace(
+            executable_metadata(),
+            variables=(VariableMetadata("command", 1, "Real", causality="input"),),
+        )
+        native = FakeNativeFmu()
+        config = SimulationConfig(
+            stop_time=0.02,
+            communication_step=0.01,
+            input_schedule=(
+                InputUpdate(0.0, {"command": 1.0}),
+                InputUpdate(0.01, {"command": 2.0}),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as parent:
+            extraction = Path(parent) / "extracted"
+            extraction.mkdir()
+            session = FmpyFmi2Session(model, config, native, extraction)
+            factory = Mock()
+            factory.create.return_value = session
+            importer = Mock()
+            importer.load.return_value = model
+            FarcelEngine(importer, factory).run_fmu("runtime-test.fmu", config)
+        first_step = native.events.index("doStep")
+        second_step = native.events.index("doStep", first_step + 1)
+        self.assertEqual(native.events[first_step - 1], "setReal:1.0")
+        self.assertEqual(native.events[second_step - 1], "setReal:2.0")
 
     def test_step_failure_is_mapped_to_stable_error(self) -> None:
         native = FakeNativeFmu()
