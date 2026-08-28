@@ -26,6 +26,8 @@ from farcel.contracts import (
     InputUpdate,
     InterfaceType,
     ModelMetadata,
+    RunControl,
+    RunProgress,
     SimulationConfig,
     SimulationResult,
     ValidationReport,
@@ -126,10 +128,35 @@ already sampled. Empty `selected_outputs` still produces this sampled timeline,
 but keeps `outputs` empty. Input schedules remain applied at communication
 points, independently of result sampling.
 
-The public run is still synchronous and blocking; Phase 2.0A does not introduce
-Stop, Cancel, or Progress.
+## 8. Controlled Run and Progress
 
-## 8. Run Workflow
+The high-level call remains synchronous and blocking, with backward-compatible
+keyword-only controls:
+
+```python
+result = backend.run_fmu(path, config, control=control, on_progress=callback)
+```
+
+`RunControl.request_stop()` is thread-safe and may be called from another
+caller-owned thread. It is cooperative: Farcel checks it before every
+communication step, so the maximum response delay is the currently executing
+native `doStep()`. Farcel cannot hard-kill or otherwise interrupt that call.
+Farcel itself creates no threads, event loop, or GUI integration.
+
+`on_progress` receives a lightweight `RunProgress` after initialization, after
+each successful communication step, and once in a terminal state. Its fraction
+is the clamped real-time ratio `(current_time - start_time) / (stop_time -
+start_time)`. The callback executes on the same thread that invoked `run_fmu`;
+GUI callers must marshal it to the UI thread themselves. A callback exception is
+converted to `INTERNAL_ERROR` and does not skip terminate/close cleanup.
+
+A stop requested before loading raises `CANCELLED` without creating an FMU
+session. After initialization, a user stop returns `SimulationResult` with
+`completion_state=STOPPED` rather than an engine error. The final stopped state
+is appended when it was not an output sample, and a stopped result remains
+exportable through `export_result()`.
+
+## 9. Run Workflow
 
 ```python
 result = backend.run_fmu(path, config)
@@ -137,28 +164,28 @@ result = backend.run_fmu(path, config)
 
 `run_fmu` 会重新加载 metadata、复用 application validation、创建 session、初始化、执行 step、仅在结果采样时读取选择的输出并清理资源。成功返回 `SimulationResult`；GUI 不需要也不应直接管理 session 生命周期。
 
-当前公开高层运行 API 是同步、阻塞调用。GUI 必须在自己的调度边界之外调用它（例如 GUI 框架认可的后台任务），绝不能在 UI event-loop 线程直接运行长仿真。Farcel 当前不提供异步、取消、进度回调或线程安全保证；本阶段不规定具体 GUI 线程实现。
+当前公开高层运行 API 是同步、阻塞调用。GUI 必须在自己的调度边界之外调用它（例如 GUI 框架认可的后台任务），绝不能在 UI event-loop 线程直接运行长仿真。只有 `RunControl.request_stop()` 可安全从另一个线程调用；FarcelEngine 整体并不声明 thread-safe，也不提供 asyncio、ResultChunk streaming 或 timeout hard-kill。
 
-## 9. Consuming SimulationResult
+## 10. Consuming SimulationResult
 
 `SimulationResult` 是纯 Farcel / Python 数据：
 
-- `timestamps`：记录的、严格递增的实际 communication points；首项为 `start_time`，成功完成时末项为 `final_time`；
+- `timestamps`：记录的、严格递增的实际 communication points；首项为 `start_time`，完成或停止时末项为 `final_time`；
 - `outputs`：变量名到同长度 tuple 的映射，只包含 `selected_outputs`；
 - `start_time`、`stop_time`、`step_size`、`final_time`；
 - `completed_steps`、`sample_count`、`completion_state` 和 `successful`。
 
 每个输出序列与 `timestamps` 等长，首项是初始化后的 start-time 样本。无所选输出时，`outputs` 为空，但时间轴和执行摘要仍按 `output_interval` 存在。GUI 可按索引将 `timestamps[i]` 与每个 `outputs[name][i]` 配对；不应重新推导时间轴。
 
-## 10. Export Workflow
+## 11. Export Workflow
 
 ```python
 report = backend.export_result(result, destination)
 ```
 
-输入是已完成的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。导出不会重新执行 FMU。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
+输入是完成或停止后的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。导出不会重新执行 FMU，`STOPPED` partial result 也可导出。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
 
-## 11. Error Contract
+## 12. Error Contract
 
 所有面向 GUI 的后端失败均使用：
 
@@ -175,15 +202,15 @@ EngineError(code: ErrorCode, message: str, details: Mapping[str, Any])
 - runtime：`INSTANTIATION_ERROR`、`INITIALIZATION_ERROR`、`PARAMETER_SET_ERROR`、`INPUT_SET_ERROR`、`STEP_ERROR`、`OUTPUT_READ_ERROR`、`TERMINATION_ERROR`、`CLEANUP_ERROR`、`FMI_RUNTIME_ERROR`；
 - 导出/通用：`EXPORT_ERROR`、`INTERNAL_ERROR`、`NOT_IMPLEMENTED`。
 
-`TIMEOUT` 与 `CANCELLED` 已存在于 enum，但当前同步运行路径没有超时或取消能力，GUI 不应假设会收到它们。
+`CANCELLED` 表示 RunControl 在运行开始前已经请求停止；初始化后请求的用户 Stop 返回 `STOPPED` result。`TIMEOUT` 仍未实现，Farcel 不会强制终止 native FMU。
 
-## 12. FMI Version Transparency
+## 13. FMI Version Transparency
 
 GUI 对 FMI 2.0 与基础 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`load_fmu`、`validate_config`、`run_fmu`、`export_result`。版本差异通过 `ModelMetadata.fmi_version`、interfaces 和 capabilities 展示；不要根据版本选择 FMPy class 或调用不同 getter。
 
 当 FMI 3 FMU 请求当前未支持的 Event Mode、Early Return 或 Intermediate Update 时，run 会返回稳定的 `EngineError`，不会暴露 FMPy status。
 
-## 13. End-to-End Example
+## 14. End-to-End Example
 
 仓库中的 `examples/backend_api_example.py` 演示完整公共工作流：
 
@@ -194,13 +221,13 @@ GUI 对 FMI 2.0 与基础 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`
 
 示例仅导入 `farcel`、`farcel.contracts` 和标准库，并依次完成 inspect、config、validate、run、result consumption 与 CSV export。
 
-## 14. Contract Freeze Recommendation
+## 15. Contract Freeze Recommendation
 
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
 - 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`；
-- 本文列出的 `ModelMetadata`、`SimulationConfig`、`ValidationReport`、`SimulationResult`、`ExportReport` 字段；
+- 本文列出的 `ModelMetadata`、`SimulationConfig`、`ValidationReport`、`SimulationResult`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
 

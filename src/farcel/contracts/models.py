@@ -126,6 +126,17 @@ class SimulationState(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class RunProgress:
+    start_time: float
+    stop_time: float
+    current_time: float
+    completed_steps: int
+    sample_count: int
+    fraction: float
+    state: SimulationState
+
+
+@dataclass(frozen=True, slots=True)
 class SessionHandle:
     session_id: str
 

@@ -35,6 +35,35 @@ py -3 -m venv .venv
 
 CSV 导出按指定路径写入 UTF-8 文件，自动创建父目录并覆盖同名文件；不会自动补充 `.csv` 扩展名。仓库内 `artifacts/` 用于本地验证输出，并已加入 Git ignore。
 
+## Controlled Run API
+
+`run_fmu()` remains a synchronous, blocking call. The caller owns its worker
+thread; Farcel does not create threads or import a GUI framework. `RunControl`
+is safe to call from another thread and requests a cooperative stop at the next
+communication point. It cannot interrupt a native FMU already executing
+`doStep()`.
+
+```python
+from farcel import RunControl, create_backend
+
+control = RunControl()
+
+def on_progress(progress):
+    print(progress.current_time, progress.fraction)
+
+result = create_backend().run_fmu(
+    fmu_path,
+    config,
+    control=control,
+    on_progress=on_progress,
+)
+```
+
+The callback runs on the same thread as `run_fmu`; GUI callers must marshal it
+to their UI thread themselves. A pre-start stop raises `CANCELLED`. Once
+initialized, a stop returns a `STOPPED` partial `SimulationResult`, including
+the final communication-point state, and that result can be exported to CSV.
+
 ## Backend API Quick Start
 
 前端开发者从仓库根目录安装 editable package 后，可直接使用公开 API；不需要设置 `PYTHONPATH`，也不要导入 infrastructure 或调用 CLI：

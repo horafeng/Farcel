@@ -7,8 +7,10 @@ from pathlib import Path
 
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
+from farcel.contracts import RunControl
 from farcel.contracts.errors import EngineError, ErrorCode
-from farcel.contracts.models import InputUpdate, SimulationConfig
+from farcel.contracts.models import InputUpdate, SimulationConfig, SimulationState
+from farcel.infrastructure.export import CsvResultExporter
 from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
@@ -163,6 +165,42 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(result.sample_count, 5)
         for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.1, 0.15, 0.2)):
             self.assertAlmostEqual(actual, expected)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_stop_returns_exportable_partial_result(self) -> None:
+        control = RunControl()
+        factory = CapturingFactory()
+        engine = FarcelEngine(FmpyImporter(), factory, CsvResultExporter())
+
+        result = engine.run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            control=control,
+            on_progress=lambda progress: (
+                control.request_stop() if progress.current_time >= 0.07 else None
+            ),
+        )
+
+        self.assertEqual(result.completion_state, SimulationState.STOPPED)
+        self.assertFalse(result.successful)
+        self.assertEqual(result.completed_steps, 7)
+        self.assertAlmostEqual(result.final_time, 0.07)
+        self.assertEqual(result.sample_count, 3)
+        for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.07)):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(len(result.outputs["x0"]), result.sample_count)
+        self.assertTrue(factory.session._terminated)
+        self.assertTrue(factory.session._closed)
+        self.assertFalse(factory.extraction_directory.exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            report = engine.export_result(result, Path(directory) / "partial.csv")
+        self.assertEqual(report.row_count, result.sample_count)
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_real_run_without_outputs_keeps_timeline(self) -> None:

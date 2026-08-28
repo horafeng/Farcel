@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
 from farcel.contracts.models import (
@@ -10,9 +11,11 @@ from farcel.contracts.models import (
     SimulationConfig,
     SimulationResult,
     SimulationState,
+    RunProgress,
     StepResult,
     ValidationReport,
 )
+from farcel.contracts.run_control import RunControl
 
 
 class ModelImporter(Protocol):
@@ -82,7 +85,12 @@ class SimulationEngine(Protocol):
     def close_session(self, session: SessionHandle) -> None: ...
 
     def run_fmu(
-        self, path: str | Path, config: SimulationConfig
+        self,
+        path: str | Path,
+        config: SimulationConfig,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
     ) -> SimulationResult: ...
 
     def export_result(

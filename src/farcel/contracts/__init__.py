@@ -10,6 +10,7 @@ from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
     ResultChunk,
+    RunProgress,
     RunSummary,
     SessionHandle,
     SimulationConfig,
@@ -21,6 +22,7 @@ from farcel.contracts.models import (
     ValidationReport,
     VariableMetadata,
 )
+from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     ModelImporter,
     ResultExporter,
@@ -42,6 +44,8 @@ __all__ = [
     "ModelMetadata",
     "ResultChunk",
     "ResultExporter",
+    "RunControl",
+    "RunProgress",
     "RunSummary",
     "SessionFactory",
     "SessionHandle",

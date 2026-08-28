@@ -82,8 +82,19 @@ point, and records the final state on successful completion when it was not
 otherwise sampled. Consequently, `completed_steps` and `sample_count` are
 independent metrics from Phase 2.0A onward.
 
-The high-level run remains synchronous and blocking. Stop, Cancel, and Progress
-are not part of this milestone.
+## Controlled stop and partial results
+
+The high-level run remains synchronous and blocking. `RunControl.request_stop()`
+is thread-safe for a caller-owned control thread, while `run_fmu()` continues to
+belong to one worker thread. Stop is cooperative and checked before each
+communication step. Therefore it cannot interrupt a native FMU inside `doStep()`
+and has no hard timeout/kill behavior.
+
+A pre-start stop returns `CANCELLED` without creating a session. Once initialized,
+stop returns a `STOPPED` partial result: it retains completed communication steps,
+appends the actual final point if it was not sampled by `output_interval`, and can
+be exported to CSV. Progress callbacks execute on the run thread; they contain no
+result payload and are not ResultChunk streaming.
 
 Arrays, FMI 3 Binary/Clock, Event Mode, Early Return, Intermediate Update,
 Scheduled Execution, Model Exchange execution, and FMI 1 remain unsupported.

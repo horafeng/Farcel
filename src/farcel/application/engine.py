@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -12,6 +13,7 @@ from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
     ExportReport,
+    RunProgress,
     SessionHandle,
     SimulationConfig,
     SimulationResult,
@@ -20,6 +22,7 @@ from farcel.contracts.models import (
     StepStatus,
     ValidationReport,
 )
+from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     ModelImporter,
     ResultExporter,
@@ -171,13 +174,22 @@ class FarcelEngine:
             return
         record.session.close()
 
-    def run_fmu(self, path: str | Path, config: SimulationConfig) -> SimulationResult:
+    def run_fmu(
+        self,
+        path: str | Path,
+        config: SimulationConfig,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+    ) -> SimulationResult:
         handle: SessionHandle | None = None
         primary_error: EngineError | None = None
         base_error: BaseException | None = None
         simulation_result: SimulationResult | None = None
 
         try:
+            if control is not None and control.stop_requested:
+                raise EngineError(ErrorCode.CANCELLED, "仿真开始前已请求停止")
             metadata = self.load_fmu(path)
             handle = self.create_session(metadata.model_id, config)
             self.initialize(handle)
@@ -195,10 +207,22 @@ class FarcelEngine:
                     self.read_outputs(handle),
                 )
             supports_variable_step = _supports_variable_step(metadata)
+            _notify_progress(
+                on_progress,
+                config,
+                current_time,
+                completed_steps,
+                len(timestamps),
+                SimulationState.RUNNING,
+            )
+            stopped = False
 
             while current_time < config.stop_time and not math.isclose(
                 current_time, config.stop_time, rel_tol=0.0, abs_tol=tolerance
             ):
+                if control is not None and control.stop_requested:
+                    stopped = True
+                    break
                 remaining = config.stop_time - current_time
                 if remaining < config.communication_step and not supports_variable_step:
                     break
@@ -220,6 +244,14 @@ class FarcelEngine:
                             config.selected_outputs,
                             self.read_outputs(handle),
                         )
+                _notify_progress(
+                    on_progress,
+                    config,
+                    current_time,
+                    completed_steps,
+                    len(timestamps),
+                    SimulationState.RUNNING,
+                )
 
             if not math.isclose(
                 timestamps[-1], current_time, rel_tol=0.0, abs_tol=tolerance
@@ -233,6 +265,9 @@ class FarcelEngine:
                     )
 
             self.terminate(handle)
+            completion_state = (
+                SimulationState.STOPPED if stopped else SimulationState.COMPLETED
+            )
             simulation_result = SimulationResult(
                 fmu_path=str(Path(path).expanduser().resolve()),
                 start_time=config.start_time,
@@ -240,11 +275,19 @@ class FarcelEngine:
                 step_size=config.communication_step,
                 completed_steps=completed_steps,
                 final_time=current_time,
-                completion_state=SimulationState.COMPLETED,
+                completion_state=completion_state,
                 timestamps=tuple(timestamps),
                 outputs={
                     name: tuple(values) for name, values in output_columns.items()
                 },
+            )
+            _notify_progress(
+                on_progress,
+                config,
+                current_time,
+                completed_steps,
+                simulation_result.sample_count,
+                completion_state,
             )
         except EngineError as exc:
             primary_error = exc
@@ -329,6 +372,36 @@ def _is_output_sample_time(
     return sample_index > 0 and math.isclose(
         sample_index, round(sample_index), rel_tol=0.0, abs_tol=tolerance / output_interval
     )
+
+
+def _notify_progress(
+    callback: Callable[[RunProgress], None] | None,
+    config: SimulationConfig,
+    current_time: float,
+    completed_steps: int,
+    sample_count: int,
+    state: SimulationState,
+) -> None:
+    if callback is None:
+        return
+    fraction = (current_time - config.start_time) / (config.stop_time - config.start_time)
+    progress = RunProgress(
+        start_time=config.start_time,
+        stop_time=config.stop_time,
+        current_time=current_time,
+        completed_steps=completed_steps,
+        sample_count=sample_count,
+        fraction=min(1.0, max(0.0, fraction)),
+        state=state,
+    )
+    try:
+        callback(progress)
+    except Exception as exc:
+        raise EngineError(
+            ErrorCode.INTERNAL_ERROR,
+            "运行进度回调执行失败",
+            {"callback_diagnostic": str(exc)},
+        ) from None
 
 
 def _append_output_sample(

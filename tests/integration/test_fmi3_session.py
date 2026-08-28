@@ -7,7 +7,8 @@ from pathlib import Path
 
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
-from farcel.contracts.models import InterfaceType, SimulationConfig
+from farcel.contracts import RunControl
+from farcel.contracts.models import InterfaceType, SimulationConfig, SimulationState
 from farcel.infrastructure.fmpy import FmpyImporter, FmpySessionFactory
 from farcel.infrastructure.fmpy.fmi3_session import FmpyFmi3Session
 
@@ -105,6 +106,33 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(result.sample_count, 5)
         for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.1, 0.15, 0.2)):
             self.assertAlmostEqual(actual, expected)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_real_fmi3_stop_returns_partial_result(self) -> None:
+        control = RunControl()
+        factory = CapturingFactory()
+
+        result = FarcelEngine(FmpyImporter(), factory).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            control=control,
+            on_progress=lambda progress: (
+                control.request_stop() if progress.current_time >= 0.05 else None
+            ),
+        )
+
+        self.assertEqual(result.completion_state, SimulationState.STOPPED)
+        self.assertEqual(result.completed_steps, 5)
+        self.assertEqual(result.sample_count, 2)
+        self.assertAlmostEqual(result.final_time, 0.05)
+        self.assertTrue(factory.session._terminated)
+        self.assertTrue(factory.session._closed)
+        self.assertFalse(factory.extraction_directory.exists())
 
     @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
     def test_real_fmi3_parameter_override_reaches_instance(self) -> None:
