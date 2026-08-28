@@ -29,15 +29,28 @@ class FmpyImporter:
             raise EngineError(ErrorCode.IMPORT_ERROR, "FMU 文件不存在")
 
         error: EngineError | None = None
+        validation_diagnostics: tuple[str, ...] = ()
         try:
             description = read_model_description(path, validate=True)
             platforms = tuple(supported_platforms(path))
         except ValidationError as exc:
-            error = EngineError(
-                ErrorCode.VALIDATION_ERROR,
-                "modelDescription.xml 未通过 FMI 校验",
-                {"diagnostics": tuple(exc.problems)},
-            )
+            validation_diagnostics = tuple(exc.problems)
+            if _only_recoverable_validation_problems(validation_diagnostics):
+                try:
+                    description = read_model_description(path, validate=False)
+                    platforms = tuple(supported_platforms(path))
+                except Exception as fallback_exc:
+                    error = EngineError(
+                        ErrorCode.IMPORT_ERROR,
+                        "无法读取 FMU 元数据",
+                        {"diagnostic": str(fallback_exc)},
+                    )
+            else:
+                error = EngineError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "modelDescription.xml 未通过 FMI 校验",
+                    {"diagnostics": validation_diagnostics},
+                )
         except Exception as exc:
             error = EngineError(
                 ErrorCode.IMPORT_ERROR,
@@ -75,7 +88,10 @@ class FmpyImporter:
             None,
         )
 
-        diagnostics: list[str] = []
+        diagnostics = [
+            f"FMI validation warning: {problem}"
+            for problem in validation_diagnostics
+        ]
         if executable is None:
             if co_simulation is None:
                 diagnostics.append("FMU 可解析，但当前不包含 Co-Simulation 接口")
@@ -216,3 +232,10 @@ def _typed_value(value: Any, data_type: str, shape: tuple[int, ...] | None = Non
 
     converted = tuple(convert(item) for item in values)
     return converted if shape else converted[0]
+
+
+def _only_recoverable_validation_problems(problems: tuple[str, ...]) -> bool:
+    return bool(problems) and all(
+        problem.startswith('The unit "') and problem.endswith("is not defined.")
+        for problem in problems
+    )

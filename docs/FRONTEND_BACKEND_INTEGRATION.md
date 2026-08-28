@@ -23,6 +23,7 @@ from farcel.contracts import (
     EngineError,
     ErrorCode,
     ExportReport,
+    InputUpdate,
     InterfaceType,
     ModelMetadata,
     SimulationConfig,
@@ -88,6 +89,13 @@ config = SimulationConfig(
 report = backend.validate_config(metadata, config)
 ```
 
+`initial_inputs={"name": value}` is optional and is written before entering
+initialization mode. Time-varying step inputs use the additive, optional
+`input_schedule=(InputUpdate(time, values), ...)` field. Update times align with
+communication points, are strictly increasing, and values are held until the
+next update. Existing `SimulationConfig` calls that omit both fields retain the
+same behavior.
+
 成功返回 `ValidationReport`，且 `report.is_valid` 为 `True`。失败抛出 code 为 `CONFIG_ERROR` 的 `EngineError`；GUI 可读取 `error.details["issues"]`，其中每项包含稳定字段 `field`、`code`、`message`，用于定位控件和显示信息：
 
 ```python
@@ -144,7 +152,7 @@ EngineError(code: ErrorCode, message: str, details: Mapping[str, Any])
 
 - 导入/能力：`IMPORT_ERROR`、`VALIDATION_ERROR`、`UNSUPPORTED_FMI`、`UNSUPPORTED_INTERFACE`、`PLATFORM_BINARY_MISSING`；
 - 配置：`CONFIG_ERROR`；
-- runtime：`INSTANTIATION_ERROR`、`INITIALIZATION_ERROR`、`PARAMETER_SET_ERROR`、`STEP_ERROR`、`OUTPUT_READ_ERROR`、`TERMINATION_ERROR`、`CLEANUP_ERROR`、`FMI_RUNTIME_ERROR`；
+- runtime：`INSTANTIATION_ERROR`、`INITIALIZATION_ERROR`、`PARAMETER_SET_ERROR`、`INPUT_SET_ERROR`、`STEP_ERROR`、`OUTPUT_READ_ERROR`、`TERMINATION_ERROR`、`CLEANUP_ERROR`、`FMI_RUNTIME_ERROR`；
 - 导出/通用：`EXPORT_ERROR`、`INTERNAL_ERROR`、`NOT_IMPLEMENTED`。
 
 `TIMEOUT` 与 `CANCELLED` 已存在于 enum，但当前同步运行路径没有超时或取消能力，GUI 不应假设会收到它们。
