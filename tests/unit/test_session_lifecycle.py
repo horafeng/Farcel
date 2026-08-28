@@ -224,6 +224,7 @@ class SessionLifecycleTests(unittest.TestCase):
         config = SimulationConfig(
             stop_time=0.02,
             communication_step=0.01,
+            output_interval=0.02,
             input_schedule=(
                 InputUpdate(0.0, {"command": 1.0}),
                 InputUpdate(0.01, {"command": 2.0}),

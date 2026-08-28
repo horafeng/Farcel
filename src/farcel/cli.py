@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--stop-time", type=float, default=1.0)
     validate_parser.add_argument("--step-size", type=float, default=0.01)
     validate_parser.add_argument(
+        "--output-interval",
+        type=float,
+        default=None,
+        help="结果采样间隔；省略时等于 --step-size",
+    )
+    validate_parser.add_argument(
         "--parameter",
         action="append",
         default=[],
@@ -49,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--stop-time", type=float, default=1.0)
     run_parser.add_argument("--step-size", type=float, default=0.01)
     run_parser.add_argument(
+        "--output-interval",
+        type=float,
+        default=None,
+        help="结果采样间隔；省略时等于 --step-size",
+    )
+    run_parser.add_argument(
         "--parameter",
         action="append",
         default=[],
@@ -71,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--start-time", type=float, default=0.0)
     export_parser.add_argument("--stop-time", type=float, default=1.0)
     export_parser.add_argument("--step-size", type=float, default=0.01)
+    export_parser.add_argument(
+        "--output-interval",
+        type=float,
+        default=None,
+        help="结果采样间隔；省略时等于 --step-size",
+    )
     export_parser.add_argument(
         "--parameter",
         action="append",
@@ -199,6 +217,7 @@ def _build_config(
         start_time=args.start_time,
         stop_time=args.stop_time,
         communication_step=args.step_size,
+        output_interval=args.output_interval,
         parameters=_parse_parameters(args.parameter),
         initial_inputs=_parse_parameters(args.input),
         selected_outputs=selected_outputs,

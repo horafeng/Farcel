@@ -68,6 +68,33 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertTrue(report.is_valid)
 
+    def test_omitted_output_interval_defaults_to_communication_step(self) -> None:
+        config = SimulationConfig(communication_step=0.1)
+
+        self.assertIsNone(config.output_interval)
+        self.assertTrue(validate_config(metadata(), config).is_valid)
+
+    def test_rejects_invalid_or_unaligned_output_interval(self) -> None:
+        for output_interval in (0.0, -0.1, float("nan"), float("inf")):
+            with self.subTest(output_interval=output_interval):
+                report = validate_config(
+                    metadata(), SimulationConfig(output_interval=output_interval)
+                )
+                self.assertIn(
+                    "INVALID_OUTPUT_INTERVAL", {issue.code for issue in report.issues}
+                )
+
+        report = validate_config(
+            metadata(),
+            SimulationConfig(communication_step=0.03, output_interval=0.1),
+        )
+        issue = next(
+            issue
+            for issue in report.issues
+            if issue.code == "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED"
+        )
+        self.assertEqual(issue.field, "output_interval")
+
     def test_rejects_start_time_equal_to_or_after_stop_time(self) -> None:
         for start_time, stop_time in ((1.0, 1.0), (2.0, 1.0)):
             with self.subTest(start_time=start_time, stop_time=stop_time):

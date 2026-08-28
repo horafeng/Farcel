@@ -2,6 +2,8 @@
 
 Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支持通过 FMPy 读取 FMI 2.0 / 3.0 FMU 元数据、仿真前配置验证，以及 FMI 2.0 和基础 FMI 3.0 Co-Simulation 的 Session 执行、所选输出变量时序采样与 CSV 导出。
 
+`communication_step` 是 FMU Co-Simulation 的通信点推进步长；`output_interval` 是保存到 `SimulationResult` 的结果采样间隔。未设置 `output_interval` 时它等于 `communication_step`，保持原有“每通信点一个样本”的行为。显式设置的采样间隔必须是通信步长的整数倍；Farcel 不插值，并会在正常完成时补记尚未采集的最终状态。
+
 设计说明见 [docs/BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md)。GUI 等调用者的公共 API、依赖规则和错误处理约定见 [docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md)。
 
 ## 本地开发
@@ -23,6 +25,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m farcel.cli inspect .\examples\fmus\VanDerPol.fmu --json
 .\.venv\Scripts\python.exe -m farcel.cli validate .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0
 .\.venv\Scripts\python.exe -m farcel.cli run .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0
+.\.venv\Scripts\python.exe -m farcel.cli run .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 0.2 --step-size 0.01 --output-interval 0.05 --output x0
 .\.venv\Scripts\python.exe -m farcel.cli export .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0 --csv .\artifacts\VanDerPol.csv
 .\.venv\Scripts\python.exe -m farcel.cli run .\examples\fmus\VanDerPol-fmi3.fmu --start-time 0 --stop-time 0.05 --step-size 0.01 --parameter "mu=2.0" --output x0
 .\.venv\Scripts\python.exe .\examples\backend_api_example.py

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from farcel.application.validation import validate_config
+from farcel.application.validation import resolve_output_interval, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -186,12 +186,14 @@ class FarcelEngine:
             completed_steps = 0
             timestamps = [current_time]
             output_columns = {name: [] for name in config.selected_outputs}
-            _append_output_sample(
-                output_columns,
-                config.selected_outputs,
-                self.read_outputs(handle),
-            )
             tolerance = max(1e-12, config.communication_step * 1e-9)
+            output_interval = resolve_output_interval(config)
+            if config.selected_outputs:
+                _append_output_sample(
+                    output_columns,
+                    config.selected_outputs,
+                    self.read_outputs(handle),
+                )
             supports_variable_step = _supports_variable_step(metadata)
 
             while current_time < config.stop_time and not math.isclose(
@@ -204,12 +206,31 @@ class FarcelEngine:
                 result = self.step(handle, step_size)
                 current_time = result.reached_time
                 completed_steps += 1
+
+                if _is_output_sample_time(
+                    current_time,
+                    config.start_time,
+                    output_interval,
+                    tolerance,
+                ):
+                    timestamps.append(current_time)
+                    if config.selected_outputs:
+                        _append_output_sample(
+                            output_columns,
+                            config.selected_outputs,
+                            self.read_outputs(handle),
+                        )
+
+            if not math.isclose(
+                timestamps[-1], current_time, rel_tol=0.0, abs_tol=tolerance
+            ):
                 timestamps.append(current_time)
-                _append_output_sample(
-                    output_columns,
-                    config.selected_outputs,
-                    self.read_outputs(handle),
-                )
+                if config.selected_outputs:
+                    _append_output_sample(
+                        output_columns,
+                        config.selected_outputs,
+                        self.read_outputs(handle),
+                    )
 
             self.terminate(handle)
             simulation_result = SimulationResult(
@@ -295,6 +316,18 @@ def _supports_variable_step(metadata: ModelMetadata) -> bool:
         capability.interface_type is InterfaceType.CO_SIMULATION
         and capability.can_handle_variable_step
         for capability in metadata.interface_capabilities
+    )
+
+
+def _is_output_sample_time(
+    current_time: float,
+    start_time: float,
+    output_interval: float,
+    tolerance: float,
+) -> bool:
+    sample_index = (current_time - start_time) / output_interval
+    return sample_index > 0 and math.isclose(
+        sample_index, round(sample_index), rel_tol=0.0, abs_tol=tolerance / output_interval
     )
 
 

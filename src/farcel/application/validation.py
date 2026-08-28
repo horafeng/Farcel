@@ -50,7 +50,9 @@ def validate_config(
                 "communication step size 必须是大于 0 的有限数值",
             )
         )
-    if not _is_finite_number(config.output_interval) or config.output_interval <= 0:
+    if config.output_interval is not None and (
+        not _is_finite_number(config.output_interval) or config.output_interval <= 0
+    ):
         issues.append(
             ValidationIssue(
                 "output_interval",
@@ -58,6 +60,24 @@ def validate_config(
                 "输出间隔必须是大于 0 的有限数值",
             )
         )
+    elif (
+        config.output_interval is not None
+        and _is_finite_number(config.communication_step)
+    ):
+        sample_step_ratio = config.output_interval / config.communication_step
+        if not math.isclose(
+            sample_step_ratio,
+            round(sample_step_ratio),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            issues.append(
+                ValidationIssue(
+                    "output_interval",
+                    "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED",
+                    "输出间隔必须是 communication_step 的整数倍，以保证采样位于 communication point",
+                )
+            )
 
     co_simulation = next(
         (
@@ -174,6 +194,15 @@ def validate_config(
             )
 
     return ValidationReport(tuple(issues))
+
+
+def resolve_output_interval(config: SimulationConfig) -> float:
+    """Return the effective result-sampling interval for a valid configuration."""
+    return (
+        config.communication_step
+        if config.output_interval is None
+        else config.output_interval
+    )
 
 
 def _validate_parameter_value(

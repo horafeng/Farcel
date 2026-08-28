@@ -69,5 +69,21 @@ increasing, and values are held until changed. Farcel applies the update for the
 current communication point immediately before `doStep`. With an empty schedule,
 the original execution path is unchanged.
 
+## Communication and sampling semantics
+
+`SimulationConfig.communication_step` controls every Co-Simulation `doStep`
+communication point. `output_interval` controls only when Farcel records an
+already-reached point in `SimulationResult`; it never changes input scheduling
+or the FMU step size. If omitted, `output_interval` defaults to the communication
+step for Phase 1 compatibility. An explicit output interval must be a positive,
+finite integer multiple of the communication step, so no interpolation is
+required. Farcel records the initial state, samples each matching communication
+point, and records the final state on successful completion when it was not
+otherwise sampled. Consequently, `completed_steps` and `sample_count` are
+independent metrics from Phase 2.0A onward.
+
+The high-level run remains synchronous and blocking. Stop, Cancel, and Progress
+are not part of this milestone.
+
 Arrays, FMI 3 Binary/Clock, Event Mode, Early Return, Intermediate Update,
 Scheduled Execution, Model Exchange execution, and FMI 1 remain unsupported.

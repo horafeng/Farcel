@@ -86,6 +86,27 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
         self.assertFalse(factory.extraction_directory.exists())
 
     @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_real_fmi3_uses_same_output_interval_semantics(self) -> None:
+        result = FarcelEngine(
+            FmpyImporter(), FmpySessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 20)
+        self.assertEqual(result.sample_count, 5)
+        for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.1, 0.15, 0.2)):
+            self.assertAlmostEqual(actual, expected)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
     def test_real_fmi3_parameter_override_reaches_instance(self) -> None:
         factory = CapturingFactory()
         engine = FarcelEngine(FmpyImporter(), factory)

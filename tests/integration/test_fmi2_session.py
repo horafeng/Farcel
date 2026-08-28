@@ -144,6 +144,27 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertNotEqual(result.outputs["x0"][-1], result.outputs["x0"][0])
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_uses_output_interval_without_changing_steps(self) -> None:
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 20)
+        self.assertEqual(result.sample_count, 5)
+        for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.1, 0.15, 0.2)):
+            self.assertAlmostEqual(actual, expected)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_real_run_without_outputs_keeps_timeline(self) -> None:
         result = FarcelEngine(
             FmpyImporter(), FmpyFmi2SessionFactory()
@@ -169,7 +190,8 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
             with redirect_stdout(stdout):
                 exit_code = main([
                     "export", str(self.van_der_pol), "--start-time", "0",
-                    "--stop-time", "0.02", "--step-size", "0.01",
+                    "--stop-time", "0.2", "--step-size", "0.01",
+                    "--output-interval", "0.05",
                     "--output", "x0", "--csv", str(destination),
                 ])
 
@@ -177,12 +199,12 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 rows = list(csv.reader(stream))
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("data rows: 3", stdout.getvalue())
+        self.assertIn("data rows: 5", stdout.getvalue())
         self.assertIn("export successful", stdout.getvalue())
         self.assertEqual(rows[0], ["time", "x0"])
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), 6)
         self.assertEqual(float(rows[1][0]), 0.0)
-        self.assertAlmostEqual(float(rows[-1][0]), 0.02)
+        self.assertAlmostEqual(float(rows[-1][0]), 0.2)
         self.assertEqual(float(rows[1][1]), 2.0)
         self.assertNotEqual(float(rows[-1][1]), float(rows[1][1]))
 

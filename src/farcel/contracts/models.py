@@ -90,7 +90,7 @@ class SimulationConfig:
     start_time: float = 0.0
     stop_time: float = 1.0
     communication_step: float = 0.01
-    output_interval: float = 0.01
+    output_interval: float | None = None
     relative_tolerance: float | None = None
     parameters: Mapping[str, Any] = field(default_factory=dict)
     initial_inputs: Mapping[str, Any] = field(default_factory=dict)
@@ -187,8 +187,6 @@ class SimulationResult:
     def __post_init__(self) -> None:
         if not self.timestamps:
             raise ValueError("SimulationResult 必须包含初始时间样本")
-        if len(self.timestamps) != self.completed_steps + 1:
-            raise ValueError("时间样本数量必须等于 completed_steps + 1")
         if not all(math.isfinite(timestamp) for timestamp in self.timestamps):
             raise ValueError("时间轴只能包含有限数值")
         if any(
