@@ -100,6 +100,19 @@ class _FailingFactory(_Factory):
         return session
 
 
+class _TerminationFailingSession(_Session):
+    def terminate(self) -> None:
+        self.terminated = True
+        raise EngineError(ErrorCode.TERMINATION_ERROR, "terminate boom")
+
+
+class _TerminationFailingFactory(_Factory):
+    def create(self, metadata, config) -> _TerminationFailingSession:
+        session = _TerminationFailingSession()
+        self.sessions.append(session)
+        return session
+
+
 class ResultChunkStreamingTests(unittest.TestCase):
     def test_samples_stream_as_two_two_one_chunks_and_match_result(self) -> None:
         engine, _ = self._engine()
@@ -266,6 +279,28 @@ class ResultChunkStreamingTests(unittest.TestCase):
         self.assertFalse(chunks[0].final_chunk)
         self.assertTrue(factory.sessions[0].terminated)
         self.assertTrue(factory.sessions[0].closed)
+
+    def test_termination_error_does_not_emit_a_final_chunk_and_closes(self) -> None:
+        metadata = executable_metadata()
+        importer = type("Importer", (), {"load": lambda _, path: metadata})()
+        factory = _TerminationFailingFactory()
+        engine = FarcelEngine(importer, factory)
+        chunks: list[ResultChunk] = []
+
+        with self.assertRaises(EngineError) as raised:
+            engine.run_fmu(
+                "chunk-test.fmu",
+                self._five_sample_config(),
+                on_result_chunk=chunks.append,
+                result_chunk_size=2,
+            )
+
+        self.assertEqual(raised.exception.code, ErrorCode.TERMINATION_ERROR)
+        self.assertTrue(chunks)
+        self.assertFalse(any(chunk.final_chunk for chunk in chunks))
+        self.assertTrue(factory.sessions[0].terminated)
+        self.assertTrue(factory.sessions[0].closed)
+        self.assertEqual(engine._sessions, {})
 
     def test_pre_cancel_does_not_emit_chunks_or_load_fmu(self) -> None:
         control = RunControl()

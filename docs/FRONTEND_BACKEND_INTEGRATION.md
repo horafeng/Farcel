@@ -187,8 +187,9 @@ zero-based contiguous sequence values.
 
 Farcel holds a full `SimulationResult` as before; streaming is not a
 bounded-memory execution mode. A completed or cooperatively stopped run emits
-exactly one non-empty `final_chunk=True` after its final canonical sample and
-before terminal progress. A runtime engine error emits no extra final chunk.
+exactly one non-empty `final_chunk=True` only after successful FMU termination,
+and before terminal progress. A runtime or termination engine error emits no
+extra final chunk.
 The chunk callback uses the `run_fmu` thread. Its exception is converted to
 `INTERNAL_ERROR` with diagnostic key `chunk_callback_diagnostic` and does not
 skip cleanup; GUI code must marshal callback data to the UI thread itself.

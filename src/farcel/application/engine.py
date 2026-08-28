@@ -281,8 +281,8 @@ class FarcelEngine:
                 timestamps=result_accumulator.timestamps,
                 outputs=result_accumulator.outputs,
             )
-            result_accumulator.flush_final()
             self.terminate(handle)
+            result_accumulator.flush_final()
             _notify_progress(
                 on_progress,
                 config,
