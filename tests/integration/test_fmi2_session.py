@@ -167,10 +167,40 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
             self.assertAlmostEqual(actual, expected)
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_streams_chunks_matching_the_canonical_result(self) -> None:
+        chunks = []
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+        )
+
+        self.assertEqual([chunk.sequence for chunk in chunks], [0, 1, 2])
+        self.assertEqual([len(chunk.time) for chunk in chunks], [2, 2, 1])
+        self.assertEqual([chunk.final_chunk for chunk in chunks], [False, False, True])
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        self.assertEqual(
+            tuple(value for chunk in chunks for value in chunk.columns["x0"]),
+            result.outputs["x0"],
+        )
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_real_fmi2_stop_returns_exportable_partial_result(self) -> None:
         control = RunControl()
         factory = CapturingFactory()
         engine = FarcelEngine(FmpyImporter(), factory, CsvResultExporter())
+        chunks = []
 
         result = engine.run_fmu(
             self.van_der_pol,
@@ -181,6 +211,8 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 selected_outputs=("x0",),
             ),
             control=control,
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
             on_progress=lambda progress: (
                 control.request_stop() if progress.current_time >= 0.07 else None
             ),
@@ -194,6 +226,15 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.07)):
             self.assertAlmostEqual(actual, expected)
         self.assertEqual(len(result.outputs["x0"]), result.sample_count)
+        self.assertTrue(chunks[-1].final_chunk)
+        self.assertAlmostEqual(chunks[-1].time[-1], 0.07)
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        self.assertEqual(
+            tuple(value for chunk in chunks for value in chunk.columns["x0"]),
+            result.outputs["x0"],
+        )
         self.assertTrue(factory.session._terminated)
         self.assertTrue(factory.session._closed)
         self.assertFalse(factory.extraction_directory.exists())

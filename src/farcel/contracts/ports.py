@@ -7,6 +7,7 @@ from typing import Any, Mapping, Protocol
 from farcel.contracts.models import (
     ExportReport,
     ModelMetadata,
+    ResultChunk,
     SessionHandle,
     SimulationConfig,
     SimulationResult,
@@ -91,6 +92,8 @@ class SimulationEngine(Protocol):
         *,
         control: RunControl | None = None,
         on_progress: Callable[[RunProgress], None] | None = None,
+        on_result_chunk: Callable[[ResultChunk], None] | None = None,
+        result_chunk_size: int = 256,
     ) -> SimulationResult: ...
 
     def export_result(

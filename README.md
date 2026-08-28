@@ -64,6 +64,38 @@ to their UI thread themselves. A pre-start stop raises `CANCELLED`. Once
 initialized, a stop returns a `STOPPED` partial `SimulationResult`, including
 the final communication-point state, and that result can be exported to CSV.
 
+## Result Chunk Streaming
+
+`run_fmu()` can additionally deliver already-recorded result samples in bounded
+`ResultChunk` batches. This is an observation API: it neither changes the FMU
+communication step nor causes additional output reads, and the complete
+`SimulationResult` is still returned at the end.
+
+```python
+from farcel import ResultChunk, create_backend
+
+def on_result_chunk(chunk: ResultChunk) -> None:
+    append_to_plot(chunk.time, chunk.columns)
+    if chunk.final_chunk:
+        finish_plot(chunk.run_id)
+
+result = create_backend().run_fmu(
+    fmu_path,
+    config,
+    on_result_chunk=on_result_chunk,
+    result_chunk_size=256,
+)
+```
+
+Chunks contain contiguous `SimulationResult` samples, including the initial
+sample, rather than communication steps. Each run has a fresh `run_id` and
+zero-based contiguous `sequence`; `columns` is empty when no outputs were
+selected, while `time` still streams. On completed and cooperatively stopped
+runs exactly one non-empty final chunk has `final_chunk=True`, after the final
+sample and before terminal progress. Runtime failures do not synthesize a final
+chunk. The callback runs on the `run_fmu()` thread; exceptions become
+`INTERNAL_ERROR` and still use normal resource cleanup.
+
 ## Backend API Quick Start
 
 前端开发者从仓库根目录安装 editable package 后，可直接使用公开 API；不需要设置 `PYTHONPATH`，也不要导入 infrastructure 或调用 CLI：

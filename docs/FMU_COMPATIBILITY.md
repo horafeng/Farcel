@@ -94,7 +94,22 @@ A pre-start stop returns `CANCELLED` without creating a session. Once initialize
 stop returns a `STOPPED` partial result: it retains completed communication steps,
 appends the actual final point if it was not sampled by `output_interval`, and can
 be exported to CSV. Progress callbacks execute on the run thread; they contain no
-result payload and are not ResultChunk streaming.
+result payload.
+
+## Result chunk streaming
+
+`run_fmu(..., on_result_chunk=callback, result_chunk_size=256)` streams batches
+of the same samples stored in its final `SimulationResult`; a batch is never a
+batch of FMI `doStep` calls. The initial sample and a stopped run's appended
+final state are included. Streaming does not change compatibility, communication
+steps, or output getter count, and Farcel still retains the complete result.
+
+Each run emits a fresh UUID `run_id`, contiguous zero-based chunk sequences, and
+an empty `columns` mapping for no-output runs. A normally completed or
+cooperatively stopped run has exactly one non-empty terminal chunk marked
+`final_chunk=True`; an FMU runtime error does not generate an extra terminal
+chunk. Chunk callbacks run synchronously on the caller's run thread and callback
+failures become stable `INTERNAL_ERROR` values after normal cleanup.
 
 Arrays, FMI 3 Binary/Clock, Event Mode, Early Return, Intermediate Update,
 Scheduled Execution, Model Exchange execution, and FMI 1 remain unsupported.

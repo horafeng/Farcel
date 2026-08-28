@@ -13,6 +13,7 @@ from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
     ExportReport,
+    ResultChunk,
     RunProgress,
     SessionHandle,
     SimulationConfig,
@@ -181,12 +182,15 @@ class FarcelEngine:
         *,
         control: RunControl | None = None,
         on_progress: Callable[[RunProgress], None] | None = None,
+        on_result_chunk: Callable[[ResultChunk], None] | None = None,
+        result_chunk_size: int = 256,
     ) -> SimulationResult:
         handle: SessionHandle | None = None
         primary_error: EngineError | None = None
         base_error: BaseException | None = None
         simulation_result: SimulationResult | None = None
 
+        _validate_result_chunk_size(result_chunk_size)
         try:
             if control is not None and control.stop_requested:
                 raise EngineError(ErrorCode.CANCELLED, "仿真开始前已请求停止")
@@ -196,23 +200,23 @@ class FarcelEngine:
 
             current_time = config.start_time
             completed_steps = 0
-            timestamps = [current_time]
-            output_columns = {name: [] for name in config.selected_outputs}
+            result_accumulator = _ResultAccumulator(
+                config.selected_outputs, on_result_chunk, result_chunk_size
+            )
             tolerance = max(1e-12, config.communication_step * 1e-9)
             output_interval = resolve_output_interval(config)
-            if config.selected_outputs:
-                _append_output_sample(
-                    output_columns,
-                    config.selected_outputs,
-                    self.read_outputs(handle),
-                )
+            _record_sample(
+                result_accumulator,
+                current_time,
+                self.read_outputs(handle) if config.selected_outputs else {},
+            )
             supports_variable_step = _supports_variable_step(metadata)
             _notify_progress(
                 on_progress,
                 config,
                 current_time,
                 completed_steps,
-                len(timestamps),
+                result_accumulator.sample_count,
                 SimulationState.RUNNING,
             )
             stopped = False
@@ -237,34 +241,32 @@ class FarcelEngine:
                     output_interval,
                     tolerance,
                 ):
-                    timestamps.append(current_time)
-                    if config.selected_outputs:
-                        _append_output_sample(
-                            output_columns,
-                            config.selected_outputs,
-                            self.read_outputs(handle),
-                        )
+                    _record_sample(
+                        result_accumulator,
+                        current_time,
+                        self.read_outputs(handle) if config.selected_outputs else {},
+                    )
                 _notify_progress(
                     on_progress,
                     config,
                     current_time,
                     completed_steps,
-                    len(timestamps),
+                    result_accumulator.sample_count,
                     SimulationState.RUNNING,
                 )
 
             if not math.isclose(
-                timestamps[-1], current_time, rel_tol=0.0, abs_tol=tolerance
+                result_accumulator.final_time,
+                current_time,
+                rel_tol=0.0,
+                abs_tol=tolerance,
             ):
-                timestamps.append(current_time)
-                if config.selected_outputs:
-                    _append_output_sample(
-                        output_columns,
-                        config.selected_outputs,
-                        self.read_outputs(handle),
-                    )
+                _record_sample(
+                    result_accumulator,
+                    current_time,
+                    self.read_outputs(handle) if config.selected_outputs else {},
+                )
 
-            self.terminate(handle)
             completion_state = (
                 SimulationState.STOPPED if stopped else SimulationState.COMPLETED
             )
@@ -276,11 +278,11 @@ class FarcelEngine:
                 completed_steps=completed_steps,
                 final_time=current_time,
                 completion_state=completion_state,
-                timestamps=tuple(timestamps),
-                outputs={
-                    name: tuple(values) for name, values in output_columns.items()
-                },
+                timestamps=result_accumulator.timestamps,
+                outputs=result_accumulator.outputs,
             )
+            result_accumulator.flush_final()
+            self.terminate(handle)
             _notify_progress(
                 on_progress,
                 config,
@@ -374,6 +376,120 @@ def _is_output_sample_time(
     )
 
 
+class _ResultAccumulator:
+    """Keep the canonical result and optionally deliver contiguous sample chunks."""
+
+    def __init__(
+        self,
+        selected_outputs: tuple[str, ...],
+        callback: Callable[[ResultChunk], None] | None,
+        chunk_size: int,
+    ) -> None:
+        self._selected_outputs = selected_outputs
+        self._callback = callback
+        self._chunk_size = chunk_size
+        self._run_id = str(uuid4())
+        self._sequence = 0
+        self._timestamps: list[float] = []
+        self._outputs = {name: [] for name in selected_outputs}
+        self._pending_time: list[float] = []
+        self._pending_columns = {name: [] for name in selected_outputs}
+
+    @property
+    def sample_count(self) -> int:
+        return len(self._timestamps)
+
+    @property
+    def final_time(self) -> float:
+        return self._timestamps[-1]
+
+    @property
+    def timestamps(self) -> tuple[float, ...]:
+        return tuple(self._timestamps)
+
+    @property
+    def outputs(self) -> dict[str, tuple[Any, ...]]:
+        return {name: tuple(values) for name, values in self._outputs.items()}
+
+    def record_sample(self, timestamp: float, values: Mapping[str, Any]) -> None:
+        missing = tuple(
+            name for name in self._selected_outputs if name not in values
+        )
+        if missing:
+            raise EngineError(
+                ErrorCode.OUTPUT_READ_ERROR,
+                "Session 未返回全部所选输出变量",
+                {"variables": missing},
+            )
+        if self._callback is not None and len(self._pending_time) == self._chunk_size:
+            self._flush(final_chunk=False)
+
+        self._timestamps.append(timestamp)
+        for name in self._selected_outputs:
+            value = values[name]
+            self._outputs[name].append(value)
+            if self._callback is not None:
+                self._pending_columns[name].append(value)
+        if self._callback is not None:
+            self._pending_time.append(timestamp)
+
+    def flush_final(self) -> None:
+        if self._callback is not None:
+            self._flush(final_chunk=True)
+
+    def _flush(self, *, final_chunk: bool) -> None:
+        if not self._pending_time:
+            return
+        chunk = ResultChunk(
+            run_id=self._run_id,
+            sequence=self._sequence,
+            time=tuple(self._pending_time),
+            columns={
+                name: tuple(values) for name, values in self._pending_columns.items()
+            },
+            final_chunk=final_chunk,
+        )
+        try:
+            self._callback(chunk)
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INTERNAL_ERROR,
+                "结果分块回调执行失败",
+                {"chunk_callback_diagnostic": str(exc)},
+            ) from None
+        self._sequence += 1
+        self._pending_time.clear()
+        for values in self._pending_columns.values():
+            values.clear()
+
+
+def _record_sample(
+    accumulator: _ResultAccumulator, timestamp: float, values: Mapping[str, Any]
+) -> None:
+    accumulator.record_sample(timestamp, values)
+
+
+def _validate_result_chunk_size(result_chunk_size: int) -> None:
+    if (
+        isinstance(result_chunk_size, bool)
+        or not isinstance(result_chunk_size, int)
+        or result_chunk_size <= 0
+    ):
+        raise EngineError(
+            ErrorCode.CONFIG_ERROR,
+            "仿真配置验证失败",
+            {
+                "issues": (
+                    {
+                        "field": "result_chunk_size",
+                        "code": "INVALID_RESULT_CHUNK_SIZE",
+                        "message": "result_chunk_size 必须是大于 0 的整数",
+                    },
+                )
+            },
+        )
+
+
 def _notify_progress(
     callback: Callable[[RunProgress], None] | None,
     config: SimulationConfig,
@@ -402,22 +518,6 @@ def _notify_progress(
             "运行进度回调执行失败",
             {"callback_diagnostic": str(exc)},
         ) from None
-
-
-def _append_output_sample(
-    columns: dict[str, list[Any]],
-    selected_outputs: tuple[str, ...],
-    sample: Mapping[str, Any],
-) -> None:
-    missing = tuple(name for name in selected_outputs if name not in sample)
-    if missing:
-        raise EngineError(
-            ErrorCode.OUTPUT_READ_ERROR,
-            "Session 未返回全部所选输出变量",
-            {"variables": missing},
-        )
-    for name in selected_outputs:
-        columns[name].append(sample[name])
 
 
 def _combine_cleanup_errors(errors: list[EngineError]) -> EngineError | None:

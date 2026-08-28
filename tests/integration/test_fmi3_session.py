@@ -108,6 +108,35 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
             self.assertAlmostEqual(actual, expected)
 
     @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_real_fmi3_streams_chunks_matching_the_canonical_result(self) -> None:
+        chunks = []
+        result = FarcelEngine(
+            FmpyImporter(), FmpySessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+        )
+
+        self.assertEqual([chunk.sequence for chunk in chunks], [0, 1, 2])
+        self.assertEqual([len(chunk.time) for chunk in chunks], [2, 2, 1])
+        self.assertEqual([chunk.final_chunk for chunk in chunks], [False, False, True])
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        self.assertEqual(
+            tuple(value for chunk in chunks for value in chunk.columns["x0"]),
+            result.outputs["x0"],
+        )
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
     def test_real_fmi3_stop_returns_partial_result(self) -> None:
         control = RunControl()
         factory = CapturingFactory()

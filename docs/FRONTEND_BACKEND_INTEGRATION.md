@@ -26,6 +26,7 @@ from farcel.contracts import (
     InputUpdate,
     InterfaceType,
     ModelMetadata,
+    ResultChunk,
     RunControl,
     RunProgress,
     SimulationConfig,
@@ -156,6 +157,42 @@ session. After initialization, a user stop returns `SimulationResult` with
 is appended when it was not an output sample, and a stopped result remains
 exportable through `export_result()`.
 
+### Result chunk streaming
+
+The same keyword-only API also accepts `on_result_chunk` and
+`result_chunk_size` (default `256`):
+
+```python
+result = backend.run_fmu(
+    path,
+    config,
+    control=control,
+    on_progress=on_progress,
+    on_result_chunk=on_result_chunk,
+    result_chunk_size=256,
+)
+```
+
+`result_chunk_size` must be an integer greater than zero (not `bool`). Invalid
+values fail before FMU loading with `CONFIG_ERROR` and an issue whose stable
+`field` is `result_chunk_size` and `code` is `INVALID_RESULT_CHUNK_SIZE`.
+
+`on_result_chunk` receives `ResultChunk(run_id, sequence, time, columns,
+final_chunk)`. `time` and each selected output column contain the same,
+contiguous canonical result samples that will appear in `SimulationResult`;
+they are not communication-step events and do not trigger extra output reads.
+The initial sample is included. With no selected outputs, `columns == {}` but
+the sampled time axis still streams. Every run uses a fresh UUID `run_id` and
+zero-based contiguous sequence values.
+
+Farcel holds a full `SimulationResult` as before; streaming is not a
+bounded-memory execution mode. A completed or cooperatively stopped run emits
+exactly one non-empty `final_chunk=True` after its final canonical sample and
+before terminal progress. A runtime engine error emits no extra final chunk.
+The chunk callback uses the `run_fmu` thread. Its exception is converted to
+`INTERNAL_ERROR` with diagnostic key `chunk_callback_diagnostic` and does not
+skip cleanup; GUI code must marshal callback data to the UI thread itself.
+
 ## 9. Run Workflow
 
 ```python
@@ -164,7 +201,7 @@ result = backend.run_fmu(path, config)
 
 `run_fmu` 会重新加载 metadata、复用 application validation、创建 session、初始化、执行 step、仅在结果采样时读取选择的输出并清理资源。成功返回 `SimulationResult`；GUI 不需要也不应直接管理 session 生命周期。
 
-当前公开高层运行 API 是同步、阻塞调用。GUI 必须在自己的调度边界之外调用它（例如 GUI 框架认可的后台任务），绝不能在 UI event-loop 线程直接运行长仿真。只有 `RunControl.request_stop()` 可安全从另一个线程调用；FarcelEngine 整体并不声明 thread-safe，也不提供 asyncio、ResultChunk streaming 或 timeout hard-kill。
+当前公开高层运行 API 是同步、阻塞调用。GUI 必须在自己的调度边界之外调用它（例如 GUI 框架认可的后台任务），绝不能在 UI event-loop 线程直接运行长仿真。只有 `RunControl.request_stop()` 可安全从另一个线程调用；FarcelEngine 整体并不声明 thread-safe，也不提供 asyncio 或 timeout hard-kill。`on_progress` 与 `on_result_chunk` 均在 run 调用线程执行。
 
 ## 10. Consuming SimulationResult
 
@@ -227,8 +264,8 @@ GUI 对 FMI 2.0 与基础 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`
 
 - `create_backend()`；
 - 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`；
-- 本文列出的 `ModelMetadata`、`SimulationConfig`、`ValidationReport`、`SimulationResult`、`RunControl`、`RunProgress`、`ExportReport` 字段；
+- 本文列出的 `ModelMetadata`、`SimulationConfig`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
 
-以下部分应继续演进而不作为 GUI v1 依赖：低层 session/step 方法、session handle、FMI 3 advanced flags、`ResultChunk`、`RunSummary`、未实现配置项的运行语义、基础设施类、diagnostic details 的自由文本和 `value_reference`。新增字段和错误码应保持向后兼容；删除或改义冻结字段时再提升 contract schema / major version。
+以下部分应继续演进而不作为 GUI v1 依赖：低层 session/step 方法、session handle、FMI 3 advanced flags、`RunSummary`、未实现配置项的运行语义、基础设施类、diagnostic details 的自由文本和 `value_reference`。新增字段和错误码应保持向后兼容；删除或改义冻结字段时再提升 contract schema / major version。

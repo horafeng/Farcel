@@ -83,6 +83,8 @@ FMI 2.0 与基础 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：a
 
 Phase 2.0B 在 contracts 中提供 `RunControl` 和 `RunProgress`，在 application 的唯一 `run_fmu()` 循环中实现 cooperative stop 与进度通知。`RunControl` 使用标准库同步原语，仅表达“在下一个 communication point 停止”；FMPy adapter 不认识它，也不会尝试中断正在执行的 native `doStep()`。初始化后发生的停止会正常 terminate / close 并返回 `SimulationState.STOPPED` 的 canonical partial result，末尾补记实际 final state；该结果仍可由既有 CSV adapter 导出。progress callback 只传递 DTO，且在 run 调用线程执行；其异常被转换为稳定 `INTERNAL_ERROR`，再复用既有 cleanup 路径。
 
+Phase 2.0C 在同一 application 采样路径上增加 Farcel-owned `ResultChunk` 回调：累积器只接收 canonical result sample，绝不把 communication step 或 FMPy 对象暴露给调用者，也不会触发额外 `read_outputs()`。每次 `run_fmu()` 的可观测流使用一个新的 UUID `run_id` 和从零连续递增的 `sequence`；满块只在下一样本到来前以非终块送出，完成或 `STOPPED` 时将最后一个非空块标记为唯一 `final_chunk=True`。完整 `SimulationResult` 仍由 application 保留并返回，因此此功能不是 bounded-memory execution mode。chunk callback 同样在调用线程运行，异常映射为独立的 `INTERNAL_ERROR` 诊断并经过既有 cleanup；运行时 FMU 错误不会伪造 final chunk。
+
 CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
 
 基础 FMI 3.0 runtime 使用普通 Co-Simulation step mode，不启用 Event Mode、Early Return 或 Intermediate Update。若 FMU 在执行时返回这些未支持条件，adapter 会报告稳定 `STEP_ERROR`，而不是将其当成完整 communication step。
