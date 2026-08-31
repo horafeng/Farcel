@@ -82,6 +82,33 @@ class CsvResultExporterTests(unittest.TestCase):
             rows = read_csv(destination)
             self.assertEqual([row[1] for row in rows[1:]], list(strings))
 
+    def test_expands_nested_array_outputs_into_stable_indexed_columns(self) -> None:
+        result = result_with(
+            {
+                "y": ((1.0, 2.0), (3.0, 4.0), (5.0, 6.0)),
+                "A": (
+                    ((1.0, 0.0), (0.0, 1.0)),
+                    ((2.0, 0.0), (0.0, 2.0)),
+                    ((3.0, 0.0), (0.0, 3.0)),
+                ),
+                "label": ("a", "b", "c"),
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "arrays.csv"
+            report = CsvResultExporter().export(result, destination)
+
+            self.assertEqual(
+                read_csv(destination),
+                [
+                    ["time", "y[0]", "y[1]", "A[0,0]", "A[0,1]", "A[1,0]", "A[1,1]", "label"],
+                    ["0.0", "1.0", "2.0", "1.0", "0.0", "0.0", "1.0", "a"],
+                    ["0.1", "3.0", "4.0", "2.0", "0.0", "0.0", "2.0", "b"],
+                    ["0.2", "5.0", "6.0", "3.0", "0.0", "0.0", "3.0", "c"],
+                ],
+            )
+            self.assertEqual(report.row_count, 3)
+
     def test_file_error_is_mapped_to_stable_engine_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory)

@@ -7,8 +7,10 @@ from pathlib import Path
 
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
+from farcel.contracts import RunControl
 from farcel.contracts.errors import EngineError, ErrorCode
-from farcel.contracts.models import InputUpdate, SimulationConfig
+from farcel.contracts.models import InputUpdate, SimulationConfig, SimulationState
+from farcel.infrastructure.export import CsvResultExporter
 from farcel.infrastructure.fmpy import FmpyFmi2SessionFactory, FmpyImporter
 
 
@@ -144,6 +146,104 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
         self.assertNotEqual(result.outputs["x0"][-1], result.outputs["x0"][0])
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_uses_output_interval_without_changing_steps(self) -> None:
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 20)
+        self.assertEqual(result.sample_count, 5)
+        for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.1, 0.15, 0.2)):
+            self.assertAlmostEqual(actual, expected)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_streams_chunks_matching_the_canonical_result(self) -> None:
+        chunks = []
+        result = FarcelEngine(
+            FmpyImporter(), FmpyFmi2SessionFactory()
+        ).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+        )
+
+        self.assertEqual([chunk.sequence for chunk in chunks], [0, 1, 2])
+        self.assertEqual([len(chunk.time) for chunk in chunks], [2, 2, 1])
+        self.assertEqual([chunk.final_chunk for chunk in chunks], [False, False, True])
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        self.assertEqual(
+            tuple(value for chunk in chunks for value in chunk.columns["x0"]),
+            result.outputs["x0"],
+        )
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_real_fmi2_stop_returns_exportable_partial_result(self) -> None:
+        control = RunControl()
+        factory = CapturingFactory()
+        engine = FarcelEngine(FmpyImporter(), factory, CsvResultExporter())
+        chunks = []
+
+        result = engine.run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.2,
+                communication_step=0.01,
+                output_interval=0.05,
+                selected_outputs=("x0",),
+            ),
+            control=control,
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+            on_progress=lambda progress: (
+                control.request_stop() if progress.current_time >= 0.07 else None
+            ),
+        )
+
+        self.assertEqual(result.completion_state, SimulationState.STOPPED)
+        self.assertFalse(result.successful)
+        self.assertEqual(result.completed_steps, 7)
+        self.assertAlmostEqual(result.final_time, 0.07)
+        self.assertEqual(result.sample_count, 3)
+        for actual, expected in zip(result.timestamps, (0.0, 0.05, 0.07)):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(len(result.outputs["x0"]), result.sample_count)
+        self.assertTrue(chunks[-1].final_chunk)
+        self.assertAlmostEqual(chunks[-1].time[-1], 0.07)
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        self.assertEqual(
+            tuple(value for chunk in chunks for value in chunk.columns["x0"]),
+            result.outputs["x0"],
+        )
+        self.assertTrue(factory.session._terminated)
+        self.assertTrue(factory.session._closed)
+        self.assertFalse(factory.extraction_directory.exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            report = engine.export_result(result, Path(directory) / "partial.csv")
+        self.assertEqual(report.row_count, result.sample_count)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_real_run_without_outputs_keeps_timeline(self) -> None:
         result = FarcelEngine(
             FmpyImporter(), FmpyFmi2SessionFactory()
@@ -169,7 +269,8 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
             with redirect_stdout(stdout):
                 exit_code = main([
                     "export", str(self.van_der_pol), "--start-time", "0",
-                    "--stop-time", "0.02", "--step-size", "0.01",
+                    "--stop-time", "0.2", "--step-size", "0.01",
+                    "--output-interval", "0.05",
                     "--output", "x0", "--csv", str(destination),
                 ])
 
@@ -177,12 +278,12 @@ class Fmi2SessionIntegrationTests(unittest.TestCase):
                 rows = list(csv.reader(stream))
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("data rows: 3", stdout.getvalue())
+        self.assertIn("data rows: 5", stdout.getvalue())
         self.assertIn("export successful", stdout.getvalue())
         self.assertEqual(rows[0], ["time", "x0"])
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), 6)
         self.assertEqual(float(rows[1][0]), 0.0)
-        self.assertAlmostEqual(float(rows[-1][0]), 0.02)
+        self.assertAlmostEqual(float(rows[-1][0]), 0.2)
         self.assertEqual(float(rows[1][1]), 2.0)
         self.assertNotEqual(float(rows[-1][1]), float(rows[1][1]))
 

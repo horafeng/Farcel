@@ -10,6 +10,13 @@ from uuid import uuid4
 from fmpy import extract
 from fmpy.fmi3 import FMU3Slave
 
+from farcel.contracts._arrays import (
+    EffectiveShapeError,
+    array_size,
+    flatten_array,
+    reshape_array,
+    resolve_effective_shape,
+)
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -23,6 +30,9 @@ from farcel.infrastructure.fmpy.session import (
     _release_native,
     _remove_extraction_directory,
 )
+
+
+_MAX_EVENT_ITERATIONS = 1000
 
 
 class FmpyFmi3SessionFactory:
@@ -56,6 +66,17 @@ class FmpyFmi3SessionFactory:
         )
 
 
+def _co_simulation_capability(metadata: ModelMetadata):
+    return next(
+        (
+            item
+            for item in metadata.interface_capabilities
+            if item.interface_type is InterfaceType.CO_SIMULATION
+        ),
+        None,
+    )
+
+
 class FmpyFmi3Session:
     """Own one basic FMU3Slave and all of its native resources."""
 
@@ -75,6 +96,14 @@ class FmpyFmi3Session:
         self._closed = False
         self._native_released = False
         self._applied_parameters: tuple[str, ...] = ()
+        self._effective_shapes = {
+            variable.name: variable.shape for variable in metadata.variables
+        }
+        capability = _co_simulation_capability(metadata)
+        self._event_mode_used = bool(capability and capability.supports_event_mode)
+        self._early_return_allowed = bool(
+            capability and capability.supports_early_return
+        )
 
     @classmethod
     def open(
@@ -84,6 +113,7 @@ class FmpyFmi3Session:
         model_identifier: str,
     ) -> FmpyFmi3Session:
         extraction_directory = Path(tempfile.mkdtemp(prefix="farcel-fmi3-"))
+        capability = _co_simulation_capability(metadata)
         fmu: Any = None
         instantiated = False
         cleanup_diagnostics: list[str] = []
@@ -103,8 +133,10 @@ class FmpyFmi3Session:
             finally:
                 os.chdir(working_directory)
             fmu.instantiate(
-                eventModeUsed=False,
-                earlyReturnAllowed=False,
+                eventModeUsed=bool(capability and capability.supports_event_mode),
+                earlyReturnAllowed=bool(
+                    capability and capability.supports_early_return
+                ),
                 logMessage=lambda *_: None,
             )
             instantiated = True
@@ -129,9 +161,9 @@ class FmpyFmi3Session:
         if self._initialized:
             return
 
-        self._apply_parameters()
-        if self._config.initial_inputs:
-            self.set_inputs(self._config.initial_inputs)
+        self._resolve_effective_shapes()
+        if self._has_structural_parameter_overrides():
+            self._apply_structural_parameters()
 
         try:
             self._fmu.enterInitializationMode(
@@ -139,6 +171,20 @@ class FmpyFmi3Session:
                 startTime=self._config.start_time,
                 stopTime=self._config.stop_time,
             )
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI initialization mode 失败",
+                {"diagnostic": str(exc)},
+            ) from None
+
+        # 普通参数和初始输入在 Initialization Mode 中设置；结构参数覆盖已经完成
+        # 运行前的 Configuration Mode 生命周期。
+        self._apply_parameters()
+        if self._config.initial_inputs:
+            self.set_inputs(self._config.initial_inputs)
+
+        try:
             self._fmu.exitInitializationMode()
         except Exception as exc:
             raise EngineError(
@@ -146,6 +192,9 @@ class FmpyFmi3Session:
                 "FMI initialization mode 失败",
                 {"diagnostic": str(exc)},
             ) from None
+
+        if self._event_mode_used:
+            self._complete_event_mode(phase="initialization")
 
         self._initialized = True
 
@@ -173,34 +222,109 @@ class FmpyFmi3Session:
                 {"diagnostic": str(exc)},
             ) from None
 
-        if event_encountered or early_return or terminate_requested:
-            conditions = tuple(
-                name
-                for name, active in (
-                    ("event_mode", event_encountered),
-                    ("early_return", early_return),
-                    ("terminate_requested", terminate_requested),
-                )
-                if active
-            )
+        if terminate_requested:
             raise EngineError(
                 ErrorCode.STEP_ERROR,
-                "FMI 3 runtime 返回当前 Basic Co-Simulation 不支持的条件",
-                {"conditions": conditions, "reached_time": reached_time},
+                "FMI 3 Co-Simulation 请求终止仿真",
+                {
+                    "terminate_requested": True,
+                    "reached_time": reached_time,
+                },
+            )
+        if event_encountered and not self._event_mode_used:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 runtime 返回当前配置未启用的 Event Mode",
+                {"conditions": ("event_mode",), "reached_time": reached_time},
+            )
+        if early_return and not self._early_return_allowed:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 runtime 返回当前配置未允许的 Early Return",
+                {"conditions": ("early_return",), "reached_time": reached_time},
             )
         if not math.isfinite(reached_time) or reached_time <= current_time:
             raise EngineError(
                 ErrorCode.STEP_ERROR,
                 "FMI 3 doStep 未返回有效的 reached time",
-                {"current_time": current_time, "reached_time": reached_time},
+                {
+                    "current_time": current_time,
+                    "requested_time": requested_time,
+                    "reached_time": reached_time,
+                    "early_return": early_return,
+                },
             )
+        if event_encountered:
+            self._enter_event_mode()
+            self._complete_event_mode(phase="runtime")
 
         return StepResult(
             requested_time=requested_time,
             reached_time=reached_time,
             step_size=step_size,
             status=StepStatus.SUCCESS,
+            event_encountered=event_encountered,
+            early_return=early_return,
+            terminate_requested=terminate_requested,
         )
+
+    def _enter_event_mode(self) -> None:
+        try:
+            self._fmu.enterEventMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Event Mode 进入失败",
+                {"diagnostic": str(exc)},
+            ) from None
+
+    def _complete_event_mode(self, *, phase: str) -> None:
+        for event_iteration_count in range(1, _MAX_EVENT_ITERATIONS + 1):
+            try:
+                (
+                    discrete_states_need_update,
+                    terminate_requested,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = self._fmu.updateDiscreteStates()
+            except Exception as exc:
+                raise EngineError(
+                    ErrorCode.STEP_ERROR,
+                    "FMI 3 Event Mode 离散状态更新失败",
+                    {"phase": phase, "diagnostic": str(exc)},
+                ) from None
+
+            if terminate_requested:
+                raise EngineError(
+                    ErrorCode.STEP_ERROR,
+                    "FMI 3 Event Mode 请求终止仿真",
+                    {
+                        "phase": phase,
+                        "terminate_requested": True,
+                        "event_iteration_count": event_iteration_count,
+                    },
+                )
+            if not discrete_states_need_update:
+                break
+        else:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Event Mode 离散状态更新超过迭代上限",
+                {
+                    "phase": phase,
+                    "event_iteration_count": _MAX_EVENT_ITERATIONS,
+                },
+            )
+        try:
+            self._fmu.enterStepMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Step Mode 进入失败",
+                {"phase": phase, "diagnostic": str(exc)},
+            ) from None
 
     def set_inputs(self, values: Mapping[str, Any]) -> None:
         if self._terminated or self._closed:
@@ -209,8 +333,7 @@ class FmpyFmi3Session:
         try:
             for name, value in values.items():
                 variable = variables[name]
-                setter = getattr(self._fmu, _accessor_name("set", variable))
-                setter([variable.value_reference], [value])
+                self._set_variable(variable, value)
         except EngineError:
             raise
         except Exception as exc:
@@ -239,8 +362,18 @@ class FmpyFmi3Session:
                 )
             try:
                 getter = getattr(self._fmu, _accessor_name("get", variable))
-                raw_value = getter([variable.value_reference])[0]
-                values[name] = _python_scalar(raw_value, variable)
+                shape = self._effective_shapes.get(variable.name, variable.shape)
+                if shape:
+                    raw_values = getter(
+                        [variable.value_reference], nValues=array_size(shape)
+                    )
+                    values[name] = reshape_array(
+                        tuple(_python_scalar(value, variable) for value in raw_values),
+                        shape,
+                    )
+                else:
+                    raw_value = getter([variable.value_reference])[0]
+                    values[name] = _python_scalar(raw_value, variable)
             except EngineError:
                 raise
             except Exception as exc:
@@ -293,8 +426,9 @@ class FmpyFmi3Session:
         try:
             for name, value in self._config.parameters.items():
                 variable = variables[name]
-                setter = getattr(self._fmu, _accessor_name("set", variable))
-                setter([variable.value_reference], [value])
+                if variable.causality == "structuralParameter":
+                    continue
+                self._set_variable(variable, value)
                 applied.append(name)
         except EngineError:
             raise
@@ -306,19 +440,87 @@ class FmpyFmi3Session:
             ) from None
         self._applied_parameters = tuple(applied)
 
+    def _set_variable(self, variable: VariableMetadata, value: Any) -> None:
+        setter = getattr(self._fmu, _accessor_name("set", variable))
+        shape = self._effective_shapes.get(variable.name, variable.shape)
+        values = (
+            flatten_array(value, shape) if shape else (value,)
+        )
+        setter([variable.value_reference], list(values))
+
+    def _has_structural_parameter_overrides(self) -> bool:
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        return any(
+            variables.get(name) is not None
+            and variables[name].causality == "structuralParameter"
+            for name in self._config.parameters
+        )
+
+    def _resolve_effective_shapes(self) -> None:
+        structural_values = {
+            variable.value_reference: variable.start
+            for variable in self._metadata.variables
+            if variable.causality == "structuralParameter"
+        }
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        for name, value in self._config.parameters.items():
+            variable = variables.get(name)
+            if variable is not None and variable.causality == "structuralParameter":
+                structural_values[variable.value_reference] = value
+        try:
+            self._effective_shapes = {
+                variable.name: resolve_effective_shape(
+                    variable.shape,
+                    variable.dimension_value_references,
+                    structural_values,
+                )
+                for variable in self._metadata.variables
+            }
+        except EffectiveShapeError as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 dynamic array shape 解析失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
+
+    def _apply_structural_parameters(self) -> None:
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        try:
+            self._fmu.enterConfigurationMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 Configuration Mode 进入失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
+
+        try:
+            for name, value in self._config.parameters.items():
+                variable = variables[name]
+                if variable.causality == "structuralParameter":
+                    self._set_variable(variable, value)
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.PARAMETER_SET_ERROR,
+                "FMI structural parameter override 应用失败",
+                {
+                    "parameter": name,
+                    "phase": "configuration",
+                    "diagnostic": str(exc),
+                },
+            ) from None
+
+        try:
+            self._fmu.exitConfigurationMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 Configuration Mode 退出失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
+
 
 def _accessor_name(prefix: str, variable: VariableMetadata) -> str:
-    if variable.shape:
-        code = (
-            ErrorCode.PARAMETER_SET_ERROR
-            if prefix == "set"
-            else ErrorCode.OUTPUT_READ_ERROR
-        )
-        raise EngineError(
-            code,
-            "本阶段不支持 FMI 3 数组变量",
-            {"variable": variable.name},
-        )
     if variable.data_type == "Enumeration":
         return f"{prefix}Int64"
     supported_types = {

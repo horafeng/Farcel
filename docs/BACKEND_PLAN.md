@@ -1,5 +1,7 @@
 # 后端开发者项目规划报告
 
+> 本文是项目早期规划记录，不是当前能力清单。Phase 2 已完成的实际执行范围、兼容矩阵与未支持边界以 `README.md`、`BACKEND_ARCHITECTURE.md` 和 `FMU_COMPATIBILITY.md` 为准。
+
 **目标与边界。** 后端是 Farcel 的“可信业务核心”：拥有 FMU 解析、FMI/FMPy Adapter、Session 生命周期、参数和仿真条件验证、执行、结果生成、CSV、CLI、日志、错误规范化及测试基准。GUI 和 CLI 均不得绕开这一层。
 
 当前 FMPy `simulate_fmu()` 已暴露 start/stop time、step size、relative tolerance、output interval、start values、inputs、selected outputs、logging、step callback，以及 FMI 3 Co-Simulation 的 `early_return_allowed` 和 `use_event_mode` 等能力；Farcel 应在其上建立更稳定、更小的项目级接口，而不是把这个函数签名直接作为前后端契约。citeturn17view0 FMPy 也提供独立 `instantiate_fmu()` 路径，并能根据 model description 选择 FMI 2/3 Co-Simulation、Model Exchange 等对象，这使逐步执行和未来扩展具备可行基础。citeturn17view1

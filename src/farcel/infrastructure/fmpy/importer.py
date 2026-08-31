@@ -16,6 +16,7 @@ from farcel.contracts.models import (
     ModelMetadata,
     VariableMetadata,
 )
+from farcel.contracts._arrays import array_size, reshape_array
 
 
 class FmpyImporter:
@@ -197,11 +198,31 @@ def _map_variable(variable: Any) -> VariableMetadata:
         description=variable.description,
         declared_type=getattr(variable.declaredType, "name", None),
         shape=tuple(variable.shape or ()),
+        dimension_value_references=tuple(
+            getattr(dimension, "valueReference", None)
+            for dimension in getattr(variable, "dimensions", ())
+        ),
     )
 
 
 def _optional_float(value: Any) -> float | None:
     return None if value is None else float(value)
+
+
+_ARRAY_START_BROADCAST_TYPES = {
+    "Float32",
+    "Float64",
+    "Int8",
+    "UInt8",
+    "Int16",
+    "UInt16",
+    "Int32",
+    "UInt32",
+    "Int64",
+    "UInt64",
+    "Boolean",
+    "Enumeration",
+}
 
 
 def _typed_value(value: Any, data_type: str, shape: tuple[int, ...] | None = None) -> Any:
@@ -231,7 +252,13 @@ def _typed_value(value: Any, data_type: str, shape: tuple[int, ...] | None = Non
         return item
 
     converted = tuple(convert(item) for item in values)
-    return converted if shape else converted[0]
+    if not shape:
+        return converted[0]
+
+    resolved_shape = tuple(shape)
+    if len(converted) == 1 and data_type in _ARRAY_START_BROADCAST_TYPES:
+        converted *= array_size(resolved_shape)
+    return reshape_array(converted, resolved_shape)
 
 
 def _only_recoverable_validation_problems(problems: tuple[str, ...]) -> bool:

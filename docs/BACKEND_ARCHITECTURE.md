@@ -77,12 +77,20 @@ docs/
 
 `SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
 
-FMI 2.0 与基础 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
+FMI 2.0 与 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
 
-`SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并在每个成功 step 的实际 `reached_time` 采集配置选中的标量输出。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
+`SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并仅在由 `output_interval` 指定的实际到达 communication point 采集配置选中的输出。`communication_step` 始终控制 FMU 推进；未显式设置的 `output_interval` 回退为该步长，正常完成时会补记尚未采样的最终状态。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
+
+Phase 2.0B 在 contracts 中提供 `RunControl` 和 `RunProgress`，在 application 的唯一 `run_fmu()` 循环中实现 cooperative stop 与进度通知。`RunControl` 使用标准库同步原语，仅表达“在下一个 communication point 停止”；FMPy adapter 不认识它，也不会尝试中断正在执行的 native `doStep()`。初始化后发生的停止会正常 terminate / close 并返回 `SimulationState.STOPPED` 的 canonical partial result，末尾补记实际 final state；该结果仍可由既有 CSV adapter 导出。progress callback 只传递 DTO，且在 run 调用线程执行；其异常被转换为稳定 `INTERNAL_ERROR`，再复用既有 cleanup 路径。
+
+Phase 2.0C 在同一 application 采样路径上增加 Farcel-owned `ResultChunk` 回调：累积器只接收 canonical result sample，绝不把 communication step 或 FMPy 对象暴露给调用者，也不会触发额外 `read_outputs()`。每次 `run_fmu()` 的可观测流使用一个新的 UUID `run_id` 和从零连续递增的 `sequence`；满块只在下一样本到来前以非终块送出，完成或 `STOPPED` 时将最后一个非空块标记为唯一 `final_chunk=True`。完整 `SimulationResult` 仍由 application 保留并返回，因此此功能不是 bounded-memory execution mode。chunk callback 同样在调用线程运行，异常映射为独立的 `INTERNAL_ERROR` 诊断并经过既有 cleanup；运行时 FMU 错误不会伪造 final chunk。
 
 CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
 
-基础 FMI 3.0 runtime 使用普通 Co-Simulation step mode，不启用 Event Mode、Early Return 或 Intermediate Update。若 FMU 在执行时返回这些未支持条件，adapter 会报告稳定 `STEP_ERROR`，而不是将其当成完整 communication step。
+Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，以 `eventModeUsed=True` / `earlyReturnAllowed=True` 实例化。Event Mode 在 exitInitializationMode 后和 doStep 报告 event 后执行 `updateDiscreteStates()` 直至稳定，再进入 Step Mode；1000 次迭代上限防止坏 FMU 挂死。合法 Early Return 保留在 Farcel `StepResult`，application 以实际 reached time 继续请求原配置 communication target，只有完整到达该 target 才增加 `completed_steps` 和执行常规采样。Intermediate Update 数据回调、Clock/Binary、Scheduled Execution 与 Model Exchange runtime 仍未实现。
 
-尚未实现 GUI、FMI 3 Event Mode / Early Return 调度、Scheduled Execution、worker、多 FMU 和 ME solver。
+Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组提供完整数据链路：validation 对 public nested sequence 严格匹配 `VariableMetadata.shape`，adapter 在 Initialization Mode 内 flatten 写入并按 getter 的 `nValues=product(shape)` reshape 为 nested tuple。数组参数、initial/scheduled input、selected output、canonical `SimulationResult`、`ResultChunk` 和 CSV 都使用同一数组语义；CSV 仅在导出边界展开为零基 indexed columns。此能力不引入新 DTO、NumPy 或 FMPy 对象到 public contracts，也不改变标量路径。
+
+Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver 尚未实现。
+
+Phase 2.3 使用官方 Reference FMU 扩展真实兼容性回归，而不增加运行能力：Feedthrough 覆盖当前 FMI 3 scalar setter/getter 与 ResultChunk/CSV 路径，Resource 覆盖已解压 FMU 的 `resources/` 访问和关闭清理，Clocks 则验证 Scheduled Execution/Clock 能被 inspect 且在 session 创建前由执行策略拒绝。FMI 3 Binary 与 Clock 不进入 adapter runtime；validation 对 Binary/Clock selected output 返回稳定的 `UNSUPPORTED_OUTPUT_TYPE`，对 Binary input 保持 `UNSUPPORTED_INPUT_TYPE`。

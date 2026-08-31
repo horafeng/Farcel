@@ -3,6 +3,12 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from farcel.contracts._arrays import (
+    ArrayShapeError,
+    EffectiveShapeError,
+    flatten_array,
+    resolve_effective_shape,
+)
 from farcel.contracts.errors import ErrorCode
 from farcel.contracts.models import (
     InputUpdate,
@@ -50,7 +56,9 @@ def validate_config(
                 "communication step size 必须是大于 0 的有限数值",
             )
         )
-    if not _is_finite_number(config.output_interval) or config.output_interval <= 0:
+    if config.output_interval is not None and (
+        not _is_finite_number(config.output_interval) or config.output_interval <= 0
+    ):
         issues.append(
             ValidationIssue(
                 "output_interval",
@@ -58,6 +66,24 @@ def validate_config(
                 "输出间隔必须是大于 0 的有限数值",
             )
         )
+    elif (
+        config.output_interval is not None
+        and _is_finite_number(config.communication_step)
+    ):
+        sample_step_ratio = config.output_interval / config.communication_step
+        if not math.isclose(
+            sample_step_ratio,
+            round(sample_step_ratio),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            issues.append(
+                ValidationIssue(
+                    "output_interval",
+                    "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED",
+                    "输出间隔必须是 communication_step 的整数倍，以保证采样位于 communication point",
+                )
+            )
 
     co_simulation = next(
         (
@@ -87,6 +113,9 @@ def validate_config(
         issues.append(ValidationIssue("model", code, message))
 
     known_variables = {variable.name: variable for variable in metadata.variables}
+    effective_shapes = _resolve_effective_shapes(
+        metadata, config, known_variables, issues
+    )
     for name, value in config.parameters.items():
         variable = known_variables.get(name)
         if variable is None:
@@ -95,6 +124,8 @@ def validate_config(
                     "parameters", "UNKNOWN_PARAMETER", f"未知参数变量: {name}"
                 )
             )
+            continue
+        if metadata.fmi_version == "3.0" and variable.causality == "structuralParameter":
             continue
         if variable.causality not in {"parameter", "structuralParameter"}:
             issues.append(
@@ -105,13 +136,15 @@ def validate_config(
                 )
             )
             continue
-        parameter_issue = _validate_parameter_value(name, value, variable)
+        parameter_issue = _validate_parameter_value(
+            name, value, variable, effective_shapes.get(name, variable.shape)
+        )
         if parameter_issue is not None:
             issues.append(parameter_issue)
 
     for name, value in config.initial_inputs.items():
         input_issue = _validate_input_value(
-            name, value, known_variables, "initial_inputs"
+            name, value, known_variables, "initial_inputs", effective_shapes
         )
         if input_issue is not None:
             issues.append(input_issue)
@@ -161,30 +194,141 @@ def validate_config(
         if _is_finite_number(update.time):
             previous_update_time = float(update.time)
         for name, value in update.values.items():
-            input_issue = _validate_input_value(name, value, known_variables, field)
+            input_issue = _validate_input_value(
+                name, value, known_variables, field, effective_shapes
+            )
             if input_issue is not None:
                 issues.append(input_issue)
 
     for output in config.selected_outputs:
-        if output not in known_variables:
+        variable = known_variables.get(output)
+        if variable is None:
             issues.append(
                 ValidationIssue(
                     "selected_outputs", "UNKNOWN_OUTPUT", f"未知输出变量: {output}"
+                )
+            )
+        elif (
+            metadata.fmi_version == "3.0"
+            and variable.data_type.lower() in {"binary", "clock"}
+        ):
+            issues.append(
+                ValidationIssue(
+                    "selected_outputs",
+                    "UNSUPPORTED_OUTPUT_TYPE",
+                    f"本阶段不支持读取 {variable.data_type} output: {output}",
                 )
             )
 
     return ValidationReport(tuple(issues))
 
 
-def _validate_parameter_value(
+def resolve_output_interval(config: SimulationConfig) -> float:
+    """Return the effective result-sampling interval for a valid configuration."""
+    return (
+        config.communication_step
+        if config.output_interval is None
+        else config.output_interval
+    )
+
+
+def _resolve_effective_shapes(
+    metadata: ModelMetadata,
+    config: SimulationConfig,
+    known_variables: dict[str, VariableMetadata],
+    issues: list[ValidationIssue],
+) -> dict[str, tuple[int, ...]]:
+    structural_values: dict[int, Any] = {}
+    if metadata.fmi_version == "3.0":
+        for variable in metadata.variables:
+            if variable.causality == "structuralParameter":
+                structural_values[variable.value_reference] = variable.start
+
+        for name, value in config.parameters.items():
+            variable = known_variables.get(name)
+            if variable is None or variable.causality != "structuralParameter":
+                continue
+            issue = _validate_structural_parameter_value(name, value, variable)
+            if issue is not None:
+                issues.append(issue)
+                continue
+            structural_values[variable.value_reference] = value
+
+    effective_shapes: dict[str, tuple[int, ...]] = {}
+    for variable in metadata.variables:
+        try:
+            effective_shapes[variable.name] = resolve_effective_shape(
+                variable.shape,
+                variable.dimension_value_references,
+                structural_values,
+            )
+        except EffectiveShapeError:
+            issues.append(
+                ValidationIssue(
+                    "model",
+                    "INVALID_DIMENSION_VALUE",
+                    f"变量 {variable.name} 的 dynamic dimension 无法解析",
+                )
+            )
+            effective_shapes[variable.name] = variable.shape
+    return effective_shapes
+
+
+def _validate_structural_parameter_value(
     name: str, value: Any, variable: VariableMetadata
 ) -> ValidationIssue | None:
     if variable.shape:
         return ValidationIssue(
             "parameters",
-            "UNSUPPORTED_PARAMETER_TYPE",
-            f"本阶段暂不支持数组参数覆盖: {name}",
+            "UNSUPPORTED_STRUCTURAL_PARAMETER_TYPE",
+            f"当前阶段不支持数组 structural parameter override: {name}",
         )
+    data_type = variable.data_type.lower()
+    if data_type not in {
+        "integer", "int8", "uint8", "int16", "uint16", "int32", "uint32",
+        "int64", "uint64", "enumeration",
+    }:
+        return ValidationIssue(
+            "parameters",
+            "UNSUPPORTED_STRUCTURAL_PARAMETER_TYPE",
+            f"当前阶段不支持 {variable.data_type} structural parameter override: {name}",
+        )
+    if not _valid_scalar_type(value, data_type):
+        return ValidationIssue(
+            "parameters",
+            "INVALID_PARAMETER_TYPE",
+            f"structural parameter {name} 的值与 {variable.data_type} 类型不匹配",
+        )
+    integer_range = _INTEGER_TYPE_RANGES.get(data_type)
+    if integer_range is not None and not integer_range[0] <= value <= integer_range[1]:
+        return ValidationIssue(
+            "parameters",
+            "PARAMETER_OUT_OF_TYPE_RANGE",
+            f"structural parameter {name} 超出 {variable.data_type} 的标量范围",
+        )
+    if variable.minimum is not None and value < variable.minimum:
+        return ValidationIssue(
+            "parameters",
+            "PARAMETER_BELOW_MINIMUM",
+            f"参数 {name} 小于允许的最小值 {variable.minimum}",
+        )
+    if variable.maximum is not None and value > variable.maximum:
+        return ValidationIssue(
+            "parameters",
+            "PARAMETER_ABOVE_MAXIMUM",
+            f"参数 {name} 大于允许的最大值 {variable.maximum}",
+        )
+    return None
+
+
+def _validate_parameter_value(
+    name: str,
+    value: Any,
+    variable: VariableMetadata,
+    shape: tuple[int, ...],
+) -> ValidationIssue | None:
+    if variable.shape:
+        return _validate_array_value(name, value, variable, "parameters", shape)
 
     data_type = variable.data_type.lower()
     if data_type in {"real", "float32", "float64"}:
@@ -240,6 +384,7 @@ def _validate_input_value(
     value: Any,
     known_variables: dict[str, VariableMetadata],
     field: str,
+    effective_shapes: dict[str, tuple[int, ...]],
 ) -> ValidationIssue | None:
     variable = known_variables.get(name)
     if variable is None:
@@ -250,7 +395,9 @@ def _validate_input_value(
             "INVALID_INPUT_CAUSALITY",
             f"变量不是可写 input: {name}",
         )
-    return _validate_scalar_value(name, value, variable, field, "INPUT")
+    return _validate_scalar_value(
+        name, value, variable, field, "INPUT", effective_shapes.get(name, variable.shape)
+    )
 
 
 def _validate_scalar_value(
@@ -259,13 +406,10 @@ def _validate_scalar_value(
     variable: VariableMetadata,
     field: str,
     code_prefix: str,
+    shape: tuple[int, ...],
 ) -> ValidationIssue | None:
     if variable.shape:
-        return ValidationIssue(
-            field,
-            f"UNSUPPORTED_{code_prefix}_TYPE",
-            f"本阶段暂不支持数组 input: {name}",
-        )
+        return _validate_array_value(name, value, variable, field, shape)
 
     data_type = variable.data_type.lower()
     if data_type in {"real", "float32", "float64"}:
@@ -313,6 +457,75 @@ def _validate_scalar_value(
             f"input {name} 大于允许的最大值 {variable.maximum}",
         )
     return None
+
+
+def _validate_array_value(
+    name: str,
+    value: Any,
+    variable: VariableMetadata,
+    field: str,
+    shape: tuple[int, ...],
+) -> ValidationIssue | None:
+    try:
+        elements = flatten_array(value, shape)
+    except ArrayShapeError:
+        return ValidationIssue(
+            field,
+            "INVALID_ARRAY_SHAPE",
+            f"数组变量 {name} 的值必须匹配 shape {shape}",
+        )
+
+    data_type = variable.data_type.lower()
+    for element in elements:
+        if not _valid_scalar_type(element, data_type):
+            return ValidationIssue(
+                field,
+                "INVALID_ARRAY_ELEMENT_TYPE",
+                f"数组变量 {name} 的元素与 {variable.data_type} 类型不匹配",
+            )
+        integer_range = _INTEGER_TYPE_RANGES.get(data_type)
+        if integer_range is not None and not integer_range[0] <= element <= integer_range[1]:
+            return ValidationIssue(
+                field,
+                "INVALID_ARRAY_ELEMENT_TYPE",
+                f"数组变量 {name} 的元素超出 {variable.data_type} 类型范围",
+            )
+        if variable.minimum is not None and element < variable.minimum:
+            return ValidationIssue(
+                field,
+                "ARRAY_ELEMENT_BELOW_MINIMUM",
+                f"数组变量 {name} 的元素小于允许的最小值 {variable.minimum}",
+            )
+        if variable.maximum is not None and element > variable.maximum:
+            return ValidationIssue(
+                field,
+                "ARRAY_ELEMENT_ABOVE_MAXIMUM",
+                f"数组变量 {name} 的元素大于允许的最大值 {variable.maximum}",
+            )
+    return None
+
+
+def _valid_scalar_type(value: Any, data_type: str) -> bool:
+    if data_type in {"real", "float32", "float64"}:
+        return _is_finite_number(value)
+    if data_type in {
+        "integer",
+        "int8",
+        "uint8",
+        "int16",
+        "uint16",
+        "int32",
+        "uint32",
+        "int64",
+        "uint64",
+        "enumeration",
+    }:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if data_type == "boolean":
+        return isinstance(value, bool)
+    if data_type == "string":
+        return isinstance(value, str)
+    return False
 
 
 _INTEGER_TYPE_RANGES = {

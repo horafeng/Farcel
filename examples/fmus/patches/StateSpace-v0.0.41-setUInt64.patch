@@ -1,0 +1,25 @@
+diff --git a/StateSpace/model.c b/StateSpace/model.c
+index abc914d..e7ebc1c 100644
+--- a/StateSpace/model.c
++++ b/StateSpace/model.c
+@@ -265,1 +265,2 @@ Status setUInt64(ModelInstance* comp, ValueReference vr, const uint64_t values[]
++    ASSERT_NVALUES(1);
+     const uint64_t v = values[(*index)++];
+@@ -270,5 +271,4 @@ Status setUInt64(ModelInstance* comp, ValueReference vr, const uint64_t values[]
+                 logError(comp, "Variable m must not be greater than " xstr(M_MAX) ".");
+                 return Error;
+             }
+-            ASSERT_NVALUES(1);
+             M(m) = v;
+@@ -278,5 +278,4 @@ Status setUInt64(ModelInstance* comp, ValueReference vr, const uint64_t values[]
+                 logError(comp, "Variable n must not be greater than " xstr(N_MAX) ".");
+                 return Error;
+             }
+-            ASSERT_NVALUES(1);
+             M(n) = v;
+@@ -286,5 +285,4 @@ Status setUInt64(ModelInstance* comp, ValueReference vr, const uint64_t values[]
+                 logError(comp, "Variable r must not be greater than " xstr(R_MAX) ".");
+                 return Error;
+             }
+-            ASSERT_NVALUES(1);
+             M(r) = v;

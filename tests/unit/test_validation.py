@@ -44,7 +44,33 @@ def metadata(
     )
 
 
+def structural_metadata() -> ModelMetadata:
+    return replace(
+        metadata(),
+        fmi_version="3.0",
+        variables=(
+            VariableMetadata("m", 1, "UInt64", causality="structuralParameter", start=3, minimum=0, maximum=5),
+            VariableMetadata("n", 2, "UInt64", causality="structuralParameter", start=3, minimum=0, maximum=5),
+            VariableMetadata("r", 3, "UInt64", causality="structuralParameter", start=3, minimum=0, maximum=5),
+            VariableMetadata("A", 4, "Float64", causality="parameter", shape=(3, 3), dimension_value_references=(2, 2)),
+            VariableMetadata("B", 5, "Float64", causality="parameter", shape=(3, 3), dimension_value_references=(2, 1)),
+            VariableMetadata("u", 6, "Float64", causality="input", shape=(3,), dimension_value_references=(1,)),
+            VariableMetadata("y", 7, "Float64", causality="output", shape=(3,), dimension_value_references=(3,)),
+            VariableMetadata("structural_array", 8, "UInt64", causality="structuralParameter", shape=(1,)),
+        ),
+    )
+
+
 class ValidationTests(unittest.TestCase):
+    def test_legacy_positional_variable_metadata_keeps_shape_position(self) -> None:
+        variable = VariableMetadata(
+            "matrix", 1, "Float64", None, None, None, None, None, None,
+            None, None, None, None, (2, 3),
+        )
+
+        self.assertEqual(variable.shape, (2, 3))
+        self.assertEqual(variable.dimension_value_references, ())
+
     def test_legacy_positional_config_keeps_selected_outputs_position(self) -> None:
         config = SimulationConfig(
             "1.0",
@@ -67,6 +93,33 @@ class ValidationTests(unittest.TestCase):
             SimulationConfig(parameters={"gain": 2.0}, selected_outputs=("speed",)),
         )
         self.assertTrue(report.is_valid)
+
+    def test_omitted_output_interval_defaults_to_communication_step(self) -> None:
+        config = SimulationConfig(communication_step=0.1)
+
+        self.assertIsNone(config.output_interval)
+        self.assertTrue(validate_config(metadata(), config).is_valid)
+
+    def test_rejects_invalid_or_unaligned_output_interval(self) -> None:
+        for output_interval in (0.0, -0.1, float("nan"), float("inf")):
+            with self.subTest(output_interval=output_interval):
+                report = validate_config(
+                    metadata(), SimulationConfig(output_interval=output_interval)
+                )
+                self.assertIn(
+                    "INVALID_OUTPUT_INTERVAL", {issue.code for issue in report.issues}
+                )
+
+        report = validate_config(
+            metadata(),
+            SimulationConfig(communication_step=0.03, output_interval=0.1),
+        )
+        issue = next(
+            issue
+            for issue in report.issues
+            if issue.code == "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED"
+        )
+        self.assertEqual(issue.field, "output_interval")
 
     def test_rejects_start_time_equal_to_or_after_stop_time(self) -> None:
         for start_time, stop_time in ((1.0, 1.0), (2.0, 1.0)):
@@ -97,7 +150,29 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertIn("UNKNOWN_OUTPUT", {i.code for i in report.issues})
 
-    def test_validates_initial_inputs_names_causality_types_ranges_and_arrays(self) -> None:
+    def test_rejects_fmi3_binary_and_clock_selected_outputs_before_runtime(self) -> None:
+        model = replace(
+            metadata(),
+            fmi_version="3.0",
+            variables=metadata().variables + (
+                VariableMetadata("binary_out", 3, "Binary", causality="output"),
+                VariableMetadata("clock_out", 4, "Clock", causality="output"),
+                VariableMetadata("string_out", 5, "String", causality="output"),
+            ),
+        )
+
+        supported = validate_config(
+            model, SimulationConfig(selected_outputs=("speed", "string_out"))
+        )
+        self.assertTrue(supported.is_valid)
+        rejected = validate_config(
+            model, SimulationConfig(selected_outputs=("binary_out", "clock_out"))
+        )
+        self.assertEqual(
+            {issue.code for issue in rejected.issues}, {"UNSUPPORTED_OUTPUT_TYPE"}
+        )
+
+    def test_validates_initial_inputs_names_causality_types_and_ranges(self) -> None:
         model = replace(
             metadata(),
             variables=metadata().variables + (
@@ -105,7 +180,6 @@ class ValidationTests(unittest.TestCase):
                 VariableMetadata("int_in", 4, "Integer", causality="input"),
                 VariableMetadata("bool_in", 5, "Boolean", causality="input"),
                 VariableMetadata("string_in", 6, "String", causality="input"),
-                VariableMetadata("array_in", 7, "Real", causality="input", shape=(2,)),
             ),
         )
         valid = validate_config(
@@ -120,9 +194,8 @@ class ValidationTests(unittest.TestCase):
             "missing": "UNKNOWN_INPUT",
             "speed": "INVALID_INPUT_CAUSALITY",
             "int_in": "INVALID_INPUT_TYPE",
-            "array_in": "UNSUPPORTED_INPUT_TYPE",
         }
-        values = {"missing": 1.0, "speed": 1.0, "int_in": True, "array_in": (1.0, 2.0)}
+        values = {"missing": 1.0, "speed": 1.0, "int_in": True}
         for name, code in cases.items():
             with self.subTest(name=name):
                 report = validate_config(model, SimulationConfig(initial_inputs={name: values[name]}))
@@ -132,6 +205,70 @@ class ValidationTests(unittest.TestCase):
             with self.subTest(value=value):
                 report = validate_config(model, SimulationConfig(initial_inputs={"real_in": value}))
                 self.assertIn(code, {issue.code for issue in report.issues})
+
+    def test_validates_resolved_fmi3_array_values(self) -> None:
+        model = replace(
+            metadata(),
+            fmi_version="3.0",
+            variables=metadata().variables + (
+                VariableMetadata(
+                    "matrix", 3, "Float64", causality="parameter", shape=(2, 2),
+                    minimum=0.0, maximum=2.0,
+                ),
+                VariableMetadata("vector", 4, "Float64", causality="input", shape=(2,)),
+            ),
+        )
+        valid = validate_config(
+            model,
+            SimulationConfig(
+                stop_time=0.03,
+                communication_step=0.01,
+                parameters={"matrix": ((1.0, 0.0), (0.0, 1.0))},
+                initial_inputs={"vector": [1.0, 2.0]},
+                input_schedule=(InputUpdate(0.01, {"vector": (2.0, 1.0)}),),
+            ),
+        )
+        self.assertTrue(valid.is_valid)
+
+        cases = (
+            (SimulationConfig(parameters={"matrix": (1.0, 0.0, 0.0, 1.0)}), "INVALID_ARRAY_SHAPE"),
+            (SimulationConfig(parameters={"matrix": ((1.0, "bad"), (0.0, 1.0))}), "INVALID_ARRAY_ELEMENT_TYPE"),
+            (SimulationConfig(parameters={"matrix": ((-1.0, 0.0), (0.0, 1.0))}), "ARRAY_ELEMENT_BELOW_MINIMUM"),
+            (SimulationConfig(initial_inputs={"vector": [[1.0, 2.0]]}), "INVALID_ARRAY_SHAPE"),
+            (SimulationConfig(initial_inputs={"vector": (1.0, True)}), "INVALID_ARRAY_ELEMENT_TYPE"),
+        )
+        for config, code in cases:
+            with self.subTest(code=code):
+                report = validate_config(model, config)
+                self.assertIn(code, {issue.code for issue in report.issues})
+
+    def test_validates_structural_overrides_before_dynamic_array_shapes(self) -> None:
+        model = structural_metadata()
+        matrix = lambda rows, columns: tuple(
+            tuple(0.0 for _ in range(columns)) for _ in range(rows)
+        )
+        valid = SimulationConfig(
+            stop_time=0.03,
+            communication_step=0.01,
+            parameters={"m": 2, "n": 4, "r": 1, "A": matrix(4, 4), "B": matrix(4, 2)},
+            initial_inputs={"u": (1.0, 2.0)},
+            input_schedule=(InputUpdate(0.01, {"u": (2.0, 1.0)}),),
+        )
+        self.assertTrue(validate_config(model, valid).is_valid)
+
+        cases = (
+            (SimulationConfig(parameters={"missing": 2}), "UNKNOWN_PARAMETER"),
+            (SimulationConfig(parameters={"n": True}), "INVALID_PARAMETER_TYPE"),
+            (SimulationConfig(parameters={"n": -1}), "PARAMETER_OUT_OF_TYPE_RANGE"),
+            (SimulationConfig(parameters={"n": 6}), "PARAMETER_ABOVE_MAXIMUM"),
+            (SimulationConfig(parameters={"structural_array": (1,)}), "UNSUPPORTED_STRUCTURAL_PARAMETER_TYPE"),
+            (SimulationConfig(parameters={"m": 2, "n": 4, "A": matrix(3, 3)}), "INVALID_ARRAY_SHAPE"),
+            (SimulationConfig(parameters={"m": 2, "n": 4, "B": matrix(3, 3)}), "INVALID_ARRAY_SHAPE"),
+            (SimulationConfig(parameters={"m": 2}, initial_inputs={"u": (1.0, 2.0, 3.0)}), "INVALID_ARRAY_SHAPE"),
+        )
+        for config, code in cases:
+            with self.subTest(code=code):
+                self.assertIn(code, {issue.code for issue in validate_config(model, config).issues})
 
     def test_validates_fmi3_integer_scalar_ranges(self) -> None:
         model = replace(
