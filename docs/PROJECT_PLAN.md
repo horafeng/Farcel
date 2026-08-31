@@ -1,5 +1,7 @@
 # Farcel 轻量级 FMU 仿真工具项目规划报告
 
+> 本文保留为项目早期规划记录，不作为当前实现状态。Phase 2 的实际能力、官方 FMU 回归与明确未支持范围以 `README.md`、`BACKEND_ARCHITECTURE.md` 和 `FMU_COMPATIBILITY.md` 为准。
+
 ## 执行摘要
 
 Farcel 建议定位为一个**本地优先、轻量、桌面 GUI + CLI 共用同一仿真核心**的 FMU 导入、配置、执行、观察与结果导出工具。两名开发者应以清晰的“UI/应用层—Simulation Engine”边界并行工作：前端开发者负责 Python + PyQt 桌面交互与结果呈现；后端开发者负责 Python + FMPy 仿真引擎、FMU 解析、运行控制、CLI、验证、日志与结果数据。前端**不得直接依赖 FMPy 对象或 FMI C API**，这样可以为未来将仿真核心迁移到 C/C++ 保留稳定边界。

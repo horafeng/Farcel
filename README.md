@@ -8,6 +8,10 @@ Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支�
 
 FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled input 和 selected output。公共数组值使用与有效 shape 严格一致的 nested tuple（配置输入也接受同形状的 list/tuple sequence）；`SimulationResult` 与 `ResultChunk` 保留每个时间样本的数组值，不把数组元素变成公共 output key。CSV 将数组展开为稳定的零基索引列，例如 `y[0]`、`A[0,0]`。对于标量整型或枚举型 `structuralParameter`，Farcel 在初始化前按 FMI 3 Configuration Mode 写入覆盖值，并以结构参数的当前值解析带 dimension value reference 的数组有效 shape；静态 `VariableMetadata.shape` 保持导入时的默认值不变。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary 和 Clock 仍不支持。
 
+当前后端执行范围为 FMI 2 Co-Simulation 与 FMI 3 Co-Simulation。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
+
+仍不支持 FMI 1 runtime、Model Exchange runtime、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、multi-FMU 和 SSP；Farcel 不声称完整支持所有 FMI 3。
+
 官方 Reference FMU v0.0.41 已真实验证的 FMI 3 Co-Simulation scalar runtime 类型包括 Float32、Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String 和 Enumeration。Binary 与 Clock 仍可在 metadata 中 inspect；Binary input 或 selected output 在 validation 阶段稳定拒绝，Clock 所在的 Scheduled Execution FMU 保持 inspect-only。Resource FMU 的 `resources/y.txt` 访问也已完成真实运行与 cleanup 回归。
 
 设计说明见 [docs/BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md)。GUI 等调用者的公共 API、依赖规则和错误处理约定见 [docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md)。

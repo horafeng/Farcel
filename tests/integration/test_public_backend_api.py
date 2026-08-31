@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from farcel import FarcelEngine, create_backend
+from farcel import FarcelEngine, ResultChunk, RunControl, RunProgress, create_backend
 from farcel.contracts import (
     EngineError,
     ErrorCode,
     ExportReport,
+    InputUpdate,
     InterfaceType,
     ModelMetadata,
     SimulationConfig,
     SimulationResult,
+    SimulationState,
     ValidationReport,
+    VariableMetadata,
 )
 
 
@@ -25,6 +29,27 @@ FMU_DIRECTORY = REPOSITORY_ROOT / "examples" / "fmus"
 
 
 class PublicBackendApiTests(unittest.TestCase):
+    def test_required_public_symbols_and_phase2_run_keywords_are_stable(self) -> None:
+        self.assertTrue(callable(create_backend))
+        self.assertTrue(issubclass(FarcelEngine, object))
+        self.assertTrue(issubclass(RunControl, object))
+        self.assertTrue(issubclass(RunProgress, object))
+        self.assertTrue(issubclass(ResultChunk, object))
+        self.assertTrue(issubclass(EngineError, Exception))
+        self.assertTrue(issubclass(ErrorCode, object))
+        self.assertTrue(issubclass(ModelMetadata, object))
+        self.assertTrue(issubclass(VariableMetadata, object))
+        self.assertTrue(issubclass(SimulationConfig, object))
+        self.assertTrue(issubclass(SimulationResult, object))
+        self.assertTrue(issubclass(SimulationState, object))
+        self.assertTrue(issubclass(InputUpdate, object))
+
+        backend = create_backend()
+        parameters = inspect.signature(backend.run_fmu).parameters
+        for name in ("control", "on_progress", "on_result_chunk", "result_chunk_size"):
+            self.assertIn(name, parameters)
+            self.assertIs(parameters[name].kind, inspect.Parameter.KEYWORD_ONLY)
+
     def test_fmi2_complete_workflow_uses_public_api(self) -> None:
         metadata, result = self._run_public_workflow(FMU_DIRECTORY / "VanDerPol.fmu")
 
@@ -66,20 +91,48 @@ class PublicBackendApiTests(unittest.TestCase):
 
     def test_installed_consumer_runs_outside_repository(self) -> None:
         script = """
+import farcel
 import sys
 from pathlib import Path
-from farcel import create_backend
-from farcel.contracts import EngineError, ExportReport, ModelMetadata, SimulationConfig, SimulationResult, ValidationReport
+from farcel import ResultChunk, RunControl, RunProgress, create_backend
+from farcel.contracts import (
+    EngineError,
+    ErrorCode,
+    ExportReport,
+    InputUpdate,
+    ModelMetadata,
+    SimulationConfig,
+    SimulationResult,
+    SimulationState,
+    ValidationReport,
+    VariableMetadata,
+)
 
 backend = create_backend()
+assert farcel.__file__ is not None
+assert all(symbol is not None for symbol in (
+    RunControl, RunProgress, ResultChunk, EngineError, ErrorCode, ModelMetadata,
+    VariableMetadata, SimulationConfig, SimulationResult, SimulationState, InputUpdate,
+))
 path = Path(sys.argv[1])
 metadata = backend.load_fmu(path)
 assert isinstance(metadata, ModelMetadata)
 config = SimulationConfig(start_time=0.0, stop_time=0.02, communication_step=0.01, parameters={"mu": 2.0}, selected_outputs=("x0",))
 validation = backend.validate_config(metadata, config)
 assert isinstance(validation, ValidationReport)
-result = backend.run_fmu(path, config)
+chunks = []
+result = backend.run_fmu(
+    path,
+    config,
+    control=RunControl(),
+    on_progress=lambda progress: None,
+    on_result_chunk=chunks.append,
+    result_chunk_size=2,
+)
 assert isinstance(result, SimulationResult)
+assert result.completion_state is SimulationState.COMPLETED
+assert result.sample_count == 3
+assert len(chunks) == 2 and chunks[-1].final_chunk
 export = backend.export_result(result, Path(sys.argv[2]))
 assert isinstance(export, ExportReport)
 print("external consumer OK")

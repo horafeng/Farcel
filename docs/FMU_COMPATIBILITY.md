@@ -8,11 +8,11 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 |---|---:|---:|---:|---:|---:|---:|---|
 | `Stair.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `counter` changes from 1 to 2 over 0..1 s. |
 | `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
-| `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Basic FMI 3 CS; `mu` override and selected `x0` regression pass. |
+| `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 3 Co-Simulation；`mu` 覆盖和选定 `x0` 回归通过。 |
 | `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
 | `StateSpace-fmi3.fmu` | Yes | Yes | Yes | 初始值与计划数组 | 数组 `y` | 带索引数组列 | 官方 Reference-FMUs v0.0.41 原始 `3.0/StateSpace.fmu`；默认 `(3, 3)`/`(3,)` 尺寸与普通数组参数回归。原生 `setUInt64()` 缺陷使结构参数正向运行不可用，原始二进制保持未修改。 |
 | `StateSpace-fmi3-patched.fmu` | Yes | Yes | Yes | 初始值、计划数组与动态有效尺寸 | 动态数组 `y` | 带索引数组列 | 仅供回归的本地构建 fixture，不是官方原始二进制；由 v0.0.41 源码应用 `examples/fmus/patches/StateSpace-v0.0.41-setUInt64.patch` 后构建，覆盖 `m=2,n=4,r=1`。 |
-| `Feedthrough-fmi3.fmu` | Yes | Yes | Yes | 15 种受支持 scalar input 与计划更新 | 对应 scalar output；Binary 稳定拒绝 | Yes | 官方 v0.0.41 `3.0/Feedthrough.fmu`；Float32/64、全部 Int/UInt、Boolean、String、Enumeration 真实 round-trip，Binary 可 inspect 但不进入 runtime。 |
+| `Feedthrough-fmi3.fmu` | Yes | Yes | Yes | 15 个受支持 scalar input 变量与计划更新，覆盖 13 种 runtime 数据类型 | 对应 scalar output；Binary 稳定拒绝 | Yes | 官方 v0.0.41 `3.0/Feedthrough.fmu`；Float32/64、全部 Int/UInt、Boolean、String、Enumeration 真实 round-trip，Binary 可 inspect 但不进入 runtime。 |
 | `Resource-fmi3.fmu` | Yes | Yes | Yes | N/A | `Int32 y` | Yes | 官方 v0.0.41 `3.0/Resource.fmu`；已验证解压目录中的 `resources/y.txt`，0..1 s 返回 `(97, 97)` 并完成 native/临时目录清理。 |
 | `Clocks-fmi3.fmu` | Yes | 是，稳定拒绝 | No | N/A | Clock 仅 metadata | No | 官方 v0.0.41 `3.0/Clocks.fmu`；仅声明 Scheduled Execution，`UNSUPPORTED_INTERFACE` 在 session 创建前返回。 |
 | `bouncingBall.fmu` | No | No | No | N/A | N/A | No | Container metadata says FMI 1.0 Model Exchange. Farcel intentionally supports only FMI 2/3 metadata and only CS execution. `UNSUPPORTED_FMI` includes `fmi_version=1.0` and `parseable=true`. |
