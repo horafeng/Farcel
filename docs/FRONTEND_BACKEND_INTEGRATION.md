@@ -8,7 +8,7 @@
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
-- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及已解析默认尺寸数组按当前 capability 与 metadata 支持。
+- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及按默认或有效尺寸解析的数组按当前 capability 与 metadata 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
 
 Model Exchange 与 Scheduled Execution 可以被 inspect，但当前不能 run。
@@ -112,13 +112,13 @@ except EngineError as error:
 
 不要通过解析 `str(error)` 或 CLI 文本恢复字段错误。
 
-对于 FMI 3 的已解析、默认尺寸数组，参数、initial input 和每项
-`InputUpdate.values` 接受严格匹配 `VariableMetadata.shape` 的 nested Python
-sequence（list/tuple；字符串和 bytes 不视为 array sequence）。值在公共边界以
-nested tuple 表示；shape、元素类型和元素范围错误仍以稳定的 CONFIG_ERROR issue
-返回。FMI 3 `structuralParameter` override 返回
-`UNSUPPORTED_STRUCTURAL_PARAMETER_OVERRIDE`；Configuration/Reconfiguration Mode
-和动态 shape 不在当前范围。
+对于 FMI 3 数组，参数、initial input 和每项 `InputUpdate.values` 接受严格匹配
+有效 shape 的 nested Python sequence（list/tuple；字符串和 bytes 不视为 array
+sequence）。无结构参数覆盖时，有效 shape 等于 `VariableMetadata.shape`；带 dimension
+value reference 的数组在标量整型或枚举型 `structuralParameter` 覆盖后，按覆盖值解析。
+值在公共边界以 nested tuple 表示；shape、元素类型和元素范围错误仍以稳定的
+CONFIG_ERROR issue 返回。结构参数数组、Reconfiguration Mode、运行中结构参数改变
+仍不在当前范围。
 
 ## 7. Sampling Semantics
 
@@ -236,7 +236,7 @@ result = backend.run_fmu(path, config)
 
 每个输出序列与 `timestamps` 等长，首项是初始化后的 start-time 样本。无所选输出时，`outputs` 为空，但时间轴和执行摘要仍按 `output_interval` 存在。GUI 可按索引将 `timestamps[i]` 与每个 `outputs[name][i]` 配对；不应重新推导时间轴。
 
-已解析默认尺寸的 FMI 3 array output 仍只占一个 `outputs[name]` key；其每个样本是 immutable-friendly nested tuple，而不是拆分成 `name[0]` 等 output key。GUI 可按 metadata 的 `shape` 自行展示或绘图。
+FMI 3 array output 仍只占一个 `outputs[name]` key；其每个样本是 immutable-friendly nested tuple，而不是拆分成 `name[0]` 等 output key。带结构参数覆盖的运行中，GUI 应按同一次运行所提交配置导出的有效 shape 展示或绘图，而不是把导入 metadata 的默认 `shape` 当作运行时 shape。
 
 ## 11. Export Workflow
 
@@ -269,7 +269,7 @@ EngineError(code: ErrorCode, message: str, details: Mapping[str, Any])
 
 GUI 对 FMI 2.0 与 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`load_fmu`、`validate_config`、`run_fmu`、`export_result`。版本差异通过 `ModelMetadata.fmi_version`、interfaces 和 capabilities 展示；不要根据版本选择 FMPy class 或调用不同 getter。
 
-Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持 metadata 已解析默认尺寸的 FMI 3 arrays；但不提供 Intermediate Update 数据回调、Structural Parameter override、Configuration/Reconfiguration Mode、动态 shape、Binary 或 Clock。未声明相应 capability 的 FMU 不会被强制启用高级模式；其他不支持的 FMI 3 条件仍返回稳定的 `EngineError`，不会暴露 FMPy status。
+Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持默认或由标量整型/枚举型结构参数覆盖解析的 FMI 3 arrays；对存在这类覆盖的运行使用一次 Configuration Mode。它不提供 Intermediate Update 数据回调、结构参数数组、Reconfiguration Mode、运行中结构参数改变、Binary 或 Clock。未声明相应 capability 的 FMU 不会被强制启用高级模式；其他不支持的 FMI 3 条件仍返回稳定的 `EngineError`，不会暴露 FMPy status。
 
 ## 14. End-to-End Example
 

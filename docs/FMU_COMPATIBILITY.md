@@ -10,7 +10,8 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
 | `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Basic FMI 3 CS; `mu` override and selected `x0` regression pass. |
 | `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
-| `StateSpace-fmi3.fmu` | Yes | Yes | Yes | Initial + scheduled arrays | Array `y` | Indexed array columns | Official Reference-FMUs v0.0.41 `3.0/StateSpace.fmu`; default `(3, 3)`/`(3,)` dimensions, ordinary array parameters supported, structural parameters intentionally not overridden. |
+| `StateSpace-fmi3.fmu` | Yes | Yes | Yes | 初始值与计划数组 | 数组 `y` | 带索引数组列 | 官方 Reference-FMUs v0.0.41 原始 `3.0/StateSpace.fmu`；默认 `(3, 3)`/`(3,)` 尺寸与普通数组参数回归。原生 `setUInt64()` 缺陷使结构参数正向运行不可用，原始二进制保持未修改。 |
+| `StateSpace-fmi3-patched.fmu` | Yes | Yes | Yes | 初始值、计划数组与动态有效尺寸 | 动态数组 `y` | 带索引数组列 | 仅供回归的本地构建 fixture，不是官方原始二进制；由 v0.0.41 源码应用 `examples/fmus/patches/StateSpace-v0.0.41-setUInt64.patch` 后构建，覆盖 `m=2,n=4,r=1`。 |
 | `bouncingBall.fmu` | No | No | No | N/A | N/A | No | Container metadata says FMI 1.0 Model Exchange. Farcel intentionally supports only FMI 2/3 metadata and only CS execution. `UNSUPPORTED_FMI` includes `fmi_version=1.0` and `parseable=true`. |
 | `manipulator.fmu` | Yes | Yes | No | Setters work | Initial sample only | No | FMI 2 CS. First `doStep` returns error because the native FMU reports `Singular matrix not invertible (getrf).`; reproduced with zero/non-zero inputs, explicit defaults, and step sizes 0.1 through 0.0001. Farcel reports the native diagnostic and releases resources. |
 | `LateralMotionControl.fmu` | Yes, with warnings | Yes | Yes | Initial + scheduled | Yes | Yes | FMI 2 CS. XML references undeclared unit `m/s`; this recoverable unit-definition problem is retained in metadata diagnostics. A generic boolean trigger schedule produces meaningful task execution. |
@@ -130,9 +131,8 @@ sample. This behavior is verified with the official `BouncingBall-fmi3.fmu`
 fixture from Modelica Association Reference-FMUs v0.0.41 (BSD-2-Clause; see
 `examples/fmus/Reference-FMUs-LICENSE.txt`).
 
-FMI 3 Co-Simulation arrays with metadata-resolved default dimensions are
-supported for ordinary parameters, initial/scheduled inputs, selected outputs,
-canonical results, chunks, and indexed CSV columns. Structural Parameter runtime
-override, Configuration/Reconfiguration Mode, dynamic array shapes, FMI 3
-Binary/Clock, Intermediate Update public callbacks, Scheduled Execution, Model
-Exchange execution, and FMI 1 remain unsupported.
+FMI 3 Co-Simulation 的数组支持普通参数、initial/scheduled input、selected output、
+canonical result、chunk 和带索引的 CSV 列。对于标量整型或枚举型结构参数覆盖，Farcel
+在 Configuration Mode 中设置值，并以覆盖值解析动态有效 shape；导入 metadata 保留默认
+shape。结构参数数组、Reconfiguration Mode、运行中结构参数改变、FMI 3 Binary/Clock、
+Intermediate Update 公共回调、Scheduled Execution、Model Exchange 执行和 FMI 1 仍不支持。

@@ -10,7 +10,13 @@ from uuid import uuid4
 from fmpy import extract
 from fmpy.fmi3 import FMU3Slave
 
-from farcel.contracts._arrays import array_size, flatten_array, reshape_array
+from farcel.contracts._arrays import (
+    EffectiveShapeError,
+    array_size,
+    flatten_array,
+    reshape_array,
+    resolve_effective_shape,
+)
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -90,6 +96,9 @@ class FmpyFmi3Session:
         self._closed = False
         self._native_released = False
         self._applied_parameters: tuple[str, ...] = ()
+        self._effective_shapes = {
+            variable.name: variable.shape for variable in metadata.variables
+        }
         capability = _co_simulation_capability(metadata)
         self._event_mode_used = bool(capability and capability.supports_event_mode)
         self._early_return_allowed = bool(
@@ -152,6 +161,10 @@ class FmpyFmi3Session:
         if self._initialized:
             return
 
+        self._resolve_effective_shapes()
+        if self._has_structural_parameter_overrides():
+            self._apply_structural_parameters()
+
         try:
             self._fmu.enterInitializationMode(
                 tolerance=self._config.relative_tolerance,
@@ -165,10 +178,8 @@ class FmpyFmi3Session:
                 {"diagnostic": str(exc)},
             ) from None
 
-        # Fixed parameters and initial inputs are set while the FMU is in
-        # Initialization Mode.  This is required by StateSpace and avoids
-        # entering FMI 3 Configuration Mode, which is deliberately out of
-        # scope for resolved/default-dimension arrays.
+        # 普通参数和初始输入在 Initialization Mode 中设置；结构参数覆盖已经完成
+        # 运行前的 Configuration Mode 生命周期。
         self._apply_parameters()
         if self._config.initial_inputs:
             self.set_inputs(self._config.initial_inputs)
@@ -351,13 +362,14 @@ class FmpyFmi3Session:
                 )
             try:
                 getter = getattr(self._fmu, _accessor_name("get", variable))
-                if variable.shape:
+                shape = self._effective_shapes.get(variable.name, variable.shape)
+                if shape:
                     raw_values = getter(
-                        [variable.value_reference], nValues=array_size(variable.shape)
+                        [variable.value_reference], nValues=array_size(shape)
                     )
                     values[name] = reshape_array(
                         tuple(_python_scalar(value, variable) for value in raw_values),
-                        variable.shape,
+                        shape,
                     )
                 else:
                     raw_value = getter([variable.value_reference])[0]
@@ -414,6 +426,8 @@ class FmpyFmi3Session:
         try:
             for name, value in self._config.parameters.items():
                 variable = variables[name]
+                if variable.causality == "structuralParameter":
+                    continue
                 self._set_variable(variable, value)
                 applied.append(name)
         except EngineError:
@@ -428,10 +442,82 @@ class FmpyFmi3Session:
 
     def _set_variable(self, variable: VariableMetadata, value: Any) -> None:
         setter = getattr(self._fmu, _accessor_name("set", variable))
+        shape = self._effective_shapes.get(variable.name, variable.shape)
         values = (
-            flatten_array(value, variable.shape) if variable.shape else (value,)
+            flatten_array(value, shape) if shape else (value,)
         )
         setter([variable.value_reference], list(values))
+
+    def _has_structural_parameter_overrides(self) -> bool:
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        return any(
+            variables.get(name) is not None
+            and variables[name].causality == "structuralParameter"
+            for name in self._config.parameters
+        )
+
+    def _resolve_effective_shapes(self) -> None:
+        structural_values = {
+            variable.value_reference: variable.start
+            for variable in self._metadata.variables
+            if variable.causality == "structuralParameter"
+        }
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        for name, value in self._config.parameters.items():
+            variable = variables.get(name)
+            if variable is not None and variable.causality == "structuralParameter":
+                structural_values[variable.value_reference] = value
+        try:
+            self._effective_shapes = {
+                variable.name: resolve_effective_shape(
+                    variable.shape,
+                    variable.dimension_value_references,
+                    structural_values,
+                )
+                for variable in self._metadata.variables
+            }
+        except EffectiveShapeError as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 dynamic array shape 解析失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
+
+    def _apply_structural_parameters(self) -> None:
+        variables = {variable.name: variable for variable in self._metadata.variables}
+        try:
+            self._fmu.enterConfigurationMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 Configuration Mode 进入失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
+
+        try:
+            for name, value in self._config.parameters.items():
+                variable = variables[name]
+                if variable.causality == "structuralParameter":
+                    self._set_variable(variable, value)
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.PARAMETER_SET_ERROR,
+                "FMI structural parameter override 应用失败",
+                {
+                    "parameter": name,
+                    "phase": "configuration",
+                    "diagnostic": str(exc),
+                },
+            ) from None
+
+        try:
+            self._fmu.exitConfigurationMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI 3 Configuration Mode 退出失败",
+                {"phase": "configuration", "diagnostic": str(exc)},
+            ) from None
 
 
 def _accessor_name(prefix: str, variable: VariableMetadata) -> str:

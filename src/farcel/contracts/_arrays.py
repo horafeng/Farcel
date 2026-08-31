@@ -9,11 +9,46 @@ class ArrayShapeError(ValueError):
     """Raised when a public nested array value does not match its FMI shape."""
 
 
+class EffectiveShapeError(ValueError):
+    """Raised when structural values cannot resolve an FMI array shape."""
+
+
 def array_size(shape: tuple[int, ...]) -> int:
     size = 1
     for dimension in shape:
         size *= dimension
     return size
+
+
+def resolve_effective_shape(
+    default_shape: tuple[int, ...],
+    dimension_value_references: tuple[int | None, ...],
+    structural_values_by_vr: dict[int, Any],
+) -> tuple[int, ...]:
+    """Resolve one run's array shape without changing static metadata."""
+
+    if not default_shape:
+        return ()
+    if not dimension_value_references:
+        return default_shape
+    if len(default_shape) != len(dimension_value_references):
+        raise EffectiveShapeError("dimension dependency count does not match shape")
+
+    dimensions: list[int] = []
+    for default_dimension, value_reference in zip(
+        default_shape, dimension_value_references
+    ):
+        value = (
+            default_dimension
+            if value_reference is None
+            else structural_values_by_vr.get(value_reference)
+        )
+        if value_reference is not None and value_reference not in structural_values_by_vr:
+            raise EffectiveShapeError("referenced structural value is unavailable")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise EffectiveShapeError("array dimensions must be non-negative integers")
+        dimensions.append(value)
+    return tuple(dimensions)
 
 
 def flatten_array(value: Any, shape: tuple[int, ...]) -> tuple[Any, ...]:

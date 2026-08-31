@@ -54,6 +54,7 @@ class VariableMetadata:
     description: str | None = None
     declared_type: str | None = None
     shape: tuple[int, ...] = ()
+    dimension_value_references: tuple[int | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

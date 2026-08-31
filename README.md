@@ -6,7 +6,7 @@ Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支�
 
 对于支持该 capability 的 FMI 3 Co-Simulation FMU，Farcel 在初始化后和运行时完成 Event Mode 的离散状态更新，再回到 Step Mode。合法 Early Return 只推进实际 `current_time`；Farcel 会继续请求同一个 configured communication target，因此不会改变 `communication_step` 网格、`completed_steps`、`output_interval`、输入调度或 `ResultChunk` 的既有语义。Intermediate Update 数据回调仍未作为公共功能提供。
 
-FMI 3 Co-Simulation 的已解析、默认尺寸数组现可用于参数覆盖、initial input、scheduled input 和 selected output。公共数组值使用与 `VariableMetadata.shape` 严格一致的 nested tuple（配置输入也接受同形状的 list/tuple sequence）；`SimulationResult` 与 `ResultChunk` 保留每个时间样本的数组值，不把数组元素变成公共 output key。CSV 将数组展开为稳定的零基索引列，例如 `y[0]`、`A[0,0]`。Structural Parameter override、Configuration/Reconfiguration Mode、动态 shape、Binary 和 Clock 仍不支持。
+FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled input 和 selected output。公共数组值使用与有效 shape 严格一致的 nested tuple（配置输入也接受同形状的 list/tuple sequence）；`SimulationResult` 与 `ResultChunk` 保留每个时间样本的数组值，不把数组元素变成公共 output key。CSV 将数组展开为稳定的零基索引列，例如 `y[0]`、`A[0,0]`。对于标量整型或枚举型 `structuralParameter`，Farcel 在初始化前按 FMI 3 Configuration Mode 写入覆盖值，并以结构参数的当前值解析带 dimension value reference 的数组有效 shape；静态 `VariableMetadata.shape` 保持导入时的默认值不变。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary 和 Clock 仍不支持。
 
 设计说明见 [docs/BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md)。GUI 等调用者的公共 API、依赖规则和错误处理约定见 [docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md)。
 

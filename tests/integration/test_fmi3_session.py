@@ -9,7 +9,6 @@ from pathlib import Path
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
 from farcel.contracts import RunControl
-from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InputUpdate,
     InterfaceType,
@@ -40,6 +39,7 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
     van_der_pol = FMU_FIXTURES / "VanDerPol-fmi3.fmu"
     bouncing_ball = FMU_FIXTURES / "BouncingBall-fmi3.fmu"
     state_space = FMU_FIXTURES / "StateSpace-fmi3.fmu"
+    patched_state_space = FMU_FIXTURES / "StateSpace-fmi3-patched.fmu"
 
     @unittest.skipUnless(state_space.is_file(), "FMI 3 StateSpace is unavailable")
     def test_statespace_metadata_exposes_default_resolved_array_dimensions(self) -> None:
@@ -56,6 +56,21 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(
             {name: variables[name].shape for name in ("x0", "u", "y")},
             {"x0": (3,), "u": (3,), "y": (3,)},
+        )
+        self.assertEqual(
+            {
+                name: variables[name].dimension_value_references
+                for name in ("A", "B", "C", "D", "x0", "u", "y")
+            },
+            {
+                "A": (2, 2),
+                "B": (2, 1),
+                "C": (3, 2),
+                "D": (3, 1),
+                "x0": (2,),
+                "u": (1,),
+                "y": (3,),
+            },
         )
         self.assertEqual(variables["A"].start[0], (1.0, 0.0, 0.0))
         self.assertEqual(variables["u"].start, (1.0, 2.0, 3.0))
@@ -138,14 +153,72 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
         self.assertEqual(result.outputs["y"][0], (4.0, 5.0, 6.0))
         self.assertNotEqual(result.outputs["y"][-1], result.outputs["y"][0])
 
-        metadata = engine.load_fmu(self.state_space)
-        with self.assertRaises(EngineError) as raised:
-            engine.validate_config(metadata, SimulationConfig(parameters={"n": 2}))
-        self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
-        self.assertEqual(
-            raised.exception.details["issues"][0]["code"],
-            "UNSUPPORTED_STRUCTURAL_PARAMETER_OVERRIDE",
+    @unittest.skipUnless(
+        patched_state_space.is_file(), "patched FMI 3 StateSpace is unavailable"
+    )
+    def test_patched_statespace_runs_dynamic_shapes_streams_chunks_exports_csv_and_cleans_up(self) -> None:
+        factory = CapturingFactory()
+        engine = FarcelEngine(FmpyImporter(), factory)
+        metadata = engine.load_fmu(self.patched_state_space)
+        chunks = []
+        variables = {variable.name: variable for variable in metadata.variables}
+        zeros = lambda rows, columns: tuple(
+            tuple(0.0 for _ in range(columns)) for _ in range(rows)
         )
+
+        self.assertEqual(variables["A"].shape, (3, 3))
+        self.assertEqual(variables["y"].shape, (3,))
+        result = engine.run_fmu(
+            self.patched_state_space,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=2.0,
+                communication_step=1.0,
+                output_interval=1.0,
+                parameters={
+                    "m": 2,
+                    "n": 4,
+                    "r": 1,
+                    "A": zeros(4, 4),
+                    "B": ((1.0, 0.0), (0.0, 1.0), (0.0, 0.0), (0.0, 0.0)),
+                    "C": ((1.0, 0.0, 0.0, 0.0),),
+                    "D": ((0.0, 0.0),),
+                    "x0": (0.0, 0.0, 0.0, 0.0),
+                },
+                initial_inputs={"u": (1.0, 2.0)},
+                input_schedule=(InputUpdate(1.0, {"u": (2.0, 1.0)}),),
+                selected_outputs=("y",),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completion_state, SimulationState.COMPLETED)
+        self.assertEqual(result.timestamps, (0.0, 1.0, 2.0))
+        self.assertEqual(tuple(len(sample) for sample in result.outputs["y"]), (1, 1, 1))
+        self.assertEqual(result.outputs["y"][0], (0.0,))
+        self.assertNotEqual(result.outputs["y"][-1], result.outputs["y"][0])
+        self.assertEqual([chunk.final_chunk for chunk in chunks], [False, True])
+        self.assertEqual(
+            tuple(sample for chunk in chunks for sample in chunk.columns["y"]),
+            result.outputs["y"],
+        )
+        self.assertEqual(variables["A"].shape, (3, 3))
+        self.assertEqual(variables["y"].shape, (3,))
+        self.assertTrue(factory.session._terminated)
+        self.assertTrue(factory.session._closed)
+        self.assertFalse(factory.extraction_directory.exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "StateSpace-fmi3-patched.csv"
+            report = CsvResultExporter().export(result, destination)
+            with destination.open("r", encoding="utf-8", newline="") as stream:
+                rows = list(csv.reader(stream))
+
+        self.assertEqual(report.row_count, 3)
+        self.assertEqual(rows[0], ["time", "y[0]"])
+        self.assertEqual(len(rows), 4)
 
     @unittest.skipUnless(
         bouncing_ball.is_file(), "FMI 3 BouncingBall is unavailable"

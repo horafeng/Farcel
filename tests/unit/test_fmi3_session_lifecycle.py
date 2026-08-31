@@ -57,10 +57,27 @@ def executable_metadata(
     )
 
 
+def structural_metadata() -> ModelMetadata:
+    return replace(
+        executable_metadata(),
+        variables=(
+            VariableMetadata("m", 1, "UInt64", causality="structuralParameter", start=3),
+            VariableMetadata("n", 2, "UInt64", causality="structuralParameter", start=3),
+            VariableMetadata("r", 3, "UInt64", causality="structuralParameter", start=3),
+            VariableMetadata("A", 4, "Float64", causality="parameter", shape=(3, 3), dimension_value_references=(2, 2)),
+            VariableMetadata("u", 5, "Float64", causality="input", shape=(3,), dimension_value_references=(1,)),
+            VariableMetadata("y", 6, "Float64", causality="output", shape=(3,), dimension_value_references=(3,)),
+        ),
+    )
+
+
 class FakeNativeFmi3:
     def __init__(self) -> None:
         self.events: list[str] = []
         self.fail_parameter = False
+        self.fail_structural_parameter = False
+        self.fail_enter_configuration = False
+        self.fail_exit_configuration = False
         self.fail_initialization = False
         self.interrupt_initialization = False
         self.fail_step = False
@@ -79,6 +96,7 @@ class FakeNativeFmi3:
         self.discrete_state_calls = 0
         self.step_mode_calls = 0
         self.float64_set_calls: list[tuple[list[int], list[float]]] = []
+        self.uint64_set_calls: list[tuple[list[int], list[int]]] = []
         self.float64_get_nvalues: list[int | None] = []
 
     def setFloat64(self, references: list[int], values: list[float]) -> None:
@@ -86,6 +104,12 @@ class FakeNativeFmi3:
         self.float64_set_calls.append((list(references), list(values)))
         if self.fail_parameter:
             raise RuntimeError("native FMI 3 parameter failure")
+
+    def setUInt64(self, references: list[int], values: list[int]) -> None:
+        self.events.append(f"setUInt64:{values[0]}")
+        self.uint64_set_calls.append((list(references), list(values)))
+        if self.fail_structural_parameter:
+            raise RuntimeError("native FMI 3 structural parameter failure")
 
     def __getattr__(self, name: str):
         if name.startswith("set"):
@@ -100,6 +124,16 @@ class FakeNativeFmi3:
             raise KeyboardInterrupt()
         if self.fail_initialization:
             raise RuntimeError("native FMI 3 initialization failure")
+
+    def enterConfigurationMode(self) -> None:
+        self.events.append("enterConfiguration")
+        if self.fail_enter_configuration:
+            raise RuntimeError("native FMI 3 configuration enter failure")
+
+    def exitConfigurationMode(self) -> None:
+        self.events.append("exitConfiguration")
+        if self.fail_exit_configuration:
+            raise RuntimeError("native FMI 3 configuration exit failure")
 
     def exitInitializationMode(self) -> None:
         self.events.append("exitInitialization")
@@ -255,6 +289,83 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             native.events[:3],
             ["enterInitialization", "setFloat64:2.5", "exitInitialization"],
         )
+        self.assertNotIn("enterConfiguration", native.events)
+
+    def test_structural_overrides_use_configuration_mode_before_dynamic_arrays(self) -> None:
+        native = FakeNativeFmi3()
+        matrix = tuple(tuple(0.0 for _ in range(4)) for _ in range(4))
+        config = SimulationConfig(
+            parameters={"m": 2, "n": 4, "r": 1, "A": matrix},
+            initial_inputs={"u": (1.0, 2.0)},
+            selected_outputs=("y",),
+        )
+        session, extraction, temporary = self._session(native, config, structural_metadata())
+        try:
+            session.initialize()
+            self.assertEqual(
+                native.events[:6],
+                [
+                    "enterConfiguration",
+                    "setUInt64:2",
+                    "setUInt64:4",
+                    "setUInt64:1",
+                    "exitConfiguration",
+                    "enterInitialization",
+                ],
+            )
+            self.assertEqual(native.uint64_set_calls, [([1], [2]), ([2], [4]), ([3], [1])])
+            self.assertEqual(native.float64_set_calls, [([4], [0.0] * 16), ([5], [1.0, 2.0])])
+            self.assertEqual(session.read_outputs(), {"y": (1.0,)})
+            self.assertEqual(native.float64_get_nvalues, [1])
+            self.assertEqual(
+                next(variable for variable in session._metadata.variables if variable.name == "A").shape,
+                (3, 3),
+            )
+            session.close()
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_dynamic_effective_shapes_are_session_local_and_keep_metadata_static(self) -> None:
+        metadata = structural_metadata()
+        first, first_extraction, first_temporary = self._session(
+            FakeNativeFmi3(),
+            SimulationConfig(parameters={"m": 2, "n": 4, "r": 1}),
+            metadata,
+        )
+        second, second_extraction, second_temporary = self._session(
+            FakeNativeFmi3(),
+            SimulationConfig(parameters={"m": 3, "n": 2, "r": 2}),
+            metadata,
+        )
+        try:
+            first.initialize()
+            second.initialize()
+
+            self.assertEqual(first._effective_shapes["A"], (4, 4))
+            self.assertEqual(first._effective_shapes["u"], (2,))
+            self.assertEqual(first._effective_shapes["y"], (1,))
+            self.assertEqual(second._effective_shapes["A"], (2, 2))
+            self.assertEqual(second._effective_shapes["u"], (3,))
+            self.assertEqual(second._effective_shapes["y"], (2,))
+            self.assertEqual(
+                {variable.name: variable.shape for variable in metadata.variables},
+                {
+                    "m": (),
+                    "n": (),
+                    "r": (),
+                    "A": (3, 3),
+                    "u": (3,),
+                    "y": (3,),
+                },
+            )
+            first.close()
+            second.close()
+            self.assertFalse(first_extraction.exists())
+            self.assertFalse(second_extraction.exists())
+        finally:
+            first_temporary.cleanup()
+            second_temporary.cleanup()
 
     def test_event_mode_initialization_and_runtime_event_follow_fmi3_order(self) -> None:
         native = FakeNativeFmi3()
@@ -450,6 +561,37 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             self.assertIn("freeInstance", native.events)
         finally:
             temporary.cleanup()
+
+    def test_configuration_failures_are_mapped_and_application_cleans_up(self) -> None:
+        for failure, expected_code in (
+            ("fail_enter_configuration", ErrorCode.INITIALIZATION_ERROR),
+            ("fail_structural_parameter", ErrorCode.PARAMETER_SET_ERROR),
+            ("fail_exit_configuration", ErrorCode.INITIALIZATION_ERROR),
+        ):
+            with self.subTest(failure=failure):
+                native = FakeNativeFmi3()
+                setattr(native, failure, True)
+                config = SimulationConfig(parameters={"m": 2})
+                session, extraction, temporary = self._session(
+                    native, config, structural_metadata()
+                )
+                factory = Mock()
+                factory.create.return_value = session
+                importer = Mock()
+                importer.load.return_value = structural_metadata()
+                engine = FarcelEngine(importer, factory)
+                try:
+                    with self.assertRaises(EngineError) as raised:
+                        engine.run_fmu("fmi3-test.fmu", config)
+                    self.assertEqual(raised.exception.code, expected_code)
+                    self.assertEqual(raised.exception.details["phase"], "configuration")
+                    if failure == "fail_structural_parameter":
+                        self.assertEqual(raised.exception.details["parameter"], "m")
+                    self.assertIn("freeInstance", native.events)
+                    self.assertFalse(extraction.exists())
+                    self.assertEqual(engine._sessions, {})
+                finally:
+                    temporary.cleanup()
 
     def test_fmi3_initial_inputs_use_matching_scalar_setters(self) -> None:
         scalar_types = (

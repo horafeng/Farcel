@@ -91,4 +91,4 @@ Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，�
 
 Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组提供完整数据链路：validation 对 public nested sequence 严格匹配 `VariableMetadata.shape`，adapter 在 Initialization Mode 内 flatten 写入并按 getter 的 `nValues=product(shape)` reshape 为 nested tuple。数组参数、initial/scheduled input、selected output、canonical `SimulationResult`、`ResultChunk` 和 CSV 都使用同一数组语义；CSV 仅在导出边界展开为零基 indexed columns。此能力不引入新 DTO、NumPy 或 FMPy 对象到 public contracts，也不改变标量路径。
 
-尚未实现 GUI、FMI 3 Structural Parameter override、Configuration/Reconfiguration Mode、动态 shape、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver。
+Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver 尚未实现。

@@ -198,6 +198,10 @@ def _map_variable(variable: Any) -> VariableMetadata:
         description=variable.description,
         declared_type=getattr(variable.declaredType, "name", None),
         shape=tuple(variable.shape or ()),
+        dimension_value_references=tuple(
+            getattr(dimension, "valueReference", None)
+            for dimension in getattr(variable, "dimensions", ())
+        ),
     )
 
 
