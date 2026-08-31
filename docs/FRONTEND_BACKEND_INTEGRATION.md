@@ -8,7 +8,7 @@
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
-- run：同步执行单个 FMI 2.0 或基础 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`。
+- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode 与 Early Return 按 FMU capability 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
 
 Model Exchange 与 Scheduled Execution 可以被 inspect，但当前不能 run。
@@ -129,6 +129,15 @@ already sampled. Empty `selected_outputs` still produces this sampled timeline,
 but keeps `outputs` empty. Input schedules remain applied at communication
 points, independently of result sampling.
 
+For FMI 3 Co-Simulation, `supports_event_mode` and `supports_early_return` in
+the existing capability metadata determine whether Farcel enables the respective
+native lifecycle flag. Event Mode is handled inside the infrastructure adapter.
+An Early Return may make `RunProgress.current_time` temporarily fall between
+configured communication points, but Farcel resumes the same configured target.
+It does not add a normal output sample, change `completed_steps`, skip an
+`input_schedule` update, or independently emit a `ResultChunk` until that target
+is reached. Intermediate Update remains unsupported as a public callback API.
+
 ## 8. Controlled Run and Progress
 
 The high-level call remains synchronous and blocking, with backward-compatible
@@ -244,9 +253,9 @@ EngineError(code: ErrorCode, message: str, details: Mapping[str, Any])
 
 ## 13. FMI Version Transparency
 
-GUI 对 FMI 2.0 与基础 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`load_fmu`、`validate_config`、`run_fmu`、`export_result`。版本差异通过 `ModelMetadata.fmi_version`、interfaces 和 capabilities 展示；不要根据版本选择 FMPy class 或调用不同 getter。
+GUI 对 FMI 2.0 与 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`load_fmu`、`validate_config`、`run_fmu`、`export_result`。版本差异通过 `ModelMetadata.fmi_version`、interfaces 和 capabilities 展示；不要根据版本选择 FMPy class 或调用不同 getter。
 
-当 FMI 3 FMU 请求当前未支持的 Event Mode、Early Return 或 Intermediate Update 时，run 会返回稳定的 `EngineError`，不会暴露 FMPy status。
+Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，但不提供 Intermediate Update 数据回调。未声明相应 capability 的 FMU 不会被强制启用高级模式；其他不支持的 FMI 3 条件仍返回稳定的 `EngineError`，不会暴露 FMPy status。
 
 ## 14. End-to-End Example
 

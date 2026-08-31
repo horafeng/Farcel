@@ -32,6 +32,9 @@ from farcel.contracts.ports import (
 )
 
 
+_MAX_STEP_ATTEMPTS_PER_COMMUNICATION_TARGET = 10000
+
+
 @dataclass(slots=True)
 class _SessionRecord:
     session: SimulationSession
@@ -126,7 +129,9 @@ class FarcelEngine:
                 "FMU step 未返回单调递增的 reached time",
                 {
                     "current_time": current_time,
+                    "requested_time": result.requested_time,
                     "reached_time": result.reached_time,
+                    "early_return": result.early_return,
                 },
             )
         record.current_time = result.reached_time
@@ -220,6 +225,7 @@ class FarcelEngine:
                 SimulationState.RUNNING,
             )
             stopped = False
+            step_attempts_for_target = 0
 
             while current_time < config.stop_time and not math.isclose(
                 current_time, config.stop_time, rel_tol=0.0, abs_tol=tolerance
@@ -227,25 +233,68 @@ class FarcelEngine:
                 if control is not None and control.stop_requested:
                     stopped = True
                     break
-                remaining = config.stop_time - current_time
-                if remaining < config.communication_step and not supports_variable_step:
+                configured_target = config.start_time + (
+                    completed_steps + 1
+                ) * config.communication_step
+                communication_target = min(configured_target, config.stop_time)
+                if (
+                    communication_target < configured_target
+                    and not supports_variable_step
+                ):
                     break
-                step_size = min(config.communication_step, remaining)
+                step_attempts_for_target += 1
+                if (
+                    step_attempts_for_target
+                    > _MAX_STEP_ATTEMPTS_PER_COMMUNICATION_TARGET
+                ):
+                    raise EngineError(
+                        ErrorCode.STEP_ERROR,
+                        "FMU Early Return 在通信目标前超过重试上限",
+                        {
+                            "communication_target": communication_target,
+                            "step_attempt_count": step_attempts_for_target,
+                        },
+                    )
+                step_size = communication_target - current_time
                 result = self.step(handle, step_size)
                 current_time = result.reached_time
-                completed_steps += 1
-
-                if _is_output_sample_time(
+                reached_communication_target = math.isclose(
                     current_time,
-                    config.start_time,
-                    output_interval,
-                    tolerance,
+                    communication_target,
+                    rel_tol=0.0,
+                    abs_tol=tolerance,
+                )
+                if (
+                    result.early_return
+                    and current_time > communication_target
+                    and not reached_communication_target
                 ):
-                    _record_sample(
-                        result_accumulator,
-                        current_time,
-                        self.read_outputs(handle) if config.selected_outputs else {},
+                    raise EngineError(
+                        ErrorCode.STEP_ERROR,
+                        "FMI 3 Early Return 超过配置通信目标",
+                        {
+                            "current_time": current_time,
+                            "communication_target": communication_target,
+                            "early_return": True,
+                        },
                     )
+
+                if reached_communication_target or not result.early_return:
+                    completed_steps += 1
+                    step_attempts_for_target = 0
+                    if _is_output_sample_time(
+                        current_time,
+                        config.start_time,
+                        output_interval,
+                        tolerance,
+                    ):
+                        _record_sample(
+                            result_accumulator,
+                            current_time,
+                            self.read_outputs(handle)
+                            if config.selected_outputs
+                            else {},
+                        )
                 _notify_progress(
                     on_progress,
                     config,

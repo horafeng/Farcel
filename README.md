@@ -1,8 +1,10 @@
 # Farcel
 
-Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支持通过 FMPy 读取 FMI 2.0 / 3.0 FMU 元数据、仿真前配置验证，以及 FMI 2.0 和基础 FMI 3.0 Co-Simulation 的 Session 执行、所选输出变量时序采样与 CSV 导出。
+Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支持通过 FMPy 读取 FMI 2.0 / 3.0 FMU 元数据、仿真前配置验证，以及 FMI 2.0 Co-Simulation 和 FMI 3.0 Co-Simulation（包括 capability-gated Event Mode 与 Early Return）的 Session 执行、所选输出变量时序采样与 CSV 导出。
 
 `communication_step` 是 FMU Co-Simulation 的通信点推进步长；`output_interval` 是保存到 `SimulationResult` 的结果采样间隔。未设置 `output_interval` 时它等于 `communication_step`，保持原有“每通信点一个样本”的行为。显式设置的采样间隔必须是通信步长的整数倍；Farcel 不插值，并会在正常完成时补记尚未采集的最终状态。
+
+对于支持该 capability 的 FMI 3 Co-Simulation FMU，Farcel 在初始化后和运行时完成 Event Mode 的离散状态更新，再回到 Step Mode。合法 Early Return 只推进实际 `current_time`；Farcel 会继续请求同一个 configured communication target，因此不会改变 `communication_step` 网格、`completed_steps`、`output_interval`、输入调度或 `ResultChunk` 的既有语义。Intermediate Update 数据回调仍未作为公共功能提供。
 
 设计说明见 [docs/BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md)。GUI 等调用者的公共 API、依赖规则和错误处理约定见 [docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md)。
 

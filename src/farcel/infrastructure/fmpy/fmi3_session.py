@@ -25,6 +25,9 @@ from farcel.infrastructure.fmpy.session import (
 )
 
 
+_MAX_EVENT_ITERATIONS = 1000
+
+
 class FmpyFmi3SessionFactory:
     """Create resource-owning basic FMI 3.0 Co-Simulation sessions."""
 
@@ -56,6 +59,17 @@ class FmpyFmi3SessionFactory:
         )
 
 
+def _co_simulation_capability(metadata: ModelMetadata):
+    return next(
+        (
+            item
+            for item in metadata.interface_capabilities
+            if item.interface_type is InterfaceType.CO_SIMULATION
+        ),
+        None,
+    )
+
+
 class FmpyFmi3Session:
     """Own one basic FMU3Slave and all of its native resources."""
 
@@ -75,6 +89,11 @@ class FmpyFmi3Session:
         self._closed = False
         self._native_released = False
         self._applied_parameters: tuple[str, ...] = ()
+        capability = _co_simulation_capability(metadata)
+        self._event_mode_used = bool(capability and capability.supports_event_mode)
+        self._early_return_allowed = bool(
+            capability and capability.supports_early_return
+        )
 
     @classmethod
     def open(
@@ -84,6 +103,7 @@ class FmpyFmi3Session:
         model_identifier: str,
     ) -> FmpyFmi3Session:
         extraction_directory = Path(tempfile.mkdtemp(prefix="farcel-fmi3-"))
+        capability = _co_simulation_capability(metadata)
         fmu: Any = None
         instantiated = False
         cleanup_diagnostics: list[str] = []
@@ -103,8 +123,10 @@ class FmpyFmi3Session:
             finally:
                 os.chdir(working_directory)
             fmu.instantiate(
-                eventModeUsed=False,
-                earlyReturnAllowed=False,
+                eventModeUsed=bool(capability and capability.supports_event_mode),
+                earlyReturnAllowed=bool(
+                    capability and capability.supports_early_return
+                ),
                 logMessage=lambda *_: None,
             )
             instantiated = True
@@ -147,6 +169,9 @@ class FmpyFmi3Session:
                 {"diagnostic": str(exc)},
             ) from None
 
+        if self._event_mode_used:
+            self._complete_event_mode(phase="initialization")
+
         self._initialized = True
 
     def step(self, current_time: float, step_size: float) -> StepResult:
@@ -173,34 +198,109 @@ class FmpyFmi3Session:
                 {"diagnostic": str(exc)},
             ) from None
 
-        if event_encountered or early_return or terminate_requested:
-            conditions = tuple(
-                name
-                for name, active in (
-                    ("event_mode", event_encountered),
-                    ("early_return", early_return),
-                    ("terminate_requested", terminate_requested),
-                )
-                if active
-            )
+        if terminate_requested:
             raise EngineError(
                 ErrorCode.STEP_ERROR,
-                "FMI 3 runtime 返回当前 Basic Co-Simulation 不支持的条件",
-                {"conditions": conditions, "reached_time": reached_time},
+                "FMI 3 Co-Simulation 请求终止仿真",
+                {
+                    "terminate_requested": True,
+                    "reached_time": reached_time,
+                },
+            )
+        if event_encountered and not self._event_mode_used:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 runtime 返回当前配置未启用的 Event Mode",
+                {"conditions": ("event_mode",), "reached_time": reached_time},
+            )
+        if early_return and not self._early_return_allowed:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 runtime 返回当前配置未允许的 Early Return",
+                {"conditions": ("early_return",), "reached_time": reached_time},
             )
         if not math.isfinite(reached_time) or reached_time <= current_time:
             raise EngineError(
                 ErrorCode.STEP_ERROR,
                 "FMI 3 doStep 未返回有效的 reached time",
-                {"current_time": current_time, "reached_time": reached_time},
+                {
+                    "current_time": current_time,
+                    "requested_time": requested_time,
+                    "reached_time": reached_time,
+                    "early_return": early_return,
+                },
             )
+        if event_encountered:
+            self._enter_event_mode()
+            self._complete_event_mode(phase="runtime")
 
         return StepResult(
             requested_time=requested_time,
             reached_time=reached_time,
             step_size=step_size,
             status=StepStatus.SUCCESS,
+            event_encountered=event_encountered,
+            early_return=early_return,
+            terminate_requested=terminate_requested,
         )
+
+    def _enter_event_mode(self) -> None:
+        try:
+            self._fmu.enterEventMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Event Mode 进入失败",
+                {"diagnostic": str(exc)},
+            ) from None
+
+    def _complete_event_mode(self, *, phase: str) -> None:
+        for event_iteration_count in range(1, _MAX_EVENT_ITERATIONS + 1):
+            try:
+                (
+                    discrete_states_need_update,
+                    terminate_requested,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = self._fmu.updateDiscreteStates()
+            except Exception as exc:
+                raise EngineError(
+                    ErrorCode.STEP_ERROR,
+                    "FMI 3 Event Mode 离散状态更新失败",
+                    {"phase": phase, "diagnostic": str(exc)},
+                ) from None
+
+            if terminate_requested:
+                raise EngineError(
+                    ErrorCode.STEP_ERROR,
+                    "FMI 3 Event Mode 请求终止仿真",
+                    {
+                        "phase": phase,
+                        "terminate_requested": True,
+                        "event_iteration_count": event_iteration_count,
+                    },
+                )
+            if not discrete_states_need_update:
+                break
+        else:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Event Mode 离散状态更新超过迭代上限",
+                {
+                    "phase": phase,
+                    "event_iteration_count": _MAX_EVENT_ITERATIONS,
+                },
+            )
+        try:
+            self._fmu.enterStepMode()
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI 3 Step Mode 进入失败",
+                {"phase": phase, "diagnostic": str(exc)},
+            ) from None
 
     def set_inputs(self, values: Mapping[str, Any]) -> None:
         if self._terminated or self._closed:

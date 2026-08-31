@@ -77,7 +77,7 @@ docs/
 
 `SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
 
-FMI 2.0 与基础 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
+FMI 2.0 与 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
 
 `SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并仅在由 `output_interval` 指定的实际到达 communication point 采集配置选中的标量输出。`communication_step` 始终控制 FMU 推进；未显式设置的 `output_interval` 回退为该步长，正常完成时会补记尚未采样的最终状态。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
 
@@ -87,6 +87,6 @@ Phase 2.0C 在同一 application 采样路径上增加 Farcel-owned `ResultChunk
 
 CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
 
-基础 FMI 3.0 runtime 使用普通 Co-Simulation step mode，不启用 Event Mode、Early Return 或 Intermediate Update。若 FMU 在执行时返回这些未支持条件，adapter 会报告稳定 `STEP_ERROR`，而不是将其当成完整 communication step。
+Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，以 `eventModeUsed=True` / `earlyReturnAllowed=True` 实例化。Event Mode 在 exitInitializationMode 后和 doStep 报告 event 后执行 `updateDiscreteStates()` 直至稳定，再进入 Step Mode；1000 次迭代上限防止坏 FMU 挂死。合法 Early Return 保留在 Farcel `StepResult`，application 以实际 reached time 继续请求原配置 communication target，只有完整到达该 target 才增加 `completed_steps` 和执行常规采样。Intermediate Update 数据回调仍不公开，Arrays、Clock/Binary、Scheduled Execution 与 Model Exchange runtime 仍未实现。
 
-尚未实现 GUI、FMI 3 Event Mode / Early Return 调度、Scheduled Execution、worker、多 FMU 和 ME solver。
+尚未实现 GUI、FMI 3 Arrays / Structural Parameters runtime、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver。

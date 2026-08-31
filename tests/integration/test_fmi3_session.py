@@ -1,4 +1,5 @@
 import csv
+import math
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -30,6 +31,74 @@ class CapturingFactory:
 
 class Fmi3SessionIntegrationTests(unittest.TestCase):
     van_der_pol = FMU_FIXTURES / "VanDerPol-fmi3.fmu"
+    bouncing_ball = FMU_FIXTURES / "BouncingBall-fmi3.fmu"
+
+    @unittest.skipUnless(
+        bouncing_ball.is_file(), "FMI 3 BouncingBall is unavailable"
+    )
+    def test_bouncing_ball_fmi3_metadata_reports_event_and_early_return(self) -> None:
+        metadata = FmpyImporter().load(self.bouncing_ball)
+
+        self.assertEqual(metadata.fmi_version, "3.0")
+        self.assertIn(InterfaceType.CO_SIMULATION, metadata.interface_types)
+        self.assertTrue(metadata.capabilities.supports_event_mode)
+        self.assertTrue(metadata.capabilities.supports_early_return)
+        self.assertTrue(
+            any(
+                capability.interface_type is InterfaceType.CO_SIMULATION
+                and capability.supports_event_mode
+                and capability.supports_early_return
+                for capability in metadata.interface_capabilities
+            )
+        )
+        self.assertTrue({"h", "v"}.issubset(variable.name for variable in metadata.variables))
+
+    @unittest.skipUnless(
+        bouncing_ball.is_file(), "FMI 3 BouncingBall is unavailable"
+    )
+    def test_bouncing_ball_fmi3_runs_events_and_preserves_result_chunks(self) -> None:
+        chunks = []
+        result = FarcelEngine(FmpyImporter(), FmpySessionFactory()).run_fmu(
+            self.bouncing_ball,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=3.0,
+                communication_step=0.01,
+                output_interval=0.01,
+                selected_outputs=("h", "v"),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=32,
+        )
+
+        self.assertEqual(result.completion_state, SimulationState.COMPLETED)
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 300)
+        self.assertAlmostEqual(result.final_time, 3.0)
+        self.assertTrue(
+            all(left < right for left, right in zip(result.timestamps, result.timestamps[1:]))
+        )
+        self.assertTrue(all(math.isfinite(value) for value in result.outputs["h"]))
+        self.assertTrue(all(math.isfinite(value) for value in result.outputs["v"]))
+        self.assertLess(min(result.outputs["h"]), 0.1)
+        self.assertLess(min(result.outputs["v"]), -1.0)
+        self.assertTrue(
+            any(
+                previous < 0.0 < current
+                for previous, current in zip(
+                    result.outputs["v"], result.outputs["v"][1:]
+                )
+            )
+        )
+        self.assertEqual(
+            tuple(time for chunk in chunks for time in chunk.time), result.timestamps
+        )
+        for name in ("h", "v"):
+            self.assertEqual(
+                tuple(value for chunk in chunks for value in chunk.columns[name]),
+                result.outputs[name],
+            )
+        self.assertTrue(chunks[-1].final_chunk)
 
     @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
     def test_metadata_and_executable_policy_for_real_fmi3_fmu(self) -> None:

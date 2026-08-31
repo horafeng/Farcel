@@ -20,7 +20,9 @@ from farcel.infrastructure.fmpy import fmi3_session
 from farcel.infrastructure.fmpy.fmi3_session import FmpyFmi3Session
 
 
-def executable_metadata() -> ModelMetadata:
+def executable_metadata(
+    *, event_mode: bool = False, early_return: bool = False
+) -> ModelMetadata:
     return ModelMetadata(
         model_id="fmi3-runtime-test",
         source_path="fmi3-runtime-test.fmu",
@@ -29,13 +31,19 @@ def executable_metadata() -> ModelMetadata:
         interface_types=(InterfaceType.CO_SIMULATION,),
         executable_interface=InterfaceType.CO_SIMULATION,
         instantiation_token="token",
-        capabilities=CapabilitySet(can_execute=True),
+        capabilities=CapabilitySet(
+            can_execute=True,
+            supports_event_mode=event_mode,
+            supports_early_return=early_return,
+        ),
         interface_capabilities=(
             InterfaceCapability(
                 interface_type=InterfaceType.CO_SIMULATION,
                 model_identifier="Fmi3RuntimeTest",
                 can_execute=True,
                 can_handle_variable_step=True,
+                supports_event_mode=event_mode,
+                supports_early_return=early_return,
             ),
         ),
         variables=(
@@ -59,7 +67,17 @@ class FakeNativeFmi3:
         self.fail_output = False
         self.fail_terminate = False
         self.fail_free = False
+        self.fail_event_mode = False
+        self.fail_discrete_states_at: int | None = None
+        self.fail_step_mode_at: int | None = None
         self.advanced_step_result = False
+        self.event_encountered = False
+        self.terminate_requested = False
+        self.discrete_state_results: list[
+            tuple[bool, bool, bool, bool, bool, float]
+        ] = []
+        self.discrete_state_calls = 0
+        self.step_mode_calls = 0
 
     def setFloat64(self, _: list[int], values: list[float]) -> None:
         self.events.append(f"setFloat64:{values[0]}")
@@ -83,6 +101,26 @@ class FakeNativeFmi3:
     def exitInitializationMode(self) -> None:
         self.events.append("exitInitialization")
 
+    def enterEventMode(self) -> None:
+        self.events.append("enterEventMode")
+        if self.fail_event_mode:
+            raise RuntimeError("native FMI 3 Event Mode failure")
+
+    def updateDiscreteStates(self) -> tuple[bool, bool, bool, bool, bool, float]:
+        self.events.append("updateDiscreteStates")
+        self.discrete_state_calls += 1
+        if self.fail_discrete_states_at == self.discrete_state_calls:
+            raise RuntimeError("native FMI 3 discrete state failure")
+        if self.discrete_state_results:
+            return self.discrete_state_results.pop(0)
+        return False, False, False, False, False, 0.0
+
+    def enterStepMode(self) -> None:
+        self.events.append("enterStepMode")
+        self.step_mode_calls += 1
+        if self.fail_step_mode_at == self.step_mode_calls:
+            raise RuntimeError("native FMI 3 Step Mode failure")
+
     def doStep(
         self, *, currentCommunicationPoint: float, communicationStepSize: float
     ) -> tuple[bool, bool, bool, float]:
@@ -92,7 +130,12 @@ class FakeNativeFmi3:
         reached_time = currentCommunicationPoint + communicationStepSize
         if self.advanced_step_result:
             return False, False, True, reached_time / 2
-        return False, False, False, reached_time
+        return (
+            self.event_encountered,
+            self.terminate_requested,
+            False,
+            reached_time,
+        )
 
     def getFloat64(self, _: list[int]) -> list[float]:
         self.events.append("getFloat64")
@@ -109,6 +152,21 @@ class FakeNativeFmi3:
         self.events.append("freeInstance")
         if self.fail_free:
             raise RuntimeError("native FMI 3 free failure")
+
+
+class FakeOpenedFmi3:
+    instances: list["FakeOpenedFmi3"] = []
+
+    def __init__(self, **_: object) -> None:
+        self.instantiate_options: dict[str, object] = {}
+        self.freed = False
+        self.instances.append(self)
+
+    def instantiate(self, **options: object) -> None:
+        self.instantiate_options = options
+
+    def freeInstance(self) -> None:
+        self.freed = True
 
 
 class Fmi3SessionLifecycleTests(unittest.TestCase):
@@ -136,6 +194,44 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, ErrorCode.INSTANTIATION_ERROR)
             self.assertFalse(extraction.exists())
 
+    def test_instantiate_uses_event_and_early_return_capabilities(self) -> None:
+        for event_mode, early_return in ((False, False), (True, True)):
+            with self.subTest(event_mode=event_mode, early_return=early_return):
+                FakeOpenedFmi3.instances.clear()
+                with tempfile.TemporaryDirectory() as parent:
+                    extraction = Path(parent) / "extracted"
+                    extraction.mkdir()
+                    with (
+                        patch(
+                            "farcel.infrastructure.fmpy.fmi3_session.tempfile.mkdtemp",
+                            return_value=str(extraction),
+                        ),
+                        patch("farcel.infrastructure.fmpy.fmi3_session.extract"),
+                        patch(
+                            "farcel.infrastructure.fmpy.fmi3_session.FMU3Slave",
+                            FakeOpenedFmi3,
+                        ),
+                    ):
+                        session = FmpyFmi3Session.open(
+                            executable_metadata(
+                                event_mode=event_mode,
+                                early_return=early_return,
+                            ),
+                            SimulationConfig(),
+                            "Fmi3RuntimeTest",
+                        )
+
+                    native = FakeOpenedFmi3.instances[0]
+                    self.assertEqual(
+                        native.instantiate_options["eventModeUsed"], event_mode
+                    )
+                    self.assertEqual(
+                        native.instantiate_options["earlyReturnAllowed"], early_return
+                    )
+                    session.close()
+                    self.assertTrue(native.freed)
+                    self.assertFalse(extraction.exists())
+
     def test_parameter_is_set_before_fmi3_initialization(self) -> None:
         native = FakeNativeFmi3()
         with tempfile.TemporaryDirectory() as parent:
@@ -155,6 +251,155 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             native.events[:3],
             ["setFloat64:2.5", "enterInitialization", "exitInitialization"],
         )
+
+    def test_event_mode_initialization_and_runtime_event_follow_fmi3_order(self) -> None:
+        native = FakeNativeFmi3()
+        native.event_encountered = True
+        native.discrete_state_results = [
+            (True, False, False, False, False, 0.0),
+            (False, False, False, False, False, 0.0),
+            (True, False, False, False, False, 0.0),
+            (False, False, False, False, False, 0.0),
+        ]
+        session, extraction, temporary = self._session(
+            native, metadata=executable_metadata(event_mode=True)
+        )
+        try:
+            session.initialize()
+            result = session.step(0.0, 0.1)
+            session.terminate()
+            session.close()
+
+            self.assertTrue(result.event_encountered)
+            self.assertEqual(
+                native.events,
+                [
+                    "enterInitialization",
+                    "exitInitialization",
+                    "updateDiscreteStates",
+                    "updateDiscreteStates",
+                    "enterStepMode",
+                    "doStep",
+                    "enterEventMode",
+                    "updateDiscreteStates",
+                    "updateDiscreteStates",
+                    "enterStepMode",
+                    "terminate",
+                    "freeInstance",
+                ],
+            )
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_early_return_is_preserved_when_capability_allows_it(self) -> None:
+        native = FakeNativeFmi3()
+        native.advanced_step_result = True
+        session, extraction, temporary = self._session(
+            native, metadata=executable_metadata(early_return=True)
+        )
+        try:
+            session.initialize()
+            result = session.step(0.0, 0.1)
+            session.close()
+
+            self.assertTrue(result.early_return)
+            self.assertEqual(result.requested_time, 0.1)
+            self.assertEqual(result.reached_time, 0.05)
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_event_iteration_overflow_is_stable(self) -> None:
+        native = FakeNativeFmi3()
+        native.event_encountered = True
+        native.discrete_state_results = [
+            (False, False, False, False, False, 0.0),
+            (True, False, False, False, False, 0.0),
+            (True, False, False, False, False, 0.0),
+        ]
+        session, extraction, temporary = self._session(
+            native, metadata=executable_metadata(event_mode=True)
+        )
+        try:
+            session.initialize()
+            with patch(
+                "farcel.infrastructure.fmpy.fmi3_session._MAX_EVENT_ITERATIONS", 2
+            ):
+                with self.assertRaises(EngineError) as raised:
+                    session.step(0.0, 0.1)
+            self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
+            self.assertEqual(raised.exception.details["event_iteration_count"], 2)
+            session.close()
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_terminate_requested_from_do_step_is_stable(self) -> None:
+        native = FakeNativeFmi3()
+        native.terminate_requested = True
+        session, extraction, temporary = self._session(native)
+        try:
+            session.initialize()
+            with self.assertRaises(EngineError) as raised:
+                session.step(0.0, 0.1)
+            self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
+            self.assertTrue(raised.exception.details["terminate_requested"])
+            session.close()
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_terminate_requested_from_event_update_is_stable(self) -> None:
+        native = FakeNativeFmi3()
+        native.event_encountered = True
+        native.discrete_state_results = [
+            (False, False, False, False, False, 0.0),
+            (False, True, False, False, False, 0.0),
+        ]
+        session, extraction, temporary = self._session(
+            native, metadata=executable_metadata(event_mode=True)
+        )
+        try:
+            session.initialize()
+            with self.assertRaises(EngineError) as raised:
+                session.step(0.0, 0.1)
+            self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
+            self.assertTrue(raised.exception.details["terminate_requested"])
+            session.close()
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_runtime_event_mode_failures_clean_up_application_resources(self) -> None:
+        for failure in ("enter_event", "update_discrete", "enter_step"):
+            with self.subTest(failure=failure):
+                native = FakeNativeFmi3()
+                native.event_encountered = True
+                if failure == "enter_event":
+                    native.fail_event_mode = True
+                elif failure == "update_discrete":
+                    native.fail_discrete_states_at = 2
+                else:
+                    native.fail_step_mode_at = 2
+                session, extraction, temporary = self._session(
+                    native, metadata=executable_metadata(event_mode=True)
+                )
+                factory = Mock()
+                factory.create.return_value = session
+                importer = Mock()
+                importer.load.return_value = executable_metadata(event_mode=True)
+                engine = FarcelEngine(importer, factory)
+                try:
+                    with self.assertRaises(EngineError) as raised:
+                        engine.run_fmu("fmi3-test.fmu", SimulationConfig())
+                    self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
+                    self.assertIn("terminate", native.events)
+                    self.assertIn("freeInstance", native.events)
+                    self.assertFalse(extraction.exists())
+                    self.assertEqual(engine._sessions, {})
+                finally:
+                    temporary.cleanup()
 
     def test_parameter_failure_is_stable_and_resources_are_freed(self) -> None:
         native = FakeNativeFmi3()
@@ -312,13 +557,17 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
     def _session(
         native: FakeNativeFmi3,
         config: SimulationConfig | None = None,
+        metadata: ModelMetadata | None = None,
     ) -> tuple[FmpyFmi3Session, Path, tempfile.TemporaryDirectory[str]]:
         temporary = tempfile.TemporaryDirectory()
         extraction = Path(temporary.name) / "extracted"
         extraction.mkdir()
         return (
             FmpyFmi3Session(
-                executable_metadata(), config or SimulationConfig(), native, extraction
+                metadata or executable_metadata(),
+                config or SimulationConfig(),
+                native,
+                extraction,
             ),
             extraction,
             temporary,

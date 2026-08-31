@@ -9,6 +9,7 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `Stair.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `counter` changes from 1 to 2 over 0..1 s. |
 | `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
 | `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Basic FMI 3 CS; `mu` override and selected `x0` regression pass. |
+| `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
 | `bouncingBall.fmu` | No | No | No | N/A | N/A | No | Container metadata says FMI 1.0 Model Exchange. Farcel intentionally supports only FMI 2/3 metadata and only CS execution. `UNSUPPORTED_FMI` includes `fmi_version=1.0` and `parseable=true`. |
 | `manipulator.fmu` | Yes | Yes | No | Setters work | Initial sample only | No | FMI 2 CS. First `doStep` returns error because the native FMU reports `Singular matrix not invertible (getrf).`; reproduced with zero/non-zero inputs, explicit defaults, and step sizes 0.1 through 0.0001. Farcel reports the native diagnostic and releases resources. |
 | `LateralMotionControl.fmu` | Yes, with warnings | Yes | Yes | Initial + scheduled | Yes | Yes | FMI 2 CS. XML references undeclared unit `m/s`; this recoverable unit-definition problem is retained in metadata diagnostics. A generic boolean trigger schedule produces meaningful task execution. |
@@ -20,6 +21,7 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `Stair.fmu` | 0 | 0 | 1 | Integer |
 | `VanDerPol.fmu` | 0 | 1 | 2 | Real |
 | `VanDerPol-fmi3.fmu` | 0 | 1 | 2 | Float64 |
+| `BouncingBall-fmi3.fmu` | 0 | 2 | 3 | Float64 |
 | `manipulator.fmu` | 2 | 10 | 2 | Real |
 | `LateralMotionControl.fmu` | 19 | 34 | 40 | Real, Integer, Boolean |
 | `bouncingBall.fmu` | FMI 1 metadata has no declared input causality | 2 parameter variables (`g`, `e`) | No declared output causality | Real |
@@ -111,5 +113,21 @@ cooperatively stopped run has exactly one non-empty terminal chunk marked
 chunk. Chunk callbacks run synchronously on the caller's run thread and callback
 failures become stable `INTERNAL_ERROR` values after normal cleanup.
 
-Arrays, FMI 3 Binary/Clock, Event Mode, Early Return, Intermediate Update,
-Scheduled Execution, Model Exchange execution, and FMI 1 remain unsupported.
+## FMI 3 Event Mode and Early Return
+
+For a FMI 3 Co-Simulation FMU that declares `hasEventMode` and/or early-return
+capability, Farcel passes the matching instantiate flags. It performs the
+required initialization Event Mode discrete-state loop, and repeats the same
+loop after a runtime event before returning to Step Mode. The loop has a 1000
+iteration guard and reports stable `STEP_ERROR` diagnostics if it cannot settle.
+
+Early Return keeps the configured communication grid intact: a returned
+`lastSuccessfulTime` becomes the actual current time, and Farcel continues to
+the original target before counting a completed interval or adding an ordinary
+sample. This behavior is verified with the official `BouncingBall-fmi3.fmu`
+fixture from Modelica Association Reference-FMUs v0.0.41 (BSD-2-Clause; see
+`examples/fmus/Reference-FMUs-LICENSE.txt`).
+
+Arrays, FMI 3 Binary/Clock, Intermediate Update public callbacks, Structural
+Parameter runtime override, Scheduled Execution, Model Exchange execution, and
+FMI 1 remain unsupported.
