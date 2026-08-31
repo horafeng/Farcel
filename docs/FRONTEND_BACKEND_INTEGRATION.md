@@ -120,6 +120,12 @@ value reference 的数组在标量整型或枚举型 `structuralParameter` 覆�
 CONFIG_ERROR issue 返回。结构参数数组、Reconfiguration Mode、运行中结构参数改变
 仍不在当前范围。
 
+FMI 3 Binary 与 Clock 变量可以显示在 metadata 中，但当前不能作为运行时数据通道。向
+Binary input 提交值会返回 `UNSUPPORTED_INPUT_TYPE`；选择 Binary 或 Clock output 会返回
+`UNSUPPORTED_OUTPUT_TYPE`，二者都发生在 validation 阶段，不会调用 FMPy getter/setter。
+只声明 Scheduled Execution 的 FMU 同样可 inspect，但 `run_fmu` 会在创建 native session 前
+返回 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE`。
+
 ## 7. Sampling Semantics
 
 `communication_step` is the Co-Simulation communication-point step. The optional

@@ -150,6 +150,28 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertIn("UNKNOWN_OUTPUT", {i.code for i in report.issues})
 
+    def test_rejects_fmi3_binary_and_clock_selected_outputs_before_runtime(self) -> None:
+        model = replace(
+            metadata(),
+            fmi_version="3.0",
+            variables=metadata().variables + (
+                VariableMetadata("binary_out", 3, "Binary", causality="output"),
+                VariableMetadata("clock_out", 4, "Clock", causality="output"),
+                VariableMetadata("string_out", 5, "String", causality="output"),
+            ),
+        )
+
+        supported = validate_config(
+            model, SimulationConfig(selected_outputs=("speed", "string_out"))
+        )
+        self.assertTrue(supported.is_valid)
+        rejected = validate_config(
+            model, SimulationConfig(selected_outputs=("binary_out", "clock_out"))
+        )
+        self.assertEqual(
+            {issue.code for issue in rejected.issues}, {"UNSUPPORTED_OUTPUT_TYPE"}
+        )
+
     def test_validates_initial_inputs_names_causality_types_and_ranges(self) -> None:
         model = replace(
             metadata(),

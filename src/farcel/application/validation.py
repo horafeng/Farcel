@@ -201,10 +201,22 @@ def validate_config(
                 issues.append(input_issue)
 
     for output in config.selected_outputs:
-        if output not in known_variables:
+        variable = known_variables.get(output)
+        if variable is None:
             issues.append(
                 ValidationIssue(
                     "selected_outputs", "UNKNOWN_OUTPUT", f"未知输出变量: {output}"
+                )
+            )
+        elif (
+            metadata.fmi_version == "3.0"
+            and variable.data_type.lower() in {"binary", "clock"}
+        ):
+            issues.append(
+                ValidationIssue(
+                    "selected_outputs",
+                    "UNSUPPORTED_OUTPUT_TYPE",
+                    f"本阶段不支持读取 {variable.data_type} output: {output}",
                 )
             )
 
