@@ -10,6 +10,7 @@ from uuid import uuid4
 from fmpy import extract
 from fmpy.fmi3 import FMU3Slave
 
+from farcel.contracts._arrays import array_size, flatten_array, reshape_array
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -151,16 +152,28 @@ class FmpyFmi3Session:
         if self._initialized:
             return
 
-        self._apply_parameters()
-        if self._config.initial_inputs:
-            self.set_inputs(self._config.initial_inputs)
-
         try:
             self._fmu.enterInitializationMode(
                 tolerance=self._config.relative_tolerance,
                 startTime=self._config.start_time,
                 stopTime=self._config.stop_time,
             )
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INITIALIZATION_ERROR,
+                "FMI initialization mode 失败",
+                {"diagnostic": str(exc)},
+            ) from None
+
+        # Fixed parameters and initial inputs are set while the FMU is in
+        # Initialization Mode.  This is required by StateSpace and avoids
+        # entering FMI 3 Configuration Mode, which is deliberately out of
+        # scope for resolved/default-dimension arrays.
+        self._apply_parameters()
+        if self._config.initial_inputs:
+            self.set_inputs(self._config.initial_inputs)
+
+        try:
             self._fmu.exitInitializationMode()
         except Exception as exc:
             raise EngineError(
@@ -309,8 +322,7 @@ class FmpyFmi3Session:
         try:
             for name, value in values.items():
                 variable = variables[name]
-                setter = getattr(self._fmu, _accessor_name("set", variable))
-                setter([variable.value_reference], [value])
+                self._set_variable(variable, value)
         except EngineError:
             raise
         except Exception as exc:
@@ -339,8 +351,17 @@ class FmpyFmi3Session:
                 )
             try:
                 getter = getattr(self._fmu, _accessor_name("get", variable))
-                raw_value = getter([variable.value_reference])[0]
-                values[name] = _python_scalar(raw_value, variable)
+                if variable.shape:
+                    raw_values = getter(
+                        [variable.value_reference], nValues=array_size(variable.shape)
+                    )
+                    values[name] = reshape_array(
+                        tuple(_python_scalar(value, variable) for value in raw_values),
+                        variable.shape,
+                    )
+                else:
+                    raw_value = getter([variable.value_reference])[0]
+                    values[name] = _python_scalar(raw_value, variable)
             except EngineError:
                 raise
             except Exception as exc:
@@ -393,8 +414,7 @@ class FmpyFmi3Session:
         try:
             for name, value in self._config.parameters.items():
                 variable = variables[name]
-                setter = getattr(self._fmu, _accessor_name("set", variable))
-                setter([variable.value_reference], [value])
+                self._set_variable(variable, value)
                 applied.append(name)
         except EngineError:
             raise
@@ -406,19 +426,15 @@ class FmpyFmi3Session:
             ) from None
         self._applied_parameters = tuple(applied)
 
+    def _set_variable(self, variable: VariableMetadata, value: Any) -> None:
+        setter = getattr(self._fmu, _accessor_name("set", variable))
+        values = (
+            flatten_array(value, variable.shape) if variable.shape else (value,)
+        )
+        setter([variable.value_reference], list(values))
+
 
 def _accessor_name(prefix: str, variable: VariableMetadata) -> str:
-    if variable.shape:
-        code = (
-            ErrorCode.PARAMETER_SET_ERROR
-            if prefix == "set"
-            else ErrorCode.OUTPUT_READ_ERROR
-        )
-        raise EngineError(
-            code,
-            "本阶段不支持 FMI 3 数组变量",
-            {"variable": variable.name},
-        )
     if variable.data_type == "Enumeration":
         return f"{prefix}Int64"
     supported_types = {

@@ -8,7 +8,7 @@
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
-- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode 与 Early Return 按 FMU capability 支持。
+- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及已解析默认尺寸数组按当前 capability 与 metadata 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
 
 Model Exchange 与 Scheduled Execution 可以被 inspect，但当前不能 run。
@@ -72,7 +72,7 @@ metadata = backend.load_fmu(path)
 - `model_name`、`description`、`fmi_version`；
 - `interface_types` 与 `executable_interface`；
 - `default_experiment`、`platforms`、`capabilities`；
-- `variables` 中的 `name`、`data_type`、`causality`、`variability`、`start`、`minimum`、`maximum` 和 `unit`；
+- `variables` 中的 `name`、`data_type`、`causality`、`variability`、`shape`、`start`、`minimum`、`maximum` 和 `unit`；
 - `diagnostics` 作为只读诊断文本。
 
 `executable_interface is None` 表示 FMU 可成功解析，但不满足当前执行策略。`VariableMetadata.value_reference` 是 runtime 映射信息；GUI 不应读取或保存它。
@@ -92,8 +92,8 @@ config = SimulationConfig(
 report = backend.validate_config(metadata, config)
 ```
 
-`initial_inputs={"name": value}` is optional and is written before entering
-initialization mode. Time-varying step inputs use the additive, optional
+`initial_inputs={"name": value}` is optional and is written during
+initialization. Time-varying step inputs use the additive, optional
 `input_schedule=(InputUpdate(time, values), ...)` field. Update times align with
 communication points, are strictly increasing, and values are held until the
 next update. Existing `SimulationConfig` calls that omit both fields retain the
@@ -111,6 +111,14 @@ except EngineError as error:
 ```
 
 不要通过解析 `str(error)` 或 CLI 文本恢复字段错误。
+
+对于 FMI 3 的已解析、默认尺寸数组，参数、initial input 和每项
+`InputUpdate.values` 接受严格匹配 `VariableMetadata.shape` 的 nested Python
+sequence（list/tuple；字符串和 bytes 不视为 array sequence）。值在公共边界以
+nested tuple 表示；shape、元素类型和元素范围错误仍以稳定的 CONFIG_ERROR issue
+返回。FMI 3 `structuralParameter` override 返回
+`UNSUPPORTED_STRUCTURAL_PARAMETER_OVERRIDE`；Configuration/Reconfiguration Mode
+和动态 shape 不在当前范围。
 
 ## 7. Sampling Semantics
 
@@ -203,6 +211,10 @@ The chunk callback uses the `run_fmu` thread. Its exception is converted to
 `INTERNAL_ERROR` with diagnostic key `chunk_callback_diagnostic` and does not
 skip cleanup; GUI code must marshal callback data to the UI thread itself.
 
+An FMI 3 array output remains one public column keyed by its declared variable
+name. Each item in that column is a nested tuple with the declared shape;
+concatenating chunks reproduces `SimulationResult.outputs[name]` exactly.
+
 ## 9. Run Workflow
 
 ```python
@@ -224,13 +236,15 @@ result = backend.run_fmu(path, config)
 
 每个输出序列与 `timestamps` 等长，首项是初始化后的 start-time 样本。无所选输出时，`outputs` 为空，但时间轴和执行摘要仍按 `output_interval` 存在。GUI 可按索引将 `timestamps[i]` 与每个 `outputs[name][i]` 配对；不应重新推导时间轴。
 
+已解析默认尺寸的 FMI 3 array output 仍只占一个 `outputs[name]` key；其每个样本是 immutable-friendly nested tuple，而不是拆分成 `name[0]` 等 output key。GUI 可按 metadata 的 `shape` 自行展示或绘图。
+
 ## 11. Export Workflow
 
 ```python
 report = backend.export_result(result, destination)
 ```
 
-输入是完成或停止后的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。导出不会重新执行 FMU，`STOPPED` partial result 也可导出。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
+输入是完成或停止后的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。标量 output 保持单列；array output 展开为稳定的零基 indexed columns（例如 `y[0]`、`A[0,0]`），且 `row_count` 始终等于 sample_count。导出不会重新执行 FMU，`STOPPED` partial result 也可导出。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
 
 ## 12. Error Contract
 
@@ -255,7 +269,7 @@ EngineError(code: ErrorCode, message: str, details: Mapping[str, Any])
 
 GUI 对 FMI 2.0 与 FMI 3.0 Co-Simulation 使用同一组调用和 DTO：`load_fmu`、`validate_config`、`run_fmu`、`export_result`。版本差异通过 `ModelMetadata.fmi_version`、interfaces 和 capabilities 展示；不要根据版本选择 FMPy class 或调用不同 getter。
 
-Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，但不提供 Intermediate Update 数据回调。未声明相应 capability 的 FMU 不会被强制启用高级模式；其他不支持的 FMI 3 条件仍返回稳定的 `EngineError`，不会暴露 FMPy status。
+Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持 metadata 已解析默认尺寸的 FMI 3 arrays；但不提供 Intermediate Update 数据回调、Structural Parameter override、Configuration/Reconfiguration Mode、动态 shape、Binary 或 Clock。未声明相应 capability 的 FMU 不会被强制启用高级模式；其他不支持的 FMI 3 条件仍返回稳定的 `EngineError`，不会暴露 FMPy status。
 
 ## 14. End-to-End Example
 

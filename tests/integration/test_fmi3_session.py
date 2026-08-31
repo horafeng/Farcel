@@ -9,7 +9,14 @@ from pathlib import Path
 from farcel.application.engine import FarcelEngine
 from farcel.cli import main
 from farcel.contracts import RunControl
-from farcel.contracts.models import InterfaceType, SimulationConfig, SimulationState
+from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.models import (
+    InputUpdate,
+    InterfaceType,
+    SimulationConfig,
+    SimulationState,
+)
+from farcel.infrastructure.export.csv import CsvResultExporter
 from farcel.infrastructure.fmpy import FmpyImporter, FmpySessionFactory
 from farcel.infrastructure.fmpy.fmi3_session import FmpyFmi3Session
 
@@ -32,6 +39,113 @@ class CapturingFactory:
 class Fmi3SessionIntegrationTests(unittest.TestCase):
     van_der_pol = FMU_FIXTURES / "VanDerPol-fmi3.fmu"
     bouncing_ball = FMU_FIXTURES / "BouncingBall-fmi3.fmu"
+    state_space = FMU_FIXTURES / "StateSpace-fmi3.fmu"
+
+    @unittest.skipUnless(state_space.is_file(), "FMI 3 StateSpace is unavailable")
+    def test_statespace_metadata_exposes_default_resolved_array_dimensions(self) -> None:
+        metadata = FmpyImporter().load(self.state_space)
+        variables = {variable.name: variable for variable in metadata.variables}
+
+        self.assertEqual(metadata.fmi_version, "3.0")
+        self.assertEqual(metadata.executable_interface, InterfaceType.CO_SIMULATION)
+        self.assertTrue(metadata.capabilities.can_execute)
+        self.assertEqual(
+            {name: variables[name].shape for name in ("A", "B", "C", "D")},
+            {"A": (3, 3), "B": (3, 3), "C": (3, 3), "D": (3, 3)},
+        )
+        self.assertEqual(
+            {name: variables[name].shape for name in ("x0", "u", "y")},
+            {"x0": (3,), "u": (3,), "y": (3,)},
+        )
+        self.assertEqual(variables["A"].start[0], (1.0, 0.0, 0.0))
+        self.assertEqual(variables["u"].start, (1.0, 2.0, 3.0))
+        self.assertIsNone(variables["y"].start)
+        self.assertEqual(
+            {name: variables[name].causality for name in ("m", "n", "r")},
+            {
+                "m": "structuralParameter",
+                "n": "structuralParameter",
+                "r": "structuralParameter",
+            },
+        )
+
+    @unittest.skipUnless(state_space.is_file(), "FMI 3 StateSpace is unavailable")
+    def test_statespace_default_run_streams_array_result_and_exports_indexed_csv(self) -> None:
+        chunks = []
+        result = FarcelEngine(FmpyImporter(), FmpySessionFactory()).run_fmu(
+            self.state_space,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=2.0,
+                communication_step=1.0,
+                output_interval=1.0,
+                selected_outputs=("y",),
+            ),
+            on_result_chunk=chunks.append,
+            result_chunk_size=2,
+        )
+
+        self.assertEqual(result.completion_state, SimulationState.COMPLETED)
+        self.assertEqual(result.timestamps, (0.0, 1.0, 2.0))
+        self.assertTrue(
+            all(
+                isinstance(sample, tuple)
+                and len(sample) == 3
+                and all(math.isfinite(value) for value in sample)
+                for sample in result.outputs["y"]
+            )
+        )
+        self.assertEqual(
+            tuple(sample for chunk in chunks for sample in chunk.columns["y"]),
+            result.outputs["y"],
+        )
+        self.assertEqual([chunk.final_chunk for chunk in chunks], [False, True])
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "StateSpace.csv"
+            report = CsvResultExporter().export(result, destination)
+            with destination.open("r", encoding="utf-8", newline="") as stream:
+                rows = list(csv.reader(stream))
+
+        self.assertEqual(report.row_count, result.sample_count)
+        self.assertEqual(rows[0], ["time", "y[0]", "y[1]", "y[2]"])
+        self.assertEqual(len(rows), result.sample_count + 1)
+        self.assertEqual(tuple(float(value) for value in rows[1][1:]), (1.0, 2.0, 3.0))
+
+    @unittest.skipUnless(state_space.is_file(), "FMI 3 StateSpace is unavailable")
+    def test_statespace_resolved_array_parameters_and_inputs_run_without_configuration_mode(self) -> None:
+        engine = FarcelEngine(FmpyImporter(), FmpySessionFactory())
+        result = engine.run_fmu(
+            self.state_space,
+            SimulationConfig(
+                start_time=0.0,
+                stop_time=2.0,
+                communication_step=1.0,
+                output_interval=1.0,
+                parameters={
+                    "A": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                    "x0": (0.0, 0.0, 0.0),
+                },
+                initial_inputs={"u": (4.0, 5.0, 6.0)},
+                input_schedule=(
+                    InputUpdate(1.0, {"u": (1.0, 2.0, 3.0)}),
+                ),
+                selected_outputs=("y",),
+            ),
+        )
+
+        self.assertTrue(result.successful)
+        self.assertEqual(result.outputs["y"][0], (4.0, 5.0, 6.0))
+        self.assertNotEqual(result.outputs["y"][-1], result.outputs["y"][0])
+
+        metadata = engine.load_fmu(self.state_space)
+        with self.assertRaises(EngineError) as raised:
+            engine.validate_config(metadata, SimulationConfig(parameters={"n": 2}))
+        self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
+        self.assertEqual(
+            raised.exception.details["issues"][0]["code"],
+            "UNSUPPORTED_STRUCTURAL_PARAMETER_OVERRIDE",
+        )
 
     @unittest.skipUnless(
         bouncing_ball.is_file(), "FMI 3 BouncingBall is unavailable"

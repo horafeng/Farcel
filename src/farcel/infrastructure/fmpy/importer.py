@@ -16,6 +16,7 @@ from farcel.contracts.models import (
     ModelMetadata,
     VariableMetadata,
 )
+from farcel.contracts._arrays import reshape_array
 
 
 class FmpyImporter:
@@ -231,7 +232,7 @@ def _typed_value(value: Any, data_type: str, shape: tuple[int, ...] | None = Non
         return item
 
     converted = tuple(convert(item) for item in values)
-    return converted if shape else converted[0]
+    return reshape_array(converted, tuple(shape)) if shape else converted[0]
 
 
 def _only_recoverable_validation_problems(problems: tuple[str, ...]) -> bool:

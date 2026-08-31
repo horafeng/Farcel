@@ -79,7 +79,7 @@ docs/
 
 FMI 2.0 与 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
 
-`SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并仅在由 `output_interval` 指定的实际到达 communication point 采集配置选中的标量输出。`communication_step` 始终控制 FMU 推进；未显式设置的 `output_interval` 回退为该步长，正常完成时会补记尚未采样的最终状态。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
+`SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并仅在由 `output_interval` 指定的实际到达 communication point 采集配置选中的输出。`communication_step` 始终控制 FMU 推进；未显式设置的 `output_interval` 回退为该步长，正常完成时会补记尚未采样的最终状态。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
 
 Phase 2.0B 在 contracts 中提供 `RunControl` 和 `RunProgress`，在 application 的唯一 `run_fmu()` 循环中实现 cooperative stop 与进度通知。`RunControl` 使用标准库同步原语，仅表达“在下一个 communication point 停止”；FMPy adapter 不认识它，也不会尝试中断正在执行的 native `doStep()`。初始化后发生的停止会正常 terminate / close 并返回 `SimulationState.STOPPED` 的 canonical partial result，末尾补记实际 final state；该结果仍可由既有 CSV adapter 导出。progress callback 只传递 DTO，且在 run 调用线程执行；其异常被转换为稳定 `INTERNAL_ERROR`，再复用既有 cleanup 路径。
 
@@ -87,6 +87,8 @@ Phase 2.0C 在同一 application 采样路径上增加 Farcel-owned `ResultChunk
 
 CSV 导出通过 Farcel `ResultExporter` 端口消费已经完成的 `SimulationResult`。标准库 CSV adapter 位于 `infrastructure/export`，不依赖 FMPy、不重新执行 FMU，也不重建时间轴；CLI `export` 复用 application 的 `run_fmu` 后再委托 exporter。
 
-Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，以 `eventModeUsed=True` / `earlyReturnAllowed=True` 实例化。Event Mode 在 exitInitializationMode 后和 doStep 报告 event 后执行 `updateDiscreteStates()` 直至稳定，再进入 Step Mode；1000 次迭代上限防止坏 FMU 挂死。合法 Early Return 保留在 Farcel `StepResult`，application 以实际 reached time 继续请求原配置 communication target，只有完整到达该 target 才增加 `completed_steps` 和执行常规采样。Intermediate Update 数据回调仍不公开，Arrays、Clock/Binary、Scheduled Execution 与 Model Exchange runtime 仍未实现。
+Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，以 `eventModeUsed=True` / `earlyReturnAllowed=True` 实例化。Event Mode 在 exitInitializationMode 后和 doStep 报告 event 后执行 `updateDiscreteStates()` 直至稳定，再进入 Step Mode；1000 次迭代上限防止坏 FMU 挂死。合法 Early Return 保留在 Farcel `StepResult`，application 以实际 reached time 继续请求原配置 communication target，只有完整到达该 target 才增加 `completed_steps` 和执行常规采样。Intermediate Update 数据回调、Clock/Binary、Scheduled Execution 与 Model Exchange runtime 仍未实现。
 
-尚未实现 GUI、FMI 3 Arrays / Structural Parameters runtime、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver。
+Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组提供完整数据链路：validation 对 public nested sequence 严格匹配 `VariableMetadata.shape`，adapter 在 Initialization Mode 内 flatten 写入并按 getter 的 `nValues=product(shape)` reshape 为 nested tuple。数组参数、initial/scheduled input、selected output、canonical `SimulationResult`、`ResultChunk` 和 CSV 都使用同一数组语义；CSV 仅在导出边界展开为零基 indexed columns。此能力不引入新 DTO、NumPy 或 FMPy 对象到 public contracts，也不改变标量路径。
+
+尚未实现 GUI、FMI 3 Structural Parameter override、Configuration/Reconfiguration Mode、动态 shape、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver。

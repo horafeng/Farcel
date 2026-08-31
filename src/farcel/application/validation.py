@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from farcel.contracts._arrays import ArrayShapeError, flatten_array
 from farcel.contracts.errors import ErrorCode
 from farcel.contracts.models import (
     InputUpdate,
@@ -116,6 +117,18 @@ def validate_config(
                 )
             )
             continue
+        if (
+            metadata.fmi_version == "3.0"
+            and variable.causality == "structuralParameter"
+        ):
+            issues.append(
+                ValidationIssue(
+                    "parameters",
+                    "UNSUPPORTED_STRUCTURAL_PARAMETER_OVERRIDE",
+                    f"当前阶段暂不支持 structural parameter override: {name}",
+                )
+            )
+            continue
         if variable.causality not in {"parameter", "structuralParameter"}:
             issues.append(
                 ValidationIssue(
@@ -209,11 +222,7 @@ def _validate_parameter_value(
     name: str, value: Any, variable: VariableMetadata
 ) -> ValidationIssue | None:
     if variable.shape:
-        return ValidationIssue(
-            "parameters",
-            "UNSUPPORTED_PARAMETER_TYPE",
-            f"本阶段暂不支持数组参数覆盖: {name}",
-        )
+        return _validate_array_value(name, value, variable, "parameters")
 
     data_type = variable.data_type.lower()
     if data_type in {"real", "float32", "float64"}:
@@ -290,11 +299,7 @@ def _validate_scalar_value(
     code_prefix: str,
 ) -> ValidationIssue | None:
     if variable.shape:
-        return ValidationIssue(
-            field,
-            f"UNSUPPORTED_{code_prefix}_TYPE",
-            f"本阶段暂不支持数组 input: {name}",
-        )
+        return _validate_array_value(name, value, variable, field)
 
     data_type = variable.data_type.lower()
     if data_type in {"real", "float32", "float64"}:
@@ -342,6 +347,74 @@ def _validate_scalar_value(
             f"input {name} 大于允许的最大值 {variable.maximum}",
         )
     return None
+
+
+def _validate_array_value(
+    name: str,
+    value: Any,
+    variable: VariableMetadata,
+    field: str,
+) -> ValidationIssue | None:
+    try:
+        elements = flatten_array(value, variable.shape)
+    except ArrayShapeError:
+        return ValidationIssue(
+            field,
+            "INVALID_ARRAY_SHAPE",
+            f"数组变量 {name} 的值必须匹配 shape {variable.shape}",
+        )
+
+    data_type = variable.data_type.lower()
+    for element in elements:
+        if not _valid_scalar_type(element, data_type):
+            return ValidationIssue(
+                field,
+                "INVALID_ARRAY_ELEMENT_TYPE",
+                f"数组变量 {name} 的元素与 {variable.data_type} 类型不匹配",
+            )
+        integer_range = _INTEGER_TYPE_RANGES.get(data_type)
+        if integer_range is not None and not integer_range[0] <= element <= integer_range[1]:
+            return ValidationIssue(
+                field,
+                "INVALID_ARRAY_ELEMENT_TYPE",
+                f"数组变量 {name} 的元素超出 {variable.data_type} 类型范围",
+            )
+        if variable.minimum is not None and element < variable.minimum:
+            return ValidationIssue(
+                field,
+                "ARRAY_ELEMENT_BELOW_MINIMUM",
+                f"数组变量 {name} 的元素小于允许的最小值 {variable.minimum}",
+            )
+        if variable.maximum is not None and element > variable.maximum:
+            return ValidationIssue(
+                field,
+                "ARRAY_ELEMENT_ABOVE_MAXIMUM",
+                f"数组变量 {name} 的元素大于允许的最大值 {variable.maximum}",
+            )
+    return None
+
+
+def _valid_scalar_type(value: Any, data_type: str) -> bool:
+    if data_type in {"real", "float32", "float64"}:
+        return _is_finite_number(value)
+    if data_type in {
+        "integer",
+        "int8",
+        "uint8",
+        "int16",
+        "uint16",
+        "int32",
+        "uint32",
+        "int64",
+        "uint64",
+        "enumeration",
+    }:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if data_type == "boolean":
+        return isinstance(value, bool)
+    if data_type == "string":
+        return isinstance(value, str)
+    return False
 
 
 _INTEGER_TYPE_RANGES = {

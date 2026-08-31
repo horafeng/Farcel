@@ -10,6 +10,7 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
 | `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Basic FMI 3 CS; `mu` override and selected `x0` regression pass. |
 | `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
+| `StateSpace-fmi3.fmu` | Yes | Yes | Yes | Initial + scheduled arrays | Array `y` | Indexed array columns | Official Reference-FMUs v0.0.41 `3.0/StateSpace.fmu`; default `(3, 3)`/`(3,)` dimensions, ordinary array parameters supported, structural parameters intentionally not overridden. |
 | `bouncingBall.fmu` | No | No | No | N/A | N/A | No | Container metadata says FMI 1.0 Model Exchange. Farcel intentionally supports only FMI 2/3 metadata and only CS execution. `UNSUPPORTED_FMI` includes `fmi_version=1.0` and `parseable=true`. |
 | `manipulator.fmu` | Yes | Yes | No | Setters work | Initial sample only | No | FMI 2 CS. First `doStep` returns error because the native FMU reports `Singular matrix not invertible (getrf).`; reproduced with zero/non-zero inputs, explicit defaults, and step sizes 0.1 through 0.0001. Farcel reports the native diagnostic and releases resources. |
 | `LateralMotionControl.fmu` | Yes, with warnings | Yes | Yes | Initial + scheduled | Yes | Yes | FMI 2 CS. XML references undeclared unit `m/s`; this recoverable unit-definition problem is retained in metadata diagnostics. A generic boolean trigger schedule produces meaningful task execution. |
@@ -22,6 +23,7 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `VanDerPol.fmu` | 0 | 1 | 2 | Real |
 | `VanDerPol-fmi3.fmu` | 0 | 1 | 2 | Float64 |
 | `BouncingBall-fmi3.fmu` | 0 | 2 | 3 | Float64 |
+| `StateSpace-fmi3.fmu` | 1 array | 5 arrays + 3 structural parameters | 1 array | Float64, UInt64 |
 | `manipulator.fmu` | 2 | 10 | 2 | Real |
 | `LateralMotionControl.fmu` | 19 | 34 | 40 | Real, Integer, Boolean |
 | `bouncingBall.fmu` | FMI 1 metadata has no declared input causality | 2 parameter variables (`g`, `e`) | No declared output causality | Real |
@@ -128,6 +130,9 @@ sample. This behavior is verified with the official `BouncingBall-fmi3.fmu`
 fixture from Modelica Association Reference-FMUs v0.0.41 (BSD-2-Clause; see
 `examples/fmus/Reference-FMUs-LICENSE.txt`).
 
-Arrays, FMI 3 Binary/Clock, Intermediate Update public callbacks, Structural
-Parameter runtime override, Scheduled Execution, Model Exchange execution, and
-FMI 1 remain unsupported.
+FMI 3 Co-Simulation arrays with metadata-resolved default dimensions are
+supported for ordinary parameters, initial/scheduled inputs, selected outputs,
+canonical results, chunks, and indexed CSV columns. Structural Parameter runtime
+override, Configuration/Reconfiguration Mode, dynamic array shapes, FMI 3
+Binary/Clock, Intermediate Update public callbacks, Scheduled Execution, Model
+Exchange execution, and FMI 1 remain unsupported.

@@ -78,9 +78,12 @@ class FakeNativeFmi3:
         ] = []
         self.discrete_state_calls = 0
         self.step_mode_calls = 0
+        self.float64_set_calls: list[tuple[list[int], list[float]]] = []
+        self.float64_get_nvalues: list[int | None] = []
 
-    def setFloat64(self, _: list[int], values: list[float]) -> None:
+    def setFloat64(self, references: list[int], values: list[float]) -> None:
         self.events.append(f"setFloat64:{values[0]}")
+        self.float64_set_calls.append((list(references), list(values)))
         if self.fail_parameter:
             raise RuntimeError("native FMI 3 parameter failure")
 
@@ -137,11 +140,12 @@ class FakeNativeFmi3:
             reached_time,
         )
 
-    def getFloat64(self, _: list[int]) -> list[float]:
+    def getFloat64(self, _: list[int], nValues: int | None = None) -> list[float]:
         self.events.append("getFloat64")
+        self.float64_get_nvalues.append(nValues)
         if self.fail_output:
             raise RuntimeError("native FMI 3 output failure")
-        return [1.25]
+        return [1.25] if nValues is None else [float(index + 1) for index in range(nValues)]
 
     def terminate(self) -> None:
         self.events.append("terminate")
@@ -232,7 +236,7 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
                     self.assertTrue(native.freed)
                     self.assertFalse(extraction.exists())
 
-    def test_parameter_is_set_before_fmi3_initialization(self) -> None:
+    def test_parameter_is_set_during_fmi3_initialization(self) -> None:
         native = FakeNativeFmi3()
         with tempfile.TemporaryDirectory() as parent:
             extraction = Path(parent) / "extracted"
@@ -249,7 +253,7 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
 
         self.assertEqual(
             native.events[:3],
-            ["setFloat64:2.5", "enterInitialization", "exitInitialization"],
+            ["enterInitialization", "setFloat64:2.5", "exitInitialization"],
         )
 
     def test_event_mode_initialization_and_runtime_event_follow_fmi3_order(self) -> None:
@@ -306,6 +310,36 @@ class Fmi3SessionLifecycleTests(unittest.TestCase):
             self.assertTrue(result.early_return)
             self.assertEqual(result.requested_time, 0.1)
             self.assertEqual(result.reached_time, 0.05)
+            self.assertFalse(extraction.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_fmi3_array_setter_and_getter_use_resolved_shape(self) -> None:
+        native = FakeNativeFmi3()
+        model = replace(
+            executable_metadata(),
+            variables=(
+                VariableMetadata("A", 10, "Float64", causality="parameter", shape=(2, 2)),
+                VariableMetadata("u", 11, "Float64", causality="input", shape=(3,)),
+                VariableMetadata("y", 12, "Float64", causality="output", shape=(3,)),
+            ),
+        )
+        config = SimulationConfig(
+            parameters={"A": ((1.0, 0.0), (0.0, 1.0))},
+            initial_inputs={"u": [1.0, 2.0, 3.0]},
+            selected_outputs=("y",),
+        )
+        session, extraction, temporary = self._session(native, config, model)
+        try:
+            session.initialize()
+            self.assertEqual(
+                native.float64_set_calls,
+                [([10], [1.0, 0.0, 0.0, 1.0]), ([11], [1.0, 2.0, 3.0])],
+            )
+            self.assertEqual(session.read_outputs(), {"y": (1.0, 2.0, 3.0)})
+            self.assertEqual(native.float64_get_nvalues, [3])
+            self.assertEqual(native.events.count("getFloat64"), 1)
+            session.close()
             self.assertFalse(extraction.exists())
         finally:
             temporary.cleanup()
