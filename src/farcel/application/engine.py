@@ -26,6 +26,7 @@ from farcel.contracts.models import (
     SimulationResult,
     SimulationState,
     StepResult,
+    StepStatus,
     ValidationReport,
 )
 from farcel.contracts.run_control import RunControl

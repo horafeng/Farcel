@@ -16,6 +16,7 @@ from farcel.contracts import (
     SimulationResult,
     SimulationState,
     StepResult,
+    StepStatus,
     VariableMetadata,
 )
 
@@ -170,6 +171,48 @@ class ExecutionRunnerTests(unittest.TestCase):
                 "terminate",
                 "chunk:1:True:(0.02,)",
                 "progress:completed:0.02",
+                "close",
+            ],
+        )
+
+    def test_low_level_session_api_step_remains_compatible_after_runner_refactor(self) -> None:
+        events: list[str] = []
+        session = _LifecycleSession(events)
+        importer = Mock()
+        metadata = _metadata()
+        importer.load.return_value = metadata
+        factory = Mock()
+        factory.create.return_value = session
+        engine = FarcelEngine(importer, factory)
+        config = SimulationConfig(selected_outputs=("speed",))
+
+        loaded = engine.load_fmu("runner-test.fmu")
+        handle = engine.create_session(loaded.model_id, config)
+        engine.initialize(handle)
+        default_step = engine.step(handle)
+        outputs = engine.read_outputs(handle)
+        explicit_step = engine.step(handle, step_size=0.02)
+        engine.terminate(handle)
+        self.assertIs(engine.get_state(handle), SimulationState.STOPPED)
+        engine.close_session(handle)
+        engine.close_session(handle)
+
+        self.assertIs(default_step.status, StepStatus.SUCCESS)
+        self.assertGreater(default_step.reached_time, config.start_time)
+        self.assertEqual(default_step.step_size, config.communication_step)
+        self.assertEqual(outputs, {"speed": config.communication_step})
+        self.assertIs(explicit_step.status, StepStatus.SUCCESS)
+        self.assertEqual(explicit_step.step_size, 0.02)
+        self.assertNotIn(handle.session_id, engine._sessions)
+        factory.create.assert_called_once_with(metadata, config)
+        self.assertEqual(
+            events,
+            [
+                "initialize",
+                "step:0.00:0.01",
+                "read:0.01",
+                "step:0.01:0.02",
+                "terminate",
                 "close",
             ],
         )
