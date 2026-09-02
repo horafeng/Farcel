@@ -20,6 +20,11 @@ class ContractBoundaryTests(unittest.TestCase):
             models.ValidationReport,
             models.SessionHandle,
             models.StepResult,
+            models.ModelExchangeInitialization,
+            models.IntegratorStepResult,
+            models.DiscreteStateUpdate,
+            models.SolverAdvanceResult,
+            models.SolverOptions,
             models.ResultChunk,
             models.ExportReport,
             models.RunSummary,
@@ -35,11 +40,19 @@ class ContractBoundaryTests(unittest.TestCase):
             all("fmpy" not in annotation.lower() for annotation in annotations)
         )
 
-    def test_contracts_and_application_do_not_import_fmpy_or_infrastructure(self) -> None:
+    def test_contracts_and_application_do_not_import_native_or_gui_dependencies(self) -> None:
         source_root = Path(__file__).parents[2] / "src" / "farcel"
         forbidden: list[str] = []
+        forbidden_prefixes = (
+            "fmpy",
+            "farcel.infrastructure",
+            "numpy",
+            "ctypes",
+            "PyQt",
+            "PySide",
+        )
         for package in ("contracts", "application"):
-            for source_file in (source_root / package).glob("*.py"):
+            for source_file in (source_root / package).rglob("*.py"):
                 tree = ast.parse(source_file.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
@@ -51,9 +64,10 @@ class ContractBoundaryTests(unittest.TestCase):
                     forbidden.extend(
                         name
                         for name in names
-                        if name == "fmpy"
-                        or name.startswith("fmpy.")
-                        or name.startswith("farcel.infrastructure")
+                        if any(
+                            name == prefix or name.startswith(f"{prefix}.")
+                            for prefix in forbidden_prefixes
+                        )
                     )
 
         self.assertEqual(forbidden, [])

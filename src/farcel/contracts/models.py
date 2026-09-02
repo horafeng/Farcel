@@ -97,6 +97,7 @@ class SimulationConfig:
     initial_inputs: Mapping[str, Any] = field(default_factory=dict)
     selected_outputs: tuple[str, ...] = ()
     input_schedule: tuple[InputUpdate, ...] = ()
+    execution_interface: InterfaceType | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +157,59 @@ class StepResult:
     event_encountered: bool = False
     early_return: bool = False
     terminate_requested: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ModelExchangeInitialization:
+    continuous_state_count: int
+    event_indicator_count: int
+    terminate_requested: bool = False
+    continuous_states_changed: bool = False
+    nominals_changed: bool = False
+    next_event_time_defined: bool = False
+    next_event_time: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorStepResult:
+    enter_event_mode: bool = False
+    terminate_requested: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DiscreteStateUpdate:
+    discrete_states_need_update: bool
+    terminate_requested: bool = False
+    continuous_states_changed: bool = False
+    nominals_changed: bool = False
+    next_event_time_defined: bool = False
+    next_event_time: float | None = None
+
+
+class SolverAdvanceStatus(str, Enum):
+    REACHED_TARGET = "reached_target"
+    STATE_EVENT = "state_event"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class SolverAdvanceResult:
+    reached_time: float
+    status: SolverAdvanceStatus
+    root_info: tuple[int, ...] = ()
+    failure_message: str | None = None
+
+
+class SolverResetReason(str, Enum):
+    CONTINUOUS_STATES_CHANGED = "continuous_states_changed"
+    NOMINALS_CHANGED = "nominals_changed"
+    OTHER_PROBLEM_CHANGE = "other_problem_change"
+
+
+@dataclass(frozen=True, slots=True)
+class SolverOptions:
+    relative_tolerance: float
+    maximum_step: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

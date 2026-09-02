@@ -99,6 +99,13 @@ communication points, are strictly increasing, and values are held until the
 next update. Existing `SimulationConfig` calls that omit both fields retain the
 same behavior.
 
+`execution_interface` 是可选的 additive 字段。GUI 目前应继续使用默认
+`None`：旧行为不变，双接口 FMU 仍选择 Co-Simulation。显式
+`InterfaceType.CO_SIMULATION` 也可使用；显式 `MODEL_EXCHANGE` 或
+`SCHEDULED_EXECUTION` 当前会在 native session 创建前返回稳定的
+`CONFIG_ERROR` / `UNSUPPORTED_INTERFACE`，不会静默回退。前端暂不暴露 solver
+配置，也不应把 ME contract DTO 当成可运行能力。
+
 成功返回 `ValidationReport`，且 `report.is_valid` 为 `True`。失败抛出 code 为 `CONFIG_ERROR` 的 `EngineError`；GUI 可读取 `error.details["issues"]`，其中每项包含稳定字段 `field`、`code`、`message`，用于定位控件和显示信息：
 
 ```python

@@ -85,6 +85,32 @@ def validate_config(
                 )
             )
 
+    requested_interface = config.execution_interface
+    if requested_interface is not None and not isinstance(requested_interface, InterfaceType):
+        issues.append(
+            ValidationIssue(
+                "execution_interface",
+                "INVALID_EXECUTION_INTERFACE",
+                "execution_interface 必须是 InterfaceType 或 None",
+            )
+        )
+    elif requested_interface is InterfaceType.MODEL_EXCHANGE:
+        issues.append(
+            ValidationIssue(
+                "execution_interface",
+                ErrorCode.UNSUPPORTED_INTERFACE.value,
+                "Model Exchange runtime 尚未在当前里程碑启用",
+            )
+        )
+    elif requested_interface is InterfaceType.SCHEDULED_EXECUTION:
+        issues.append(
+            ValidationIssue(
+                "execution_interface",
+                ErrorCode.UNSUPPORTED_INTERFACE.value,
+                "Scheduled Execution runtime 尚未在当前里程碑启用",
+            )
+        )
+
     co_simulation = next(
         (
             capability
@@ -93,7 +119,11 @@ def validate_config(
         ),
         None,
     )
-    if InterfaceType.CO_SIMULATION not in metadata.interface_types:
+    requires_co_simulation = (
+        requested_interface is None
+        or requested_interface is InterfaceType.CO_SIMULATION
+    )
+    if requires_co_simulation and InterfaceType.CO_SIMULATION not in metadata.interface_types:
         issues.append(
             ValidationIssue(
                 "model",
@@ -101,8 +131,9 @@ def validate_config(
                 "FMU 可以解析，但 Farcel 当前只执行 Co-Simulation FMU",
             )
         )
-    elif not metadata.capabilities.can_execute or (
-        metadata.executable_interface is not InterfaceType.CO_SIMULATION
+    elif requires_co_simulation and (
+        not metadata.capabilities.can_execute
+        or metadata.executable_interface is not InterfaceType.CO_SIMULATION
     ):
         if co_simulation is not None and co_simulation.needs_execution_tool:
             code = ErrorCode.UNSUPPORTED_INTERFACE.value

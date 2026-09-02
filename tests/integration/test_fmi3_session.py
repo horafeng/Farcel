@@ -569,6 +569,70 @@ class Fmi3SessionIntegrationTests(unittest.TestCase):
         self.assertIn("变量数量: 6", stdout.getvalue())
 
     @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_default_execution_interface_preserves_co_simulation(self) -> None:
+        factory = CapturingFactory()
+        result = FarcelEngine(FmpyImporter(), factory).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.02,
+                communication_step=0.01,
+                selected_outputs=("x0",),
+            ),
+        )
+
+        self.assertIsInstance(factory.session, FmpyFmi3Session)
+        self.assertTrue(result.successful)
+        self.assertEqual(result.completed_steps, 2)
+        self.assertEqual(result.timestamps, (0.0, 0.01, 0.02))
+        self.assertEqual(factory.session._config.execution_interface, None)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_explicit_co_simulation_preserves_existing_result(self) -> None:
+        default = FarcelEngine(FmpyImporter(), FmpySessionFactory()).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.02,
+                communication_step=0.01,
+                selected_outputs=("x0",),
+            ),
+        )
+        explicit = FarcelEngine(FmpyImporter(), FmpySessionFactory()).run_fmu(
+            self.van_der_pol,
+            SimulationConfig(
+                stop_time=0.02,
+                communication_step=0.01,
+                selected_outputs=("x0",),
+                execution_interface=InterfaceType.CO_SIMULATION,
+            ),
+        )
+
+        self.assertEqual(explicit.completed_steps, default.completed_steps)
+        self.assertEqual(explicit.timestamps, default.timestamps)
+        self.assertEqual(explicit.outputs, default.outputs)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
+    def test_explicit_model_exchange_is_rejected_before_native_session(self) -> None:
+        factory = CapturingFactory()
+        engine = FarcelEngine(FmpyImporter(), factory)
+
+        with self.assertRaises(EngineError) as raised:
+            engine.run_fmu(
+                self.van_der_pol,
+                SimulationConfig(
+                    stop_time=0.02,
+                    communication_step=0.01,
+                    execution_interface=InterfaceType.MODEL_EXCHANGE,
+                ),
+            )
+
+        self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
+        self.assertEqual(
+            raised.exception.details["issues"][0]["code"],
+            ErrorCode.UNSUPPORTED_INTERFACE.value,
+        )
+        self.assertIsNone(factory.session)
+
+    @unittest.skipUnless(van_der_pol.is_file(), "FMI 3 VanDerPol is unavailable")
     def test_real_fmi3_run_produces_canonical_result_and_cleans_up(self) -> None:
         factory = CapturingFactory()
         result = FarcelEngine(FmpyImporter(), factory).run_fmu(

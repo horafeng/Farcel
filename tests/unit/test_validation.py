@@ -71,7 +71,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(variable.shape, (2, 3))
         self.assertEqual(variable.dimension_value_references, ())
 
-    def test_legacy_positional_config_keeps_selected_outputs_position(self) -> None:
+    def test_legacy_positional_config_keeps_existing_field_positions(self) -> None:
         config = SimulationConfig(
             "1.0",
             0.0,
@@ -82,10 +82,12 @@ class ValidationTests(unittest.TestCase):
             {"gain": 2.0},
             {"command": 1.0},
             ("speed",),
+            (),
         )
 
         self.assertEqual(config.selected_outputs, ("speed",))
         self.assertEqual(config.input_schedule, ())
+        self.assertIsNone(config.execution_interface)
 
     def test_valid_co_simulation_config(self) -> None:
         report = validate_config(
@@ -93,6 +95,61 @@ class ValidationTests(unittest.TestCase):
             SimulationConfig(parameters={"gain": 2.0}, selected_outputs=("speed",)),
         )
         self.assertTrue(report.is_valid)
+
+    def test_execution_interface_uses_safe_phase_3_0b_semantics(self) -> None:
+        dual_interface_metadata = replace(
+            metadata(),
+            interface_types=(
+                InterfaceType.CO_SIMULATION,
+                InterfaceType.MODEL_EXCHANGE,
+            ),
+        )
+
+        self.assertTrue(validate_config(dual_interface_metadata, SimulationConfig()).is_valid)
+        self.assertTrue(
+            validate_config(
+                dual_interface_metadata,
+                SimulationConfig(execution_interface=InterfaceType.CO_SIMULATION),
+            ).is_valid
+        )
+
+        model_exchange = validate_config(
+            dual_interface_metadata,
+            SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+        )
+        self.assertEqual(
+            [(issue.field, issue.code) for issue in model_exchange.issues],
+            [("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value)],
+        )
+        self.assertIn("尚未在当前里程碑启用", model_exchange.issues[0].message)
+
+        scheduled_execution = validate_config(
+            dual_interface_metadata,
+            SimulationConfig(execution_interface=InterfaceType.SCHEDULED_EXECUTION),
+        )
+        self.assertEqual(
+            [(issue.field, issue.code) for issue in scheduled_execution.issues],
+            [("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value)],
+        )
+
+    def test_explicit_co_simulation_requires_co_simulation_capability(self) -> None:
+        missing_interface = validate_config(
+            metadata(interface=InterfaceType.MODEL_EXCHANGE, executable=False),
+            SimulationConfig(execution_interface=InterfaceType.CO_SIMULATION),
+        )
+
+        self.assertEqual(
+            [(issue.field, issue.code) for issue in missing_interface.issues],
+            [("model", ErrorCode.UNSUPPORTED_INTERFACE.value)],
+        )
+        missing_binary = validate_config(
+            metadata(executable=False),
+            SimulationConfig(execution_interface=InterfaceType.CO_SIMULATION),
+        )
+        self.assertEqual(
+            [(issue.field, issue.code) for issue in missing_binary.issues],
+            [("model", ErrorCode.PLATFORM_BINARY_MISSING.value)],
+        )
 
     def test_omitted_output_interval_defaults_to_communication_step(self) -> None:
         config = SimulationConfig(communication_step=0.1)

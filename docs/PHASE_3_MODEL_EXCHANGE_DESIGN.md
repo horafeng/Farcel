@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A）
+# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B）
 
-> 状态：3.0A 已冻结设计，**尚未实现 Model Exchange runtime**。本文只定义后续实现边界；不改变现有 FMI 2/3 Co-Simulation（CS）行为、公开 `run_fmu()` 调用形态或版本号。
+> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
 
 ## 1. 目标、范围与非目标
 
@@ -60,7 +60,7 @@ FarcelEngine.run_fmu()
 SimulationConfig.execution_interface: InterfaceType | None = None
 ```
 
-该字段必须附加在所有现有位置参数字段之后（当前最后一个为 `input_schedule`），并增加旧位置参数构造的回归测试。3.0A 不添加该字段，避免出现“可选择但不能运行 ME”的半实现 API。
+该字段附加在所有既有位置参数字段之后（`input_schedule` 之后），并由旧位置参数构造回归测试保护。3.0B 已添加该字段，但只开放安全 validation 语义，不创建 ME session 或 solver。
 
 后续实现的选择规则：
 
@@ -73,6 +73,8 @@ SimulationConfig.execution_interface: InterfaceType | None = None
 | 显式 SE 或接口不存在/不可执行 | validation 返回稳定 `UNSUPPORTED_INTERFACE` 或平台相关错误 |
 
 metadata 仍表示“已解析的接口”与“当前可执行接口”的区别。ME 支持落地前，现有 `executable_interface=CO_SIMULATION` 策略不变；不能因为 metadata 含 ME 就错误标记为可执行。
+
+3.0B 中，`None` 与显式 `CO_SIMULATION` 继续走并验证既有 CS 路径；显式 `MODEL_EXCHANGE` 在 native session 创建前以 `UNSUPPORTED_INTERFACE` 稳定拒绝，不回退到 CS；显式 `SCHEDULED_EXECUTION` 同样保持不支持。
 
 ## 5. 三种时间尺度的最终语义
 
@@ -88,7 +90,7 @@ ME 中 `completed_steps` 只在完整到达一个 Farcel checkpoint 后加一。
 
 ## 6. ModelExchangeSession 与 problem boundary
 
-后续在 `contracts/ports.py` 中增加独立的 `ModelExchangeSession`，而不是扩张已有的 CS `SimulationSession`。它公开的值均为 Farcel/标准 Python 类型，例如不可变 `tuple[float, ...]`、`bool` 与 Farcel dataclass；不暴露数组库、FMPy object 或 native pointer。
+3.0B 已在 `contracts/ports.py` 中增加独立的 `ModelExchangeSession`，而不是扩张已有的 CS `SimulationSession`。它公开的值均为 Farcel/标准 Python 类型，例如不可变 `tuple[float, ...]`、`bool` 与 Farcel dataclass；不暴露数组库、FMPy object 或 native pointer。
 
 冻结的职责形状如下（名称可作小幅实现调整，语义不得缩水）：
 
@@ -116,7 +118,7 @@ solver 的 callback/problem 边界由 application 使用上述 session 组装：
 
 ## 7. SolverAdapter port
 
-未来新增 Farcel-owned `SolverAdapter` 和 `SolverFactory`。它的输入是 ME problem/session 的 Farcel callback，输出是 Farcel dataclass；不出现 `fmpy.sundials.CVodeSolver`、NumPy array 或 native handle。
+3.0B 已新增 Farcel-owned `SolverAdapter`、`SolverFactory` 和 `ModelExchangeProblem` ports。它们的输入是 ME problem/session 的 Farcel callback，输出是 Farcel dataclass；不出现 `fmpy.sundials.CVodeSolver`、NumPy array 或 native handle。
 
 ```python
 class SolverAdapter(Protocol):
@@ -178,7 +180,7 @@ cleanup 顺序固定为：终止 FMU（状态允许时）→ close solver → fr
 
 ## 12. 回归计划
 
-Phase 3.0B 之前先补 characterization tests，固定现有 CS 的 selected output、output interval、Early Return、Stop、RunProgress、chunk sequence/final chunk、cleanup 与旧 `SimulationConfig` 位置参数语义。重构后这些测试必须不变。
+3.0B 已用 characterization tests 固定现有 CS 的 selected output、output interval、Early Return、Stop、RunProgress、chunk sequence/final chunk、cleanup 与旧 `SimulationConfig` 位置参数语义；新增双接口默认 CS、显式 CS 结果一致和显式 ME 早期拒绝测试。后续重构不得改变这些测试保护的行为。
 
 ME 回归矩阵至少包含：
 
@@ -198,7 +200,7 @@ ME 回归矩阵至少包含：
 | 阶段 | 交付 |
 |---|---|
 | 3.0A（本次） | 本设计、风险和语义冻结；无 runtime 改动 |
-| 3.0B | CS characterization tests；增加 additive `execution_interface`、ME/solver DTO 与 ports，仍不接入正式 runtime |
+| 3.0B（已完成） | CS characterization tests；增加 additive `execution_interface`、ME/solver DTO 与 ports；`phase-3-work` push 纳入完整后端 CI；仍不接入正式 runtime |
 | 3.1 | application runner 抽取：CS 行为保持不变，建立可注入 ModelExchangeRunner 骨架 |
 | 3.2 | FMI2 `ModelExchangeSession` adapter、初始化和连续状态/problem boundary |
 | 3.3 | CVode adapter、无事件 ME checkpoint 推进与真实 FMU 基线 |
@@ -212,3 +214,11 @@ ME 回归矩阵至少包含：
 3.0A 开始时未发现 frontend branch、frontend PR 或开放 PR；未来出现前端成果并合入 `main` 时，不随意改变 Phase 3 基线。只在稳定里程碑插入 `Phase 3.SYNC`：确认 `phase-3-work` clean → `git fetch origin` → 检查 `origin/main` 提交来源 → 在 `phase-3-work` **merge** `origin/main`（不 rebase、不 force）→ 逐文件处理冲突且不覆盖前端成果 → 执行完整后端 tests、frontend/backend integration smoke、`examples/backend_api_example.py`、`git diff --check` 和 public API compatibility 检查 → 再继续 Phase 3。
 
 在完成前述验证前，不把前端同步解释为 ME runtime 已实现，也不修改 GUI 去绕过 `create_backend()` 或 public contracts。
+
+## 15. 3.0B 已交付边界
+
+- `SimulationConfig.execution_interface` 是末尾 additive 字段；旧 GUI 不设置它时，双接口 FMU 继续选择 CS。
+- `ModelExchangeInitialization`、`IntegratorStepResult`、`DiscreteStateUpdate`、`SolverAdvanceResult`、`SolverOptions` 与相关 enum/ports 已从 `farcel.contracts` 公开；它们是 contract，不是 runtime 实现。
+- CS 的 Early Return、Stop、Progress、ResultChunk、cleanup 与 sampling grid 由现有和新增 characterization tests 保护。
+- GitHub Actions 已把 `phase-3-work` push 纳入与 `main` 相同的后端 CI matrix。
+- `FarcelEngine` 未注入 ME 依赖，未实例化 `FMU2Model`，也未调用 CVode 或 FMPy `simulateME()`。
