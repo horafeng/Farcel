@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from farcel.application.validation import resolve_output_interval, validate_config
+from farcel.application.runners import (
+    CoSimulationRunner,
+    ExecutionRunner,
+    ModelExchangeRunner,
+    validate_result_chunk_size,
+)
+from farcel.application.validation import validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -20,7 +26,6 @@ from farcel.contracts.models import (
     SimulationResult,
     SimulationState,
     StepResult,
-    StepStatus,
     ValidationReport,
 )
 from farcel.contracts.run_control import RunControl
@@ -58,6 +63,8 @@ class FarcelEngine:
         self._result_exporter = result_exporter
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
+        self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
+        self._model_exchange_runner: ExecutionRunner = ModelExchangeRunner()
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))
@@ -190,206 +197,22 @@ class FarcelEngine:
         on_result_chunk: Callable[[ResultChunk], None] | None = None,
         result_chunk_size: int = 256,
     ) -> SimulationResult:
-        handle: SessionHandle | None = None
-        primary_error: EngineError | None = None
-        base_error: BaseException | None = None
-        simulation_result: SimulationResult | None = None
-
-        _validate_result_chunk_size(result_chunk_size)
-        try:
-            if control is not None and control.stop_requested:
-                raise EngineError(ErrorCode.CANCELLED, "仿真开始前已请求停止")
-            metadata = self.load_fmu(path)
-            handle = self.create_session(metadata.model_id, config)
-            self.initialize(handle)
-
-            current_time = config.start_time
-            completed_steps = 0
-            result_accumulator = _ResultAccumulator(
-                config.selected_outputs, on_result_chunk, result_chunk_size
-            )
-            tolerance = max(1e-12, config.communication_step * 1e-9)
-            output_interval = resolve_output_interval(config)
-            _record_sample(
-                result_accumulator,
-                current_time,
-                self.read_outputs(handle) if config.selected_outputs else {},
-            )
-            supports_variable_step = _supports_variable_step(metadata)
-            _notify_progress(
-                on_progress,
-                config,
-                current_time,
-                completed_steps,
-                result_accumulator.sample_count,
-                SimulationState.RUNNING,
-            )
-            stopped = False
-            step_attempts_for_target = 0
-
-            while current_time < config.stop_time and not math.isclose(
-                current_time, config.stop_time, rel_tol=0.0, abs_tol=tolerance
-            ):
-                if control is not None and control.stop_requested:
-                    stopped = True
-                    break
-                configured_target = config.start_time + (
-                    completed_steps + 1
-                ) * config.communication_step
-                communication_target = min(configured_target, config.stop_time)
-                if (
-                    communication_target < configured_target
-                    and not supports_variable_step
-                ):
-                    break
-                step_attempts_for_target += 1
-                if (
-                    step_attempts_for_target
-                    > _MAX_STEP_ATTEMPTS_PER_COMMUNICATION_TARGET
-                ):
-                    raise EngineError(
-                        ErrorCode.STEP_ERROR,
-                        "FMU Early Return 在通信目标前超过重试上限",
-                        {
-                            "communication_target": communication_target,
-                            "step_attempt_count": step_attempts_for_target,
-                        },
-                    )
-                step_size = communication_target - current_time
-                result = self.step(handle, step_size)
-                current_time = result.reached_time
-                reached_communication_target = math.isclose(
-                    current_time,
-                    communication_target,
-                    rel_tol=0.0,
-                    abs_tol=tolerance,
-                )
-                if (
-                    result.early_return
-                    and current_time > communication_target
-                    and not reached_communication_target
-                ):
-                    raise EngineError(
-                        ErrorCode.STEP_ERROR,
-                        "FMI 3 Early Return 超过配置通信目标",
-                        {
-                            "current_time": current_time,
-                            "communication_target": communication_target,
-                            "early_return": True,
-                        },
-                    )
-
-                if reached_communication_target or not result.early_return:
-                    completed_steps += 1
-                    step_attempts_for_target = 0
-                    if _is_output_sample_time(
-                        current_time,
-                        config.start_time,
-                        output_interval,
-                        tolerance,
-                    ):
-                        _record_sample(
-                            result_accumulator,
-                            current_time,
-                            self.read_outputs(handle)
-                            if config.selected_outputs
-                            else {},
-                        )
-                _notify_progress(
-                    on_progress,
-                    config,
-                    current_time,
-                    completed_steps,
-                    result_accumulator.sample_count,
-                    SimulationState.RUNNING,
-                )
-
-            if not math.isclose(
-                result_accumulator.final_time,
-                current_time,
-                rel_tol=0.0,
-                abs_tol=tolerance,
-            ):
-                _record_sample(
-                    result_accumulator,
-                    current_time,
-                    self.read_outputs(handle) if config.selected_outputs else {},
-                )
-
-            completion_state = (
-                SimulationState.STOPPED if stopped else SimulationState.COMPLETED
-            )
-            simulation_result = SimulationResult(
-                fmu_path=str(Path(path).expanduser().resolve()),
-                start_time=config.start_time,
-                stop_time=config.stop_time,
-                step_size=config.communication_step,
-                completed_steps=completed_steps,
-                final_time=current_time,
-                completion_state=completion_state,
-                timestamps=result_accumulator.timestamps,
-                outputs=result_accumulator.outputs,
-            )
-            self.terminate(handle)
-            result_accumulator.flush_final()
-            _notify_progress(
-                on_progress,
-                config,
-                current_time,
-                completed_steps,
-                simulation_result.sample_count,
-                completion_state,
-            )
-        except EngineError as exc:
-            primary_error = exc
-        except Exception as exc:
-            primary_error = EngineError(
-                ErrorCode.INTERNAL_ERROR,
-                "仿真执行发生未预期错误",
-                {"diagnostic": str(exc)},
-            )
-        except BaseException as exc:
-            base_error = exc
-
-        cleanup_errors: list[EngineError] = []
-        if handle is not None:
-            record = self._sessions.get(handle.session_id)
-            if record is not None and record.state in {
-                SimulationState.READY,
-                SimulationState.RUNNING,
-            }:
-                try:
-                    self.terminate(handle)
-                except EngineError as exc:
-                    cleanup_errors.append(exc)
-            try:
-                self.close_session(handle)
-            except EngineError as exc:
-                cleanup_errors.append(exc)
-
-        cleanup_error = _combine_cleanup_errors(cleanup_errors)
-
-        if base_error is not None:
-            if cleanup_error is not None:
-                raise cleanup_error from base_error
-            raise base_error
-        if primary_error is not None:
-            if cleanup_error is not None:
-                details = dict(primary_error.details)
-                details["cleanup_error"] = {
-                    "code": cleanup_error.code.value,
-                    "message": cleanup_error.message,
-                    "details": dict(cleanup_error.details),
-                }
-                raise EngineError(
-                    primary_error.code, primary_error.message, details
-                ) from None
-            raise primary_error from None
-        if cleanup_error is not None:
-            raise cleanup_error from None
-        if simulation_result is None:
-            raise EngineError(ErrorCode.INTERNAL_ERROR, "仿真未生成结果")
-        return simulation_result
+        validate_result_chunk_size(result_chunk_size)
+        if control is not None and control.stop_requested:
+            raise EngineError(ErrorCode.CANCELLED, "仿真开始前已请求停止")
+        metadata = self.load_fmu(path)
+        self.validate_config(metadata, config)
+        runner = self._select_execution_runner(config)
+        return runner.run(
+            path,
+            metadata,
+            config,
+            control=control,
+            on_progress=on_progress,
+            on_result_chunk=on_result_chunk,
+            result_chunk_size=result_chunk_size,
+            step_attempt_limit=_MAX_STEP_ATTEMPTS_PER_COMMUNICATION_TARGET,
+        )
 
     def export_result(
         self, result: SimulationResult, destination: str | Path
@@ -404,184 +227,9 @@ class FarcelEngine:
         except KeyError:
             raise EngineError(ErrorCode.INTERNAL_ERROR, "Session 不存在或已经关闭") from None
 
-
-def _supports_variable_step(metadata: ModelMetadata) -> bool:
-    return any(
-        capability.interface_type is InterfaceType.CO_SIMULATION
-        and capability.can_handle_variable_step
-        for capability in metadata.interface_capabilities
-    )
-
-
-def _is_output_sample_time(
-    current_time: float,
-    start_time: float,
-    output_interval: float,
-    tolerance: float,
-) -> bool:
-    sample_index = (current_time - start_time) / output_interval
-    return sample_index > 0 and math.isclose(
-        sample_index, round(sample_index), rel_tol=0.0, abs_tol=tolerance / output_interval
-    )
-
-
-class _ResultAccumulator:
-    """Keep the canonical result and optionally deliver contiguous sample chunks."""
-
-    def __init__(
-        self,
-        selected_outputs: tuple[str, ...],
-        callback: Callable[[ResultChunk], None] | None,
-        chunk_size: int,
-    ) -> None:
-        self._selected_outputs = selected_outputs
-        self._callback = callback
-        self._chunk_size = chunk_size
-        self._run_id = str(uuid4())
-        self._sequence = 0
-        self._timestamps: list[float] = []
-        self._outputs = {name: [] for name in selected_outputs}
-        self._pending_time: list[float] = []
-        self._pending_columns = {name: [] for name in selected_outputs}
-
-    @property
-    def sample_count(self) -> int:
-        return len(self._timestamps)
-
-    @property
-    def final_time(self) -> float:
-        return self._timestamps[-1]
-
-    @property
-    def timestamps(self) -> tuple[float, ...]:
-        return tuple(self._timestamps)
-
-    @property
-    def outputs(self) -> dict[str, tuple[Any, ...]]:
-        return {name: tuple(values) for name, values in self._outputs.items()}
-
-    def record_sample(self, timestamp: float, values: Mapping[str, Any]) -> None:
-        missing = tuple(
-            name for name in self._selected_outputs if name not in values
-        )
-        if missing:
-            raise EngineError(
-                ErrorCode.OUTPUT_READ_ERROR,
-                "Session 未返回全部所选输出变量",
-                {"variables": missing},
-            )
-        if self._callback is not None and len(self._pending_time) == self._chunk_size:
-            self._flush(final_chunk=False)
-
-        self._timestamps.append(timestamp)
-        for name in self._selected_outputs:
-            value = values[name]
-            self._outputs[name].append(value)
-            if self._callback is not None:
-                self._pending_columns[name].append(value)
-        if self._callback is not None:
-            self._pending_time.append(timestamp)
-
-    def flush_final(self) -> None:
-        if self._callback is not None:
-            self._flush(final_chunk=True)
-
-    def _flush(self, *, final_chunk: bool) -> None:
-        if not self._pending_time:
-            return
-        chunk = ResultChunk(
-            run_id=self._run_id,
-            sequence=self._sequence,
-            time=tuple(self._pending_time),
-            columns={
-                name: tuple(values) for name, values in self._pending_columns.items()
-            },
-            final_chunk=final_chunk,
-        )
-        try:
-            self._callback(chunk)
-        except Exception as exc:
-            raise EngineError(
-                ErrorCode.INTERNAL_ERROR,
-                "结果分块回调执行失败",
-                {"chunk_callback_diagnostic": str(exc)},
-            ) from None
-        self._sequence += 1
-        self._pending_time.clear()
-        for values in self._pending_columns.values():
-            values.clear()
-
-
-def _record_sample(
-    accumulator: _ResultAccumulator, timestamp: float, values: Mapping[str, Any]
-) -> None:
-    accumulator.record_sample(timestamp, values)
-
-
-def _validate_result_chunk_size(result_chunk_size: int) -> None:
-    if (
-        isinstance(result_chunk_size, bool)
-        or not isinstance(result_chunk_size, int)
-        or result_chunk_size <= 0
-    ):
-        raise EngineError(
-            ErrorCode.CONFIG_ERROR,
-            "仿真配置验证失败",
-            {
-                "issues": (
-                    {
-                        "field": "result_chunk_size",
-                        "code": "INVALID_RESULT_CHUNK_SIZE",
-                        "message": "result_chunk_size 必须是大于 0 的整数",
-                    },
-                )
-            },
-        )
-
-
-def _notify_progress(
-    callback: Callable[[RunProgress], None] | None,
-    config: SimulationConfig,
-    current_time: float,
-    completed_steps: int,
-    sample_count: int,
-    state: SimulationState,
-) -> None:
-    if callback is None:
-        return
-    fraction = (current_time - config.start_time) / (config.stop_time - config.start_time)
-    progress = RunProgress(
-        start_time=config.start_time,
-        stop_time=config.stop_time,
-        current_time=current_time,
-        completed_steps=completed_steps,
-        sample_count=sample_count,
-        fraction=min(1.0, max(0.0, fraction)),
-        state=state,
-    )
-    try:
-        callback(progress)
-    except Exception as exc:
-        raise EngineError(
-            ErrorCode.INTERNAL_ERROR,
-            "运行进度回调执行失败",
-            {"callback_diagnostic": str(exc)},
-        ) from None
-
-
-def _combine_cleanup_errors(errors: list[EngineError]) -> EngineError | None:
-    if not errors:
-        return None
-    primary = errors[0]
-    if len(errors) == 1:
-        return primary
-    details = dict(primary.details)
-    details["additional_cleanup_errors"] = tuple(
-        {
-            "code": error.code.value,
-            "message": error.message,
-            "details": dict(error.details),
-        }
-        for error in errors[1:]
-    )
-    return EngineError(primary.code, primary.message, details)
+    def _select_execution_runner(self, config: SimulationConfig) -> ExecutionRunner:
+        if config.execution_interface in {None, InterfaceType.CO_SIMULATION}:
+            return self._co_simulation_runner
+        if config.execution_interface is InterfaceType.MODEL_EXCHANGE:
+            return self._model_exchange_runner
+        raise EngineError(ErrorCode.INTERNAL_ERROR, "校验后的执行接口无法分派")

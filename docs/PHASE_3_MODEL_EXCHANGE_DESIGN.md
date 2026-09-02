@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B）
+# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1）
 
-> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
+> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner，并建立可注入的 Model Exchange runner 分派骨架。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
 
 ## 1. 目标、范围与非目标
 
@@ -37,7 +37,7 @@ FMPy、SUNDIALS/CVode、NumPy、ctypes、FMU instance 与 native handle 只允�
 
 ## 3. Runner 分层
 
-未来 `FarcelEngine.run_fmu()` 仍是 GUI/CLI 的唯一同步高层入口，但只负责公共编排：加载 metadata、验证 config、选择执行接口、建立 runner、统一错误映射和 finally cleanup。它不会继续增长为包含 ME 细节的循环。
+`FarcelEngine.run_fmu()` 仍是 GUI/CLI 的唯一同步高层入口，但只负责公共编排：加载 metadata、验证 config、选择执行接口并分派 runner。interface-specific runner 负责其运行生命周期、稳定错误映射和 cleanup；engine 不会继续增长为包含 ME 细节的循环。
 
 ```text
 FarcelEngine.run_fmu()
@@ -201,7 +201,7 @@ ME 回归矩阵至少包含：
 |---|---|
 | 3.0A（本次） | 本设计、风险和语义冻结；无 runtime 改动 |
 | 3.0B（已完成） | CS characterization tests；增加 additive `execution_interface`、ME/solver DTO 与 ports；`phase-3-work` push 纳入完整后端 CI；仍不接入正式 runtime |
-| 3.1 | application runner 抽取：CS 行为保持不变，建立可注入 ModelExchangeRunner 骨架 |
+| 3.1（已完成） | application runner 抽取：`FarcelEngine` 保留加载、validation 和接口分派；`CoSimulationRunner` 持有既有 CS loop；建立可注入 `ModelExchangeRunner` 骨架，ME validation 仍在 native runtime 前拒绝 |
 | 3.2 | FMI2 `ModelExchangeSession` adapter、初始化和连续状态/problem boundary |
 | 3.3 | CVode adapter、无事件 ME checkpoint 推进与真实 FMU 基线 |
 | 3.4 | state/time/input event、离散迭代、`completedIntegratorStep()` 与条件 reset |
@@ -222,3 +222,10 @@ ME 回归矩阵至少包含：
 - CS 的 Early Return、Stop、Progress、ResultChunk、cleanup 与 sampling grid 由现有和新增 characterization tests 保护。
 - GitHub Actions 已把 `phase-3-work` push 纳入与 `main` 相同的后端 CI matrix。
 - `FarcelEngine` 未注入 ME 依赖，未实例化 `FMU2Model`，也未调用 CVode 或 FMPy `simulateME()`。
+
+## 16. 3.1 已交付边界
+
+- `FarcelEngine.run_fmu()` 保持公开调用形态，执行前仍完成 result chunk 参数检查、预启动取消检查、metadata 加载、配置 validation 与 interface dispatch。
+- `CoSimulationRunner` 位于 application 层，只依赖 Farcel `SessionFactory` / `SimulationSession` port 与 Farcel DTO/error；原有初始采样、communication target、Early Return、scheduled input、Stop、progress、ResultChunk、terminate/close cleanup 语义保留在该 runner。
+- `ModelExchangeRunner` 仅是 application 内部可注入分派占位；显式 ME 继续由 validation 以稳定 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE` 在 runner 与 native session factory 前拒绝。
+- 本阶段没有 FMI2 ME adapter、`FMU2Model`、CVode/SUNDIALS、`simulateME()`、SciPy 或 FMI3 ME runtime 改动。
