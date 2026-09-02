@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1）
+# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1 / 3.2）
 
-> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner，并建立可注入的 Model Exchange runner 分派骨架。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
+> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner；3.2 已实现 FMI2 Model Exchange session adapter 与 continuous-time primitive。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
 
 ## 1. 目标、范围与非目标
 
@@ -202,7 +202,7 @@ ME 回归矩阵至少包含：
 | 3.0A（本次） | 本设计、风险和语义冻结；无 runtime 改动 |
 | 3.0B（已完成） | CS characterization tests；增加 additive `execution_interface`、ME/solver DTO 与 ports；`phase-3-work` push 纳入完整后端 CI；仍不接入正式 runtime |
 | 3.1（已完成） | application runner 抽取：`FarcelEngine` 保留加载、validation 和接口分派；`CoSimulationRunner` 持有既有 CS loop；建立可注入 `ModelExchangeRunner` 骨架，ME validation 仍在 native runtime 前拒绝 |
-| 3.2 | FMI2 `ModelExchangeSession` adapter、初始化和连续状态/problem boundary |
+| 3.2（已完成） | FMI2 `ModelExchangeSession` adapter、初始化离散状态迭代、continuous-time primitive 与 application problem boundary；仍不接入 solver 或 public ME runtime |
 | 3.3 | CVode adapter、无事件 ME checkpoint 推进与真实 FMU 基线 |
 | 3.4 | state/time/input event、离散迭代、`completedIntegratorStep()` 与条件 reset |
 | 3.5 | Stop/Progress/ResultChunk/cleanup/error 端到端强化 |
@@ -229,3 +229,10 @@ ME 回归矩阵至少包含：
 - `CoSimulationRunner` 位于 application 层，只依赖 Farcel `SessionFactory` / `SimulationSession` port 与 Farcel DTO/error；原有初始采样、communication target、Early Return、scheduled input、Stop、progress、ResultChunk、terminate/close cleanup 语义保留在该 runner。
 - `ModelExchangeRunner` 仅是 application 内部可注入分派占位；显式 ME 继续由 validation 以稳定 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE` 在 runner 与 native session factory 前拒绝。
 - 本阶段没有 FMI2 ME adapter、`FMU2Model`、CVode/SUNDIALS、`simulateME()`、SciPy 或 FMI3 ME runtime 改动。
+
+## 17. 3.2 已交付边界
+
+- `FmpyFmi2ModelExchangeSessionFactory` 只直接创建具备当前平台二进制的 FMI2 Model Exchange session；它不改变 importer 的 `can_execute` 或 public execution policy。
+- `FmpyFmi2ModelExchangeSession` 在 infrastructure 内封装 `FMU2Model`、native instance 与临时目录，完成 setupExperiment、参数/initial input、Initialization Mode、有限初始 `newDiscreteStates()` 迭代和 Continuous-Time Mode 进入。
+- adapter 通过现有 Farcel DTO/port 暴露 time、continuous states、derivatives、event indicators、completedIntegratorStep、Event Mode primitive、selected outputs、terminate 与幂等 close；application 的 `SessionModelExchangeProblem` 只委托这些标准值。
+- 没有 numerical solver、时间推进循环、ME `RunControl`/Progress/ResultChunk、CVode 或 FMI3 ME；显式 `run_fmu(..., execution_interface=MODEL_EXCHANGE)` 仍在 validation 阶段稳定拒绝。

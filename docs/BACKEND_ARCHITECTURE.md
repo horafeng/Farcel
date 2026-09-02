@@ -77,7 +77,7 @@ docs/
 
 `SimulationConfig` 的仿真前验证也已可用，并通过 CLI `validate` 暴露。它验证时间范围、communication step、当前执行策略、参数名称/因果性/基础标量类型/范围，以及输出变量名称。无效报告由 application facade 转换为稳定的 `CONFIG_ERROR`，CLI 不包含核心验证规则。
 
-FMI 2.0 与 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。
+FMI 2.0 与 FMI 3.0 Co-Simulation 的 Session 生命周期均已实现：application 通过同一组 Farcel `SessionFactory` / `SimulationSession` 端口完成 instantiate、initialize、parameter override、doStep、terminate 和 close；通用 FMPy factory 只在 infrastructure 内按 metadata 版本选择 adapter。FMPy instance、native library 与临时解压目录始终由对应 infrastructure session 持有。Phase 3.2 额外提供仅供未来 solver 使用的 FMI2 `ModelExchangeSession` adapter 和 application problem primitive；它不改变 public `run_fmu()` 的 CS-only 执行策略，也不包含数值积分循环。
 
 `SimulationResult` 现已作为 implementation-independent canonical result：application 在初始化完成后采集初始 communication point，并仅在由 `output_interval` 指定的实际到达 communication point 采集配置选中的输出。`communication_step` 始终控制 FMU 推进；未显式设置的 `output_interval` 回退为该步长，正常完成时会补记尚未采样的最终状态。FMPy getter 与 value reference 映射仅存在于 infrastructure adapter；CLI `run` 只展示 application 返回的结果摘要及首尾样本。
 
