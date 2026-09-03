@@ -165,6 +165,9 @@ def _map_interfaces(description: Any, platforms: tuple[str, ...]) -> tuple[Inter
                     getattr(interface, "canReturnEarlyAfterIntermediateUpdate", False)
                     or getattr(interface, "mightReturnEarlyFromDoStep", False)
                 ),
+                needs_completed_integrator_step=bool(
+                    getattr(interface, "needsCompletedIntegratorStep", False)
+                ),
             )
         )
 

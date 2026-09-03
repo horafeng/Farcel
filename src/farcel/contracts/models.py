@@ -36,6 +36,7 @@ class InterfaceCapability:
     can_handle_variable_step: bool = False
     supports_event_mode: bool = False
     supports_early_return: bool = False
+    needs_completed_integrator_step: bool = False
 
 
 @dataclass(frozen=True, slots=True)

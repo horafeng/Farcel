@@ -6,6 +6,7 @@ from pathlib import Path
 from farcel import create_backend
 from farcel.contracts.models import InterfaceType, SimulationConfig
 from farcel.application.model_exchange_problem import SessionModelExchangeProblem
+from farcel.application.model_exchange_runtime import ModelExchangeCheckpointCoordinator
 from farcel.contracts.models import SolverAdvanceStatus, SolverOptions
 from farcel.infrastructure.fmpy import (
     FmpyCvodeSolverFactory,
@@ -19,6 +20,7 @@ FMU_FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "fmus"
 
 class Fmi2ModelExchangeSessionIntegrationTests(unittest.TestCase):
     van_der_pol = FMU_FIXTURES / "VanDerPol.fmu"
+    stair = FMU_FIXTURES / "Stair.fmu"
 
     @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
     def test_van_der_pol_initializes_and_exposes_continuous_problem_primitives(self) -> None:
@@ -77,3 +79,23 @@ class Fmi2ModelExchangeSessionIntegrationTests(unittest.TestCase):
             session.terminate()
             session.close()
         self.assertFalse(extraction.exists())
+
+    @unittest.skipUnless(stair.is_file(), "Stair FMU is unavailable")
+    def test_stair_time_event_advances_through_event_mode(self) -> None:
+        config = SimulationConfig(start_time=0, stop_time=1.2, communication_step=.2, selected_outputs=("counter",))
+        metadata = FmpyImporter().load(self.stair)
+        capability = next(item for item in metadata.interface_capabilities if item.interface_type is InterfaceType.MODEL_EXCHANGE)
+        self.assertTrue(capability.needs_completed_integrator_step)
+        session = FmpyFmi2ModelExchangeSessionFactory().create(metadata, config)
+        solver = FmpyCvodeSolverFactory().create()
+        try:
+            initialization = session.initialize()
+            self.assertEqual(initialization.next_event_time, 1.0)
+            solver.initialize(SessionModelExchangeProblem(session), SolverOptions(relative_tolerance=1e-5))
+            coordinator = ModelExchangeCheckpointCoordinator(session, solver, config, initialization, needs_completed_integrator_step=True)
+            for checkpoint in (.2, .4, .6, .8): self.assertTrue(coordinator.advance_to(checkpoint).checkpoint_reached)
+            event = coordinator.advance_to(1.0)
+            self.assertEqual(event.event_count, 1)
+            self.assertEqual(session.read_outputs()["counter"], 2)
+        finally:
+            solver.close(); session.terminate(); session.close()

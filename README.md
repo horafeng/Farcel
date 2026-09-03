@@ -8,6 +8,7 @@ Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平�
 - FMI 3 Co-Simulation 的 capability-gated Event Mode 与 Early Return、数组、标量 structural parameter；以及 Farcel-owned `RunControl`、`RunProgress`、`ResultChunk`。
 - 仅供后续 solver 使用的 FMI 2 `ModelExchangeSession` primitive：初始化、连续状态、导数和事件 mode primitive 已在 infrastructure 内可用；**没有** public Model Exchange simulation 或数值积分器。
 - 内部 FMI2 ME CVode solver primitive 已具备无事件 checkpoint 推进，但 public Model Exchange simulation 尚未启用。
+- 内部 FMI2 ME event orchestration 已建立，public Model Exchange simulation 仍未启用。
 - GUI 在独立分支开发，仍应通过公共 `create_backend()` API 调用后端；现有 GUI/CLI → application → contracts ← infrastructure 边界不变。
 
 当前桌面技术路线为 PySide6 GUI、Python application orchestration、FMPy adapter 与 native FMU；结果呈现可使用 PySide6 + matplotlib。未来可在不改变公共 contracts 的前提下加入 solver adapter，并按性能或 HIL 需求使用 native worker / C++ 实现。

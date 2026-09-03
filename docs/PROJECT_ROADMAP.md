@@ -11,7 +11,7 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 
 ## 进行中：单模型 Model Exchange
 
-**Phase 3 — In Progress。** FMI2 `ModelExchangeSession`、CVode SolverAdapter 与无事件 checkpoint progression 已具备；事件/离散迭代与公开运行路径仍待后续交付。当前没有 public ME runtime 或 FMI3 ME/SE runtime。
+**Phase 3 — In Progress。** FMI2 `ModelExchangeSession`、CVode SolverAdapter、无事件 checkpoint 与内部 state/time/input event coordination 已具备；公开运行路径仍待后续交付。当前没有 public ME runtime 或 FMI3 ME/SE runtime。
 
 ## 规划：本地多模型集成
 
