@@ -41,9 +41,14 @@ jobs:
       - name: 运行全部测试
         run: python -m unittest discover -s tests
       - name: 运行公共后端示例
-        run: python examples/backend_api_example.py
+        run: |
+          python examples/backend_api_example.py
+          python examples/model_exchange_api_example.py
       - name: CLI smoke
         run: |
           python -m farcel.cli inspect examples\fmus\VanDerPol-fmi3.fmu
           python -m farcel.cli inspect examples\fmus\Feedthrough-fmi3.fmu
           python -m farcel.cli inspect examples\fmus\Clocks-fmi3.fmu
+          python -m farcel.cli validate examples\fmus\VanDerPol.fmu --interface model_exchange --start-time 0 --stop-time 0.05 --step-size 0.01 --parameter "mu=2.0" --output x0
+          python -m farcel.cli run examples\fmus\VanDerPol.fmu --interface model_exchange --start-time 0 --stop-time 0.05 --step-size 0.01 --parameter "mu=2.0" --output x0
+          python -m farcel.cli export examples\fmus\VanDerPol.fmu --interface model_exchange --start-time 0 --stop-time 0.05 --step-size 0.01 --parameter "mu=2.0" --output x0 --csv artifacts\ci-model-exchange.csv

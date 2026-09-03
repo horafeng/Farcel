@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A–3.5）
+# Phase 3：Model Exchange 与 Solver Runtime（3.0A–3.7）
 
-> 状态：3.0A–3.4.1 已完成设计、session、CVode 与 event coordinator；3.5 已将它们装入 application 内部 `ModelExchangeRunner`，形成 FMI2 ME 的 canonical result、sampling、Stop、Progress、ResultChunk 与确定性 cleanup 闭环。公开 `run_fmu(..., execution_interface=MODEL_EXCHANGE)` **仍在 validation 阶段拒绝**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开调用形态或版本号。
+> 状态：**Phase 3 Completed。** 3.0A–3.6 已完成设计、session、CVode、event coordinator 与 release hardening；3.7 将已验证的 FMI2 ME runtime 暴露到 public `run_fmu`、validation、metadata 与 CLI。双接口 FMU 默认仍优先 Co-Simulation，不改变 FMI 2/3 CS 数值行为、公开调用形态或版本号；FMI3 ME 和 Scheduled Execution 仍未支持。
 
 ## 1. 目标、范围与非目标
 
@@ -209,7 +209,7 @@ ME 回归矩阵至少包含：
 | 3.4.1（已完成） | Stair 真实 time event 后继续 CVode 推进至后续 checkpoint；补充 CVode root/reached-state/reset/close characterization 与 event coordinator terminate/changed-flag 回归 |
 | 3.5（已完成） | 内部 `ModelExchangeRunner` 装配 FMI2 ME session、CVode 与 event coordinator；canonical result、output sampling、cooperative Stop、Progress、ResultChunk、cleanup/error precedence 与真实 VanDerPol/Stair runner 回归；public ME 仍关闭 |
 | 3.6（已完成） | 官方 v0.0.41 FMI2 BouncingBall/Feedthrough fixture、state/time/input event 与零状态 runner 回归、Issue #882 release regression、20 次 sequential lifecycle、temp cleanup、non-zero start、partial checkpoint、sampling 与 public-closed policy 硬化 |
-| 3.7 | 公共 API/CLI/前端集成文档、稳定性审查；FMI3 ME 仍须另立范围 |
+| 3.7（已完成） | public API/CLI/metadata/validation 接入：FMI2 ME 的 exact-interface binary policy、CS 优先默认分派、显式接口无回退、公共示例/CI/前端集成文档；FMI3 ME 仍须另立范围 |
 
 Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并保持 CS 回归稳定；之后才进入 Phase 4 的本地 `SimulationGraph`、`SimulationOrchestrator`、scheduler、data routing 与 multi-FMU node composition。FMI3 Model Exchange 与 Scheduled Execution 都不构成 Phase 3 gate，必须另行定义范围。
 
@@ -231,12 +231,12 @@ Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并�
 
 - `FarcelEngine.run_fmu()` 保持公开调用形态，执行前仍完成 result chunk 参数检查、预启动取消检查、metadata 加载、配置 validation 与 interface dispatch。
 - `CoSimulationRunner` 位于 application 层，只依赖 Farcel `SessionFactory` / `SimulationSession` port 与 Farcel DTO/error；原有初始采样、communication target、Early Return、scheduled input、Stop、progress、ResultChunk、terminate/close cleanup 语义保留在该 runner。
-- `ModelExchangeRunner` 仅是 application 内部可注入分派占位；显式 ME 继续由 validation 以稳定 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE` 在 runner 与 native session factory 前拒绝。
+- `ModelExchangeRunner` 是 application 内部可注入 runner；3.1 时它尚未公开，3.7 后由 `FarcelEngine.run_fmu()` 在 FMI2 ME capability 有效时分派。
 - 本阶段没有 FMI2 ME adapter、`FMU2Model`、CVode/SUNDIALS、`simulateME()`、SciPy 或 FMI3 ME runtime 改动。
 
 ## 17. 3.2 已交付边界
 
-- `FmpyFmi2ModelExchangeSessionFactory` 只直接创建具备当前平台二进制的 FMI2 Model Exchange session；它不改变 importer 的 `can_execute` 或 public execution policy。
+- `FmpyFmi2ModelExchangeSessionFactory` 只直接创建具备当前平台二进制的 FMI2 Model Exchange session；3.7 后 importer 也按同一精确 interface binary 计算 public `can_execute`。
 - `FmpyFmi2ModelExchangeSession` 在 infrastructure 内封装 `FMU2Model`、native instance 与临时目录，完成 setupExperiment、参数/initial input、Initialization Mode、有限初始 `newDiscreteStates()` 迭代和 Continuous-Time Mode 进入。
 - adapter 通过现有 Farcel DTO/port 暴露 time、continuous states、derivatives、event indicators、completedIntegratorStep、Event Mode primitive、selected outputs、terminate 与幂等 close；application 的 `SessionModelExchangeProblem` 只委托这些标准值。
 - 没有 numerical solver、时间推进循环、ME `RunControl`/Progress/ResultChunk、CVode 或 FMI3 ME；显式 `run_fmu(..., execution_interface=MODEL_EXCHANGE)` 仍在 validation 阶段稳定拒绝。
@@ -256,11 +256,19 @@ Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并�
 - Stop 是协作式：coordinator 在下一次 native integrate 前及事件处理完成后检查 predicate。已进入 CVode 的调用不可强制中断；若 solver 返回 state event，会先完成合法 event boundary，再停止。运行中 stop 返回 `STOPPED` partial result；FMU `terminateRequested` 返回 `COMPLETED` early result。
 - Progress 与 chunk callback 都在 runner 调用线程执行。成功 `COMPLETED` 和 `STOPPED` run 各有恰好一个 final chunk；运行错误不伪造 terminal chunk。public facade 的预启动 stop 仍为 `CANCELLED`。
 - 真实 `VanDerPol.fmu` runner 回归验证 0→0.05 的 canonical result 和与 CS 的数值容差一致；真实 `Stair.fmu` runner 回归验证跨 1.0 time event 后继续到 1.2，保护 FMPy Issue #882 的 `CV_TOO_CLOSE` 风险。
-- 本阶段不改变 importer metadata 的 `executable_interface` / `can_execute` policy，不启用 public ME、CLI ME、GUI ME 或 FMI3 ME。公开开放留待 Phase 3.7。
+- 本阶段的内部 runtime 成果由 3.7 接入 public policy；FMI3 ME 与 Scheduled Execution 不在范围内。
 
 ## 20. 3.6 Release Hardening
 
 - 官方 `Reference-FMUs.zip` v0.0.41（ZIP SHA-256 `62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403`）的实际 FMI2 inventory 为 BouncingBall、Dahlquist、Feedthrough、Resource、Stair 与 VanDerPol。新增未修改的 `2.0/BouncingBall.fmu` 和 `2.0/Feedthrough.fmu`，其 fixture SHA、来源与 BSD-2-Clause 记录在 `examples/fmus/README.md`。
 - BouncingBall 的真实 CVode root/state-event runner 回归确认 Event Mode、离散更新、conditional reset 后仍推进至原 checkpoint 和最终时间；Feedthrough 覆盖零连续状态的 private solver dummy vector，以及真实 continuous scheduled input event。Stair 的 0→1.2 repeated runner 回归是 FMPy Issue #882 的 release blocker，保留 unit 级 pure-time/no-reset 保护。
 - VanDerPol release matrix 覆盖 non-zero start time、partial final checkpoint、output interval、non-default tolerance、20 次 sequential run、ResultChunk run-id isolation 与 temp extraction directory 差集。另有 normal→stopped→normal、callback failure→success 生命周期回归。
-- 该 matrix 仅声明 internal FMI2 ME runtime 已通过 hardening，不改变 public `run_fmu(MODEL_EXCHANGE)` validation、CLI/GUI、metadata executable policy 或 FMI3 ME scope；这些仍是 Phase 3.7 之后的工作。
+- 该 matrix 是 3.7 public FMI2 ME 交付的 runtime 基线；公开 policy、CLI 与 metadata 行为以本文件新增的 3.7 边界为准，FMI3 ME scope 不变。
+
+## 21. 3.7 Public Model Exchange 交付
+
+- `InterfaceCapability.can_execute` 以**每个接口**的当前平台二进制为准：FMI2 CS 与 ME 分别按各自 `modelIdentifier` 检查；`ModelMetadata.executable_interface` 是默认 public 选择，顺序固定为 CS、ME、None。
+- `execution_interface=None` 时选择可执行 CS，否则选择可执行 FMI2 ME；显式 CS 和显式 ME 都不回退。显式 ME 仅允许 FMI2、已声明、无需外部 execution tool、具备其精确 native binary 的接口。FMI3 ME 和 Scheduled Execution 稳定拒绝。
+- `FarcelEngine.create_session()` 仍是低层 Co-Simulation API；它在 validation 成功后拒绝 ME，且不创建 CS session factory。public ME 只能经 `run_fmu()` 进入 application runner。
+- `communication_step` 在 ME 中定义 outer checkpoint / input-event grid，CVode 在 checkpoint 间 adaptive integrate；`relative_tolerance` 是 solver 的相对误差控制，未设置时使用默认实验 tolerance 或 solver 默认值。该语义不改变 CS 的 `doStep()` communication grid。
+- CLI 的 `validate`、`run`、`export` 接受 `--interface co_simulation|model_exchange`；不会暴露 Scheduled Execution 选项。public example、wheel CI 和 real-FMU matrix 覆盖 VanDerPol、Stair、BouncingBall-fmi2、Feedthrough-fmi2。

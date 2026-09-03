@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import os
 import tempfile
-import zipfile
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
@@ -12,7 +11,6 @@ from fmpy import (
     extract,
     platform as current_platform,
     read_model_description,
-    sharedLibraryExtension,
 )
 from fmpy.fmi2 import FMU2Model, fmi2Real
 
@@ -34,42 +32,13 @@ from farcel.infrastructure.fmpy.session import (
     _remove_extraction_directory,
     _setter_name,
 )
+from farcel.infrastructure.fmpy.fmi2_binary import (
+    fmi2_native_library_archive_member as _fmi2_model_exchange_library_archive_member,
+    fmi2_native_library_is_present as _fmi2_model_exchange_library_is_present,
+)
 
 
 _MAX_INITIAL_DISCRETE_STATE_ITERATIONS = 1000
-
-
-def _fmi2_model_exchange_library_archive_member(model_identifier: str) -> str:
-    """Return the native-library member FMPy 0.3.31 will load for FMI 2."""
-
-    return (
-        f"binaries/{current_platform}/"
-        f"{model_identifier}{sharedLibraryExtension}"
-    )
-
-
-def _fmi2_model_exchange_library_is_present(
-    source_path: str, model_identifier: str
-) -> bool:
-    """Check FMPy's exact FMI 2 runtime library path before extraction.
-
-    ``supported_platforms()`` deliberately also recognizes legacy and platform-
-    tuple binary directories.  FMPy 0.3.31's ``FMU2Model`` runtime resolver does
-    not use those alternatives: it loads only ``binaries/<platform>/<identifier>``
-    with the host shared-library extension.  The archive check mirrors that
-    final resolver without loading a native library.
-    """
-
-    expected_member = _fmi2_model_exchange_library_archive_member(model_identifier)
-    normalize = str.casefold if os.name == "nt" else str
-    try:
-        with zipfile.ZipFile(source_path) as archive:
-            return any(
-                normalize(member.replace("\\", "/")) == normalize(expected_member)
-                for member in archive.namelist()
-            )
-    except (OSError, zipfile.BadZipFile):
-        return False
 
 
 class FmpyFmi2ModelExchangeSessionFactory:

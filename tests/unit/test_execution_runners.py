@@ -42,10 +42,44 @@ def _metadata() -> ModelMetadata:
             ),
             InterfaceCapability(
                 interface_type=InterfaceType.MODEL_EXCHANGE,
-                can_execute=False,
+                can_execute=True,
             ),
         ),
         variables=(VariableMetadata("speed", 1, "Real", causality="output"),),
+    )
+
+
+def _metadata_with_interfaces(
+    *,
+    fmi_version: str = "2.0",
+    co_simulation_executable: bool,
+    model_exchange_executable: bool,
+) -> ModelMetadata:
+    interface_types = (InterfaceType.CO_SIMULATION, InterfaceType.MODEL_EXCHANGE)
+    capabilities = tuple(
+        InterfaceCapability(interface_type=interface_type, can_execute=executable)
+        for interface_type, executable in (
+            (InterfaceType.CO_SIMULATION, co_simulation_executable),
+            (InterfaceType.MODEL_EXCHANGE, model_exchange_executable),
+        )
+    )
+    executable_interface = next(
+        (
+            capability.interface_type
+            for capability in capabilities
+            if capability.can_execute
+        ),
+        None,
+    )
+    return ModelMetadata(
+        model_id="runner-test",
+        source_path="runner-test.fmu",
+        fmi_version=fmi_version,
+        model_name="RunnerTest",
+        interface_types=interface_types,
+        executable_interface=executable_interface,
+        capabilities=CapabilitySet(can_execute=executable_interface is not None),
+        interface_capabilities=capabilities,
     )
 
 
@@ -320,22 +354,58 @@ class ExecutionRunnerTests(unittest.TestCase):
         co_simulation.run.assert_called_once()
         model_exchange.run.assert_not_called()
 
-    def test_explicit_model_exchange_fails_before_any_runner_or_native_factory(self) -> None:
+    def test_explicit_model_exchange_dispatches_to_model_exchange_runner(self) -> None:
         engine, co_simulation, model_exchange, factory = self._engine_with_spies()
+
+        result = engine.run_fmu(
+            "runner-test.fmu",
+            SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+        )
+
+        self.assertIs(result, model_exchange.run.return_value)
+        co_simulation.run.assert_not_called()
+        model_exchange.run.assert_called_once()
+        factory.create.assert_not_called()
+
+    def test_default_model_exchange_only_metadata_dispatches_to_model_exchange_runner(self) -> None:
+        metadata = _metadata_with_interfaces(
+            co_simulation_executable=False,
+            model_exchange_executable=True,
+        )
+        engine, co_simulation, model_exchange, _ = self._engine_with_spies(metadata)
+
+        result = engine.run_fmu("runner-test.fmu", SimulationConfig())
+
+        self.assertIs(result, model_exchange.run.return_value)
+        co_simulation.run.assert_not_called()
+        model_exchange.run.assert_called_once()
+
+    def test_explicit_co_simulation_does_not_fall_back_to_model_exchange(self) -> None:
+        metadata = _metadata_with_interfaces(
+            co_simulation_executable=False,
+            model_exchange_executable=True,
+        )
+        engine, co_simulation, model_exchange, _ = self._engine_with_spies(metadata)
 
         with self.assertRaises(EngineError) as raised:
             engine.run_fmu(
                 "runner-test.fmu",
-                SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+                SimulationConfig(execution_interface=InterfaceType.CO_SIMULATION),
             )
 
         self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
-        self.assertEqual(
-            raised.exception.details["issues"][0]["code"],
-            ErrorCode.UNSUPPORTED_INTERFACE.value,
-        )
         co_simulation.run.assert_not_called()
         model_exchange.run.assert_not_called()
+
+    def test_low_level_session_api_rejects_model_exchange_after_validation(self) -> None:
+        engine, _, _, factory = self._engine_with_spies()
+        metadata = engine.load_fmu("runner-test.fmu")
+        with self.assertRaises(EngineError) as raised:
+            engine.create_session(
+                metadata.model_id,
+                SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+            )
+        self.assertEqual(raised.exception.code, ErrorCode.UNSUPPORTED_INTERFACE)
         factory.create.assert_not_called()
 
     def test_co_simulation_runner_preserves_lifecycle_sampling_and_callback_order(self) -> None:
@@ -429,9 +499,11 @@ class ExecutionRunnerTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _engine_with_spies() -> tuple[FarcelEngine, Mock, Mock, Mock]:
+    def _engine_with_spies(
+        metadata: ModelMetadata | None = None,
+    ) -> tuple[FarcelEngine, Mock, Mock, Mock]:
         importer = Mock()
-        importer.load.return_value = _metadata()
+        importer.load.return_value = _metadata() if metadata is None else metadata
         factory = Mock()
         engine = FarcelEngine(importer, factory)
         co_simulation = Mock()

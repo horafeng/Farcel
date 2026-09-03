@@ -1,20 +1,20 @@
 # FMU Compatibility Matrix
 
 This matrix records results reproduced on Windows win64 with Python 3.13 and
-the pinned FMPy 0.3.31 dependency. The first table is the public API contract;
-the internal FMI2 ME table below is not a public support claim.
+the pinned FMPy 0.3.31 dependency. The first table is the public API contract.
 
 ## Public Compatibility
 
 `inspect` means the public `backend.load_fmu()` path, not merely opening the
-ZIP container. Public `Run` remains Co-Simulation only.
+ZIP container. Public `Run` covers FMI 2 Co-Simulation, FMI 2 Model Exchange
+and FMI 3 Co-Simulation within the per-interface executable policy.
 
 | FMU | Inspect | Validate | Run | Input | Output | CSV | Note |
 |---|---:|---:|---:|---:|---:|---:|---|
-| `Stair.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `counter` changes from 1 to 2 over 0..1 s. |
-| `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
-| `BouncingBall-fmi2.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI2 CS; `h`/`v` bounce regression. |
-| `Feedthrough-fmi2.fmu` | Yes | Yes | Yes | Initial/scheduled Real input | Real output | Yes | Official v0.0.41 FMI2 CS zero-state feedthrough regression. |
+| `Stair.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS/ME; default selects CS, explicit ME `counter` changes from 1 to 2 over 0..1 s. |
+| `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS/ME; default selects CS, explicit ME `mu` override and selected `x0` regression pass. |
+| `BouncingBall-fmi2.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI2 CS/ME; explicit ME `h`/`v` bounce regression. |
+| `Feedthrough-fmi2.fmu` | Yes | Yes | Yes | Initial/scheduled Real input | Real output | Yes | Official v0.0.41 FMI2 CS/ME; explicit ME zero-state feedthrough regression. |
 | `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 3 Co-Simulation；`mu` 覆盖和选定 `x0` 回归通过。 |
 | `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
 | `StateSpace-fmi3.fmu` | Yes | Yes | Yes | 初始值与计划数组 | 数组 `y` | 带索引数组列 | 官方 Reference-FMUs v0.0.41 原始 `3.0/StateSpace.fmu`；默认 `(3, 3)`/`(3,)` 尺寸与普通数组参数回归。原生 `setUInt64()` 缺陷使结构参数正向运行不可用，原始二进制保持未修改。 |
@@ -26,11 +26,12 @@ ZIP container. Public `Run` remains Co-Simulation only.
 | `manipulator.fmu` | Yes | Yes | No | Setters work | Initial sample only | No | FMI 2 CS. First `doStep` returns error because the native FMU reports `Singular matrix not invertible (getrf).`; reproduced with zero/non-zero inputs, explicit defaults, and step sizes 0.1 through 0.0001. Farcel reports the native diagnostic and releases resources. |
 | `LateralMotionControl.fmu` | Yes, with warnings | Yes | Yes | Initial + scheduled | Yes | Yes | FMI 2 CS. XML references undeclared unit `m/s`; this recoverable unit-definition problem is retained in metadata diagnostics. A generic boolean trigger schedule produces meaningful task execution. |
 
-## Internal FMI2 Model Exchange Release Matrix
+## Public FMI2 Model Exchange Release Matrix
 
-This table covers direct internal `ModelExchangeRunner` composition only.
-`public run_fmu(MODEL_EXCHANGE)`, CLI/GUI ME execution and metadata public
-executable policy remain disabled until Phase 3.7.
+This table records public `run_fmu(..., execution_interface=MODEL_EXCHANGE)`
+coverage. With `execution_interface=None`, a dual-interface FMU keeps the
+backward-compatible Co-Simulation preference; explicit Co-Simulation never
+falls back to Model Exchange.
 
 | FMU | Instantiate/init | Continuous states / CVode | State event | Time event | Input event | completedIntegratorStep | Canonical result | Stop/cleanup/repeat | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -163,7 +164,7 @@ FMI 3 Co-Simulation 的数组支持普通参数、initial/scheduled input、sele
 canonical result、chunk 和带索引的 CSV 列。对于标量整型或枚举型结构参数覆盖，Farcel
 在 Configuration Mode 中设置值，并以覆盖值解析动态有效 shape；导入 metadata 保留默认
 shape。结构参数数组、Reconfiguration Mode、运行中结构参数改变、FMI 3 Binary/Clock、
-Intermediate Update 公共回调、Scheduled Execution、**public Model Exchange execution** 和 FMI 1 仍不支持；内部 FMI2 ME release matrix 见本文前部，不能据此推断 `run_fmu`/CLI/GUI 已公开 ME。
+Intermediate Update 公共回调、Scheduled Execution、FMI 3 Model Exchange 和 FMI 1 仍不支持；本文的 FMI2 ME matrix 是 public `run_fmu`/CLI 覆盖。
 
 ## Phase 2.3 Extended Reference FMU Compatibility Matrix
 

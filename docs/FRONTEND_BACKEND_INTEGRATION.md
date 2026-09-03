@@ -8,10 +8,10 @@
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
-- run：同步执行单个 FMI 2.0 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及按默认或有效尺寸解析的数组按当前 capability 与 metadata 支持。
+- run：同步执行单个 FMI 2.0 Co-Simulation、FMI 2.0 Model Exchange 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及按默认或有效尺寸解析的数组按当前 capability 与 metadata 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
 
-Model Exchange 与 Scheduled Execution 可以被 inspect，但当前不能 run。
+FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
 
 ## 2. Allowed Frontend Dependencies
 
@@ -99,12 +99,13 @@ communication points, are strictly increasing, and values are held until the
 next update. Existing `SimulationConfig` calls that omit both fields retain the
 same behavior.
 
-`execution_interface` 是可选的 additive 字段。GUI 目前应继续使用默认
-`None`：旧行为不变，双接口 FMU 仍选择 Co-Simulation。显式
-`InterfaceType.CO_SIMULATION` 也可使用；显式 `MODEL_EXCHANGE` 或
-`SCHEDULED_EXECUTION` 当前会在 native session 创建前返回稳定的
-`CONFIG_ERROR` / `UNSUPPORTED_INTERFACE`，不会静默回退。前端暂不暴露 solver
-配置，也不应把 ME contract DTO 当成可运行能力。
+`execution_interface` 是可选的 additive 字段。GUI 可继续使用默认 `None`：双接口
+FMU 保持 Co-Simulation 优先；若 Co-Simulation 不可执行而 FMI 2 Model Exchange
+可执行，则选择 Model Exchange。显式 `InterfaceType.CO_SIMULATION` 或
+`InterfaceType.MODEL_EXCHANGE` 都不会静默回退；后者仅支持 FMI 2、已声明、无需
+外部 execution tool 且具备当前平台对应接口二进制的 FMU。FMI 3 Model Exchange 与
+`SCHEDULED_EXECUTION` 在 native session 创建前稳定返回 `CONFIG_ERROR` /
+`UNSUPPORTED_INTERFACE`。前端暂不暴露 solver 配置。
 
 成功返回 `ValidationReport`，且 `report.is_valid` 为 `True`。失败抛出 code 为 `CONFIG_ERROR` 的 `EngineError`；GUI 可读取 `error.details["issues"]`，其中每项包含稳定字段 `field`、`code`、`message`，用于定位控件和显示信息：
 
@@ -135,7 +136,9 @@ Binary input 提交值会返回 `UNSUPPORTED_INPUT_TYPE`；选择 Binary 或 Clo
 
 ## 7. Sampling Semantics
 
-`communication_step` is the Co-Simulation communication-point step. The optional
+`communication_step` is the Co-Simulation communication-point step. For Model
+Exchange it is the external checkpoint/input-event grid; it does not call FMU
+`doStep`, and the solver advances continuously between checkpoints. The optional
 `output_interval` independently controls when Farcel records a `SimulationResult`
 sample. When omitted (`None`), it resolves to `communication_step` for backward
 compatibility. An explicit interval must be a positive, finite integer multiple

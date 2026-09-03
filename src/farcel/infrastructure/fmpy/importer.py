@@ -17,6 +17,7 @@ from farcel.contracts.models import (
     VariableMetadata,
 )
 from farcel.contracts._arrays import array_size, reshape_array
+from farcel.infrastructure.fmpy.fmi2_binary import fmi2_native_library_is_present
 
 
 class FmpyImporter:
@@ -71,12 +72,18 @@ class FmpyImporter:
                 {"fmi_version": description.fmiVersion, "parseable": True},
             )
 
-        interface_capabilities = _map_interfaces(description, platforms)
+        interface_capabilities = _map_interfaces(description, platforms, str(path))
         executable = next(
             (
-                item.interface_type
-                for item in interface_capabilities
-                if item.can_execute
+                interface_type
+                for interface_type in (
+                    InterfaceType.CO_SIMULATION,
+                    InterfaceType.MODEL_EXCHANGE,
+                )
+                if any(
+                    item.interface_type is interface_type and item.can_execute
+                    for item in interface_capabilities
+                )
             ),
             None,
         )
@@ -94,9 +101,15 @@ class FmpyImporter:
             for problem in validation_diagnostics
         ]
         if executable is None:
-            if co_simulation is None:
-                diagnostics.append("FMU 可解析，但当前不包含 Co-Simulation 接口")
-            elif co_simulation.needs_execution_tool:
+            model_exchange = next(
+                (item for item in interface_capabilities if item.interface_type is InterfaceType.MODEL_EXCHANGE),
+                None,
+            )
+            if co_simulation is None and model_exchange is None:
+                diagnostics.append("FMU 可解析，但当前不包含 Farcel 可执行接口")
+            elif model_exchange is not None and description.fmiVersion != "2.0" and co_simulation is None:
+                diagnostics.append("FMU 包含 Model Exchange，但 Farcel 当前仅公开支持 FMI 2.0 Model Exchange")
+            elif any(item.needs_execution_tool for item in interface_capabilities):
                 diagnostics.append("FMU 可解析，但需要 Farcel 未提供的外部执行工具")
             else:
                 diagnostics.append(
@@ -134,7 +147,9 @@ class FmpyImporter:
         )
 
 
-def _map_interfaces(description: Any, platforms: tuple[str, ...]) -> tuple[InterfaceCapability, ...]:
+def _map_interfaces(
+    description: Any, platforms: tuple[str, ...], source_path: str
+) -> tuple[InterfaceCapability, ...]:
     result: list[InterfaceCapability] = []
     definitions = (
         (InterfaceType.CO_SIMULATION, description.coSimulation),
@@ -146,11 +161,19 @@ def _map_interfaces(description: Any, platforms: tuple[str, ...]) -> tuple[Inter
         if interface is None:
             continue
         needs_tool = bool(interface.needsExecutionTool)
-        can_execute = (
-            interface_type is InterfaceType.CO_SIMULATION
-            and current_platform in platforms
-            and not needs_tool
-        )
+        if description.fmiVersion == "2.0":
+            can_execute = bool(
+                interface_type in {InterfaceType.CO_SIMULATION, InterfaceType.MODEL_EXCHANGE}
+                and interface.modelIdentifier
+                and not needs_tool
+                and fmi2_native_library_is_present(source_path, interface.modelIdentifier)
+            )
+        else:
+            can_execute = bool(
+                interface_type is InterfaceType.CO_SIMULATION
+                and current_platform in platforms
+                and not needs_tool
+            )
         result.append(
             InterfaceCapability(
                 interface_type=interface_type,

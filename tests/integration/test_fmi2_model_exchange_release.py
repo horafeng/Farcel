@@ -172,18 +172,16 @@ class Fmi2ModelExchangeReleaseTests(unittest.TestCase):
         self.assertIs(normal.completion_state, SimulationState.COMPLETED)
         self.assertIs(after_failure.completion_state, SimulationState.COMPLETED)
 
-    def test_public_me_execution_and_metadata_policy_remain_closed(self) -> None:
+    def test_public_me_metadata_policy_is_ready_for_phase_3_7(self) -> None:
         backend = create_backend()
         metadata = backend.load_fmu(self.van_der_pol)
         self.assertIs(metadata.executable_interface, InterfaceType.CO_SIMULATION)
         capability = next(
             item for item in metadata.interface_capabilities if item.interface_type is InterfaceType.MODEL_EXCHANGE
         )
-        self.assertFalse(capability.can_execute)
-        with self.assertRaises(EngineError) as raised:
-            backend.run_fmu(
-                self.van_der_pol,
-                SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
-            )
-        self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
-        self.assertEqual(raised.exception.details["issues"][0]["code"], ErrorCode.UNSUPPORTED_INTERFACE.value)
+        self.assertTrue(capability.can_execute)
+        self.assertTrue(
+            backend.validate_config(
+                metadata, SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE)
+            ).is_valid
+        )

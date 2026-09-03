@@ -9,9 +9,9 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 | Phase 1 | Completed | 单 FMU 基础：contracts、application/infrastructure 边界、导入、inspect、CLI 与稳定错误。 |
 | Phase 2 | Completed | 单 FMU 工程化：FMI 2/3 Co-Simulation、inputs、selected outputs、采样间隔、FMI3 Event Mode/Early Return、arrays、structural parameters、RunControl/Progress/ResultChunk/CSV。 |
 
-## 进行中：单模型 Model Exchange
+## 已完成：单模型 Model Exchange
 
-**Phase 3 — In Progress。** FMI2 `ModelExchangeSession`、CVode SolverAdapter、event coordinator 与内部 `ModelExchangeRunner` 已完成 Reference FMU release hardening：continuous/state/time/input event、零状态、repeat、temp cleanup 与 Issue #882 均有回归保护；公开运行路径仍待 Phase 3.7 交付。当前没有 public ME runtime 或 FMI3 ME/SE runtime。
+**Phase 3 — Completed。** FMI2 `ModelExchangeSession`、CVode SolverAdapter、event coordinator 与 public `ModelExchangeRunner` 已完成 Reference FMU release hardening：continuous/state/time/input event、零状态、repeat、temp cleanup 与 Issue #882 均有回归保护。`run_fmu`、validation、metadata 与 CLI 都支持可执行的 FMI 2 Model Exchange；默认仍优先 Co-Simulation。FMI 3 Model Exchange 与 Scheduled Execution 仍未实现。
 
 ## 规划：本地多模型集成
 

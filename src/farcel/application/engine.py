@@ -13,7 +13,7 @@ from farcel.application.runners import (
     ModelExchangeRunner,
     validate_result_chunk_size,
 )
-from farcel.application.validation import validate_config
+from farcel.application.validation import resolve_execution_interface, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     InterfaceType,
@@ -106,6 +106,11 @@ class FarcelEngine:
         if metadata is None:
             raise EngineError(ErrorCode.INTERNAL_ERROR, "模型尚未加载")
         self.validate_config(metadata, config)
+        if resolve_execution_interface(metadata, config) is not InterfaceType.CO_SIMULATION:
+            raise EngineError(
+                ErrorCode.UNSUPPORTED_INTERFACE,
+                "低层 Session API 仅支持 Co-Simulation；Model Exchange 请使用 run_fmu()",
+            )
         if self._session_factory is None:
             raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置仿真 Session 实现")
 
@@ -209,7 +214,10 @@ class FarcelEngine:
             raise EngineError(ErrorCode.CANCELLED, "仿真开始前已请求停止")
         metadata = self.load_fmu(path)
         self.validate_config(metadata, config)
-        runner = self._select_execution_runner(config)
+        effective_interface = resolve_execution_interface(metadata, config)
+        if effective_interface is None:
+            raise EngineError(ErrorCode.INTERNAL_ERROR, "校验后的执行接口无法解析")
+        runner = self._select_execution_runner(effective_interface)
         return runner.run(
             path,
             metadata,
@@ -234,9 +242,9 @@ class FarcelEngine:
         except KeyError:
             raise EngineError(ErrorCode.INTERNAL_ERROR, "Session 不存在或已经关闭") from None
 
-    def _select_execution_runner(self, config: SimulationConfig) -> ExecutionRunner:
-        if config.execution_interface in {None, InterfaceType.CO_SIMULATION}:
+    def _select_execution_runner(self, interface: InterfaceType) -> ExecutionRunner:
+        if interface is InterfaceType.CO_SIMULATION:
             return self._co_simulation_runner
-        if config.execution_interface is InterfaceType.MODEL_EXCHANGE:
+        if interface is InterfaceType.MODEL_EXCHANGE:
             return self._model_exchange_runner
         raise EngineError(ErrorCode.INTERNAL_ERROR, "校验后的执行接口无法分派")

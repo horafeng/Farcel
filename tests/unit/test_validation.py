@@ -7,6 +7,7 @@ from farcel.application.validation import validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
     CapabilitySet,
+    InterfaceCapability,
     InterfaceType,
     InputUpdate,
     ModelMetadata,
@@ -96,12 +97,16 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertTrue(report.is_valid)
 
-    def test_execution_interface_uses_safe_phase_3_0b_semantics(self) -> None:
+    def test_execution_interface_uses_final_phase_3_policy(self) -> None:
         dual_interface_metadata = replace(
             metadata(),
             interface_types=(
                 InterfaceType.CO_SIMULATION,
                 InterfaceType.MODEL_EXCHANGE,
+            ),
+            interface_capabilities=(
+                InterfaceCapability(InterfaceType.CO_SIMULATION, can_execute=True),
+                InterfaceCapability(InterfaceType.MODEL_EXCHANGE, can_execute=True),
             ),
         )
 
@@ -113,15 +118,12 @@ class ValidationTests(unittest.TestCase):
             ).is_valid
         )
 
-        model_exchange = validate_config(
-            dual_interface_metadata,
-            SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+        self.assertTrue(
+            validate_config(
+                dual_interface_metadata,
+                SimulationConfig(execution_interface=InterfaceType.MODEL_EXCHANGE),
+            ).is_valid
         )
-        self.assertEqual(
-            [(issue.field, issue.code) for issue in model_exchange.issues],
-            [("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value)],
-        )
-        self.assertIn("尚未在当前里程碑启用", model_exchange.issues[0].message)
 
         scheduled_execution = validate_config(
             dual_interface_metadata,
@@ -140,7 +142,7 @@ class ValidationTests(unittest.TestCase):
 
         self.assertEqual(
             [(issue.field, issue.code) for issue in missing_interface.issues],
-            [("model", ErrorCode.UNSUPPORTED_INTERFACE.value)],
+            [("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value)],
         )
         missing_binary = validate_config(
             metadata(executable=False),
@@ -148,7 +150,7 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertEqual(
             [(issue.field, issue.code) for issue in missing_binary.issues],
-            [("model", ErrorCode.PLATFORM_BINARY_MISSING.value)],
+            [("execution_interface", ErrorCode.PLATFORM_BINARY_MISSING.value)],
         )
 
     def test_omitted_output_interval_defaults_to_communication_step(self) -> None:
@@ -403,10 +405,7 @@ class ValidationTests(unittest.TestCase):
                 SimulationConfig(),
             )
         self.assertEqual(raised.exception.code, ErrorCode.CONFIG_ERROR)
-        self.assertEqual(
-            raised.exception.details["issues"][0]["code"],
-            ErrorCode.UNSUPPORTED_INTERFACE.value,
-        )
+        self.assertEqual(raised.exception.details["issues"][0]["code"], ErrorCode.PLATFORM_BINARY_MISSING.value)
 
     def test_application_facade_returns_stable_config_error(self) -> None:
         engine = FarcelEngine(importer=Mock())
