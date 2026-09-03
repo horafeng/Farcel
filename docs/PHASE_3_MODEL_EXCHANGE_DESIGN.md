@@ -270,5 +270,5 @@ Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并�
 - `InterfaceCapability.can_execute` 以**每个接口**的当前平台二进制为准：FMI2 CS 与 ME 分别按各自 `modelIdentifier` 检查；`ModelMetadata.executable_interface` 是默认 public 选择，顺序固定为 CS、ME、None。
 - `execution_interface=None` 时选择可执行 CS，否则选择可执行 FMI2 ME；显式 CS 和显式 ME 都不回退。显式 ME 仅允许 FMI2、已声明、无需外部 execution tool、具备其精确 native binary 的接口。FMI3 ME 和 Scheduled Execution 稳定拒绝。
 - `FarcelEngine.create_session()` 仍是低层 Co-Simulation API；它在 validation 成功后拒绝 ME，且不创建 CS session factory。public ME 只能经 `run_fmu()` 进入 application runner。
-- `communication_step` 在 ME 中定义 outer checkpoint / input-event grid，CVode 在 checkpoint 间 adaptive integrate；`relative_tolerance` 是 solver 的相对误差控制，未设置时使用默认实验 tolerance 或 solver 默认值。该语义不改变 CS 的 `doStep()` communication grid。
+- `communication_step` 在 ME 中定义 outer checkpoint / input-event grid，CVode 在 checkpoint 间 adaptive integrate；`relative_tolerance` 是 solver 的相对误差控制，未设置时为 `1e-5`。该语义不改变 CS 的 `doStep()` communication grid。
 - CLI 的 `validate`、`run`、`export` 接受 `--interface co_simulation|model_exchange`；不会暴露 Scheduled Execution 选项。public example、wheel CI 和 real-FMU matrix 覆盖 VanDerPol、Stair、BouncingBall-fmi2、Feedthrough-fmi2。

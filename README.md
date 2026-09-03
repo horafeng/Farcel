@@ -170,4 +170,4 @@ except EngineError as error:
 
 可运行的完整示例见 [examples/backend_api_example.py](examples/backend_api_example.py)，字段语义、错误处理和同步执行限制见 [前后端集成契约](docs/FRONTEND_BACKEND_INTEGRATION.md)。
 
-FMI 2 Model Exchange 的公开示例见 [examples/model_exchange_api_example.py](examples/model_exchange_api_example.py)。它使用同一 `SimulationConfig`，其中 `communication_step` 表示 runner 的外部 checkpoint / input-event 网格，而不是 FMU 的 `doStep()`；CVode 在相邻 checkpoint 间自行积分。`relative_tolerance` 传递给 ME solver 的相对误差控制，未设置时沿用 FMU default experiment tolerance 或 solver 默认值。
+FMI 2 Model Exchange 的公开示例见 [examples/model_exchange_api_example.py](examples/model_exchange_api_example.py)。它使用同一 `SimulationConfig`，其中 `communication_step` 表示 runner 的外部 checkpoint / input-event 网格，而不是 FMU 的 `doStep()`；CVode 在相邻 checkpoint 间自行积分。`relative_tolerance` 传递给 ME solver 的相对误差控制，未设置时为 `1e-5`。
