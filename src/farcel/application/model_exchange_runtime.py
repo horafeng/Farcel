@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from farcel.contracts.errors import EngineError, ErrorCode
@@ -21,6 +22,7 @@ class ModelExchangeCheckpointOutcome:
     checkpoint_reached: bool
     terminate_requested: bool = False
     event_count: int = 0
+    stop_requested: bool = False
 
 
 class ModelExchangeCheckpointCoordinator:
@@ -45,11 +47,19 @@ class ModelExchangeCheckpointCoordinator:
     def current_time(self) -> float:
         return self._current_time
 
-    def advance_to(self, checkpoint: float) -> ModelExchangeCheckpointOutcome:
+    def advance_to(
+        self,
+        checkpoint: float,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> ModelExchangeCheckpointOutcome:
         if not math.isfinite(checkpoint) or checkpoint < self._current_time - self._tolerance:
             raise self._error("checkpoint 必须是当前时间之后的有限数值", checkpoint=checkpoint)
         event_cycles = event_count = 0
         while not self._close(self._current_time, checkpoint):
+            if should_stop is not None and should_stop():
+                return ModelExchangeCheckpointOutcome(
+                    self._current_time, False, False, event_count, True
+                )
             event_cycles += 1
             if event_cycles > _MAX_EVENT_CYCLES_PER_CHECKPOINT:
                 raise self._error("事件循环超过上限", checkpoint=checkpoint, event_cycle_count=event_cycles)
@@ -61,8 +71,16 @@ class ModelExchangeCheckpointCoordinator:
                 if terminated:
                     return ModelExchangeCheckpointOutcome(self._current_time, False, True, event_count + 1)
                 event_count += 1
+                if should_stop is not None and should_stop():
+                    return ModelExchangeCheckpointOutcome(
+                        self._current_time, False, False, event_count, True
+                    )
                 continue
             target = min(checkpoint, self._next_input_time(), self._next_time_event or math.inf)
+            if should_stop is not None and should_stop():
+                return ModelExchangeCheckpointOutcome(
+                    self._current_time, False, False, event_count, True
+                )
             result = self._solver.integrate_to(target)
             if result.status is SolverAdvanceStatus.FAILED:
                 raise self._error("Model Exchange solver 推进失败", checkpoint=checkpoint,
@@ -88,6 +106,14 @@ class ModelExchangeCheckpointCoordinator:
                 if terminated:
                     return ModelExchangeCheckpointOutcome(self._current_time, False, True, event_count + 1)
                 event_count += 1
+                if should_stop is not None and should_stop():
+                    return ModelExchangeCheckpointOutcome(
+                        self._current_time,
+                        self._close(self._current_time, checkpoint),
+                        False,
+                        event_count,
+                        True,
+                    )
             elif not advanced:
                 raise self._error("solver 未取得进展且没有可处理事件", checkpoint=checkpoint)
         return ModelExchangeCheckpointOutcome(self._current_time, True, False, event_count)

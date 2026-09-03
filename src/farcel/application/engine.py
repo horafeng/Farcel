@@ -31,10 +31,12 @@ from farcel.contracts.models import (
 )
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
+    ModelExchangeSessionFactory,
     ModelImporter,
     ResultExporter,
     SessionFactory,
     SimulationSession,
+    SolverFactory,
 )
 
 
@@ -58,6 +60,8 @@ class FarcelEngine:
         importer: ModelImporter,
         session_factory: SessionFactory | None = None,
         result_exporter: ResultExporter | None = None,
+        model_exchange_session_factory: ModelExchangeSessionFactory | None = None,
+        solver_factory: SolverFactory | None = None,
     ) -> None:
         self._importer = importer
         self._session_factory = session_factory
@@ -65,7 +69,9 @@ class FarcelEngine:
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
-        self._model_exchange_runner: ExecutionRunner = ModelExchangeRunner()
+        self._model_exchange_runner: ExecutionRunner = ModelExchangeRunner(
+            model_exchange_session_factory, solver_factory
+        )
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))

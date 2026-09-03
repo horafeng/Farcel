@@ -7,6 +7,7 @@ from farcel import create_backend
 from farcel.contracts.models import InterfaceType, SimulationConfig
 from farcel.application.model_exchange_problem import SessionModelExchangeProblem
 from farcel.application.model_exchange_runtime import ModelExchangeCheckpointCoordinator
+from farcel.application.runners import ModelExchangeRunner
 from farcel.contracts.models import SolverAdvanceStatus, SolverOptions
 from farcel.infrastructure.fmpy import (
     FmpyCvodeSolverFactory,
@@ -104,3 +105,36 @@ class Fmi2ModelExchangeSessionIntegrationTests(unittest.TestCase):
             self.assertEqual(session.read_outputs()["counter"], 2)
         finally:
             solver.close(); session.terminate(); session.close()
+
+    @unittest.skipUnless(van_der_pol.is_file(), "VanDerPol FMU is unavailable")
+    def test_van_der_pol_model_exchange_runner_returns_canonical_result_and_matches_cs(self) -> None:
+        config = SimulationConfig(
+            start_time=0.0, stop_time=0.05, communication_step=0.01,
+            parameters={"mu": 2.0}, selected_outputs=("x0",),
+        )
+        metadata = FmpyImporter().load(self.van_der_pol)
+        result = ModelExchangeRunner(
+            FmpyFmi2ModelExchangeSessionFactory(), FmpyCvodeSolverFactory()
+        ).run(self.van_der_pol, metadata, config)
+        cs_result = create_backend().run_fmu(self.van_der_pol, config)
+        self.assertIs(result.completion_state, result.completion_state.COMPLETED)
+        self.assertEqual(result.completed_steps, 5)
+        self.assertEqual(result.timestamps, (0.0, 0.01, 0.02, 0.03, 0.04, 0.05))
+        self.assertAlmostEqual(result.final_time, 0.05, places=12)
+        self.assertIn("x0", result.outputs)
+        self.assertAlmostEqual(result.outputs["x0"][-1], cs_result.outputs["x0"][-1], places=3)
+
+    @unittest.skipUnless(stair.is_file(), "Stair FMU is unavailable")
+    def test_stair_model_exchange_runner_crosses_time_event_and_continues(self) -> None:
+        config = SimulationConfig(
+            start_time=0.0, stop_time=1.2, communication_step=0.2,
+            selected_outputs=("counter",),
+        )
+        metadata = FmpyImporter().load(self.stair)
+        result = ModelExchangeRunner(
+            FmpyFmi2ModelExchangeSessionFactory(), FmpyCvodeSolverFactory()
+        ).run(self.stair, metadata, config)
+        self.assertIs(result.completion_state, result.completion_state.COMPLETED)
+        self.assertEqual(result.completed_steps, 6)
+        self.assertAlmostEqual(result.final_time, 1.2, places=12)
+        self.assertEqual(result.outputs["counter"][-1], 2)

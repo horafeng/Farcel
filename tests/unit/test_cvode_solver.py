@@ -3,11 +3,24 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from farcel.contracts import SolverAdvanceStatus, SolverOptions
+from farcel.contracts import SolverAdvanceStatus, SolverOptions, SolverResetReason
 from farcel.infrastructure.fmpy.cvode_solver import FmpyCvodeSolverAdapter
 
 
 class CvodeSolverCharacterizationTests(unittest.TestCase):
+    @staticmethod
+    def _problem():
+        class Problem:
+            def get_initial_time(self): return 0.0
+            def get_initial_states(self): return (1.0,)
+            def get_nominals(self): return (1.0,)
+            def get_event_indicator_count(self): return 0
+            def set_state(self, time, states): self.time, self.states = time, states
+            def get_derivatives(self): return (0.0,)
+            def get_event_indicators(self): return ()
+
+        return Problem()
+
     def test_same_time_and_backward_targets_do_not_enter_native_solver(self) -> None:
         solver = FmpyCvodeSolverAdapter()
         solver._problem = object()
@@ -22,6 +35,37 @@ class CvodeSolverCharacterizationTests(unittest.TestCase):
         solver.close()
         solver.close()
         self.assertTrue(solver._closed)
+
+    def test_initialized_close_is_idempotent(self) -> None:
+        solver = FmpyCvodeSolverAdapter()
+        solver.initialize(self._problem(), SolverOptions(1e-5))
+        solver.close()
+        solver.close()
+        self.assertTrue(solver._closed)
+        self.assertIsNone(solver._memory)
+
+    def test_partial_initialization_failure_closes_allocated_native_resources(self) -> None:
+        solver = FmpyCvodeSolverAdapter()
+        with patch("farcel.infrastructure.fmpy.cvode_solver.CVodeInit", return_value=-1):
+            with self.assertRaises(RuntimeError):
+                solver.initialize(self._problem(), SolverOptions(1e-5))
+        self.assertTrue(solver._closed)
+        self.assertIsNone(solver._memory)
+        self.assertIsNone(solver._states)
+
+    def test_explicit_reset_uses_cvode_reinit_while_integrate_does_not(self) -> None:
+        solver = FmpyCvodeSolverAdapter()
+        solver.initialize(self._problem(), SolverOptions(1e-5))
+        try:
+            with patch("farcel.infrastructure.fmpy.cvode_solver.CVodeReInit", return_value=0) as reinitialize:
+                solver.reset(0.0, SolverResetReason.OTHER_PROBLEM_CHANGE)
+                reinitialize.assert_called_once()
+            with patch("farcel.infrastructure.fmpy.cvode_solver.CVodeReInit") as reinitialize:
+                result = solver.integrate_to(0.01)
+                self.assertIs(result.status, SolverAdvanceStatus.REACHED_TARGET)
+                reinitialize.assert_not_called()
+        finally:
+            solver.close()
 
     def test_root_result_synchronizes_reached_time_state_without_reset(self) -> None:
         class Problem:

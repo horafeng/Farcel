@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1 / 3.2 / 3.2.1）
+# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A–3.5）
 
-> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner；3.2 已实现 FMI2 Model Exchange session adapter 与 continuous-time primitive；3.2.1 已补齐 ME interface-specific native binary guard。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
+> 状态：3.0A–3.4.1 已完成设计、session、CVode 与 event coordinator；3.5 已将它们装入 application 内部 `ModelExchangeRunner`，形成 FMI2 ME 的 canonical result、sampling、Stop、Progress、ResultChunk 与确定性 cleanup 闭环。公开 `run_fmu(..., execution_interface=MODEL_EXCHANGE)` **仍在 validation 阶段拒绝**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开调用形态或版本号。
 
 ## 1. 目标、范围与非目标
 
@@ -207,7 +207,7 @@ ME 回归矩阵至少包含：
 | 3.3（已完成） | FMPy 低层 SUNDIALS 7 binding 上的 CVode adapter/factory、deterministic close、无事件 ME checkpoint 推进与 VanDerPol 数值基线；public ME runtime 仍关闭 |
 | 3.4（已完成） | application 内部 FMI2 ME state/time/input event coordinator、capability-gated `completedIntegratorStep()`、有界离散迭代与条件 reset；纯 time/no-change event 不 reset，public ME runtime 仍关闭 |
 | 3.4.1（已完成） | Stair 真实 time event 后继续 CVode 推进至后续 checkpoint；补充 CVode root/reached-state/reset/close characterization 与 event coordinator terminate/changed-flag 回归 |
-| 3.5 | Stop/Progress/ResultChunk/cleanup/error 端到端强化 |
+| 3.5（已完成） | 内部 `ModelExchangeRunner` 装配 FMI2 ME session、CVode 与 event coordinator；canonical result、output sampling、cooperative Stop、Progress、ResultChunk、cleanup/error precedence 与真实 VanDerPol/Stair runner 回归；public ME 仍关闭 |
 | 3.6 | Reference FMU 兼容性矩阵、Issue #882 防回归与性能/泄漏检查 |
 | 3.7 | 公共 API/CLI/前端集成文档、稳定性审查；FMI3 ME 仍须另立范围 |
 
@@ -247,3 +247,13 @@ Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并�
 - factory 在创建临时目录、解压和 native `FMU2Model` 构造前检查该精确 archive member。CS model identifier 的库不能满足 ME interface 的要求；缺失结果稳定映射为 `PLATFORM_BINARY_MISSING`，details 含 platform、model identifier 与 expected archive path。
 - 此修复不改变 importer metadata/executable policy；真实 `VanDerPol.fmu` ME session primitive 继续回归。显式 public `run_fmu(..., execution_interface=MODEL_EXCHANGE)` 仍由 validation 在 runner/session factory 前以 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE` 拒绝。
 - 3.2.1 不是 CVode、数值积分、ME runner、FMI3 ME 或公开 ME simulation 的实现。项目的异构数字模型集成定位、Phase 4 graph 和更远期分布式/实时方向仅记录在项目路线图中，不能被解读为现有能力。
+
+## 19. 3.5 已交付内部运行闭环
+
+- `ModelExchangeRunner` 只依赖 Farcel-owned `ModelExchangeSessionFactory` 与 `SolverFactory` ports；`FarcelEngine` 在既有构造参数末尾以 additive 方式接收它们，`create_backend()` 在 composition root 内装配 FMI2 FMPy session factory 与 CVode factory。application/contracts 不导入 FMPy、NumPy、ctypes 或 infrastructure。
+- 运行顺序为 session create/initialize → `SessionModelExchangeProblem` → solver initialize → `ModelExchangeCheckpointCoordinator` → canonical sampling/result → `session.terminate()` → `solver.close()` → `session.close()`。失败时仍尽力执行每一个 cleanup；主运行错误优先，cleanup error 作为稳定 details 附加。普通 solver close 异常映射为 `CLEANUP_ERROR`。
+- `communication_step` 是 ME outer checkpoint grid，CVode internal step 保持 adaptive；最后一个 checkpoint 可为 partial。`completed_steps` 只在 coordinator 返回 `checkpoint_reached=True` 时增加。初始点、符合 `output_interval` 的完整 checkpoint 与终点补样写入同一个 `_ResultAccumulator`；事件/root/internal solver step 不采样，也不插值。
+- Stop 是协作式：coordinator 在下一次 native integrate 前及事件处理完成后检查 predicate。已进入 CVode 的调用不可强制中断；若 solver 返回 state event，会先完成合法 event boundary，再停止。运行中 stop 返回 `STOPPED` partial result；FMU `terminateRequested` 返回 `COMPLETED` early result。
+- Progress 与 chunk callback 都在 runner 调用线程执行。成功 `COMPLETED` 和 `STOPPED` run 各有恰好一个 final chunk；运行错误不伪造 terminal chunk。public facade 的预启动 stop 仍为 `CANCELLED`。
+- 真实 `VanDerPol.fmu` runner 回归验证 0→0.05 的 canonical result 和与 CS 的数值容差一致；真实 `Stair.fmu` runner 回归验证跨 1.0 time event 后继续到 1.2，保护 FMPy Issue #882 的 `CV_TOO_CLOSE` 风险。
+- 本阶段不改变 importer metadata 的 `executable_interface` / `can_execute` policy，不启用 public ME、CLI ME、GUI ME 或 FMI3 ME。公开开放留待 Phase 3.7。
