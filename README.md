@@ -34,7 +34,7 @@ FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled i
 
 当前后端的公开执行范围为 FMI 2 Co-Simulation 与 FMI 3 Co-Simulation。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
 
-仍不支持 FMI 1 runtime、Model Exchange runtime、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、multi-FMU 和 SSP；Farcel 不声称完整支持所有 FMI 3。
+仍不支持 FMI 1 runtime、**public Model Exchange execution**（`run_fmu`/CLI/GUI）、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、multi-FMU 和 SSP；Farcel 不声称完整支持所有 FMI 3。内部 FMI2 Model Exchange runtime 已实现并处于 release hardening；其公开暴露留待 Phase 3.7。
 
 官方 Reference FMU v0.0.41 已真实验证的 FMI 3 Co-Simulation scalar runtime 类型包括 Float32、Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String 和 Enumeration。Binary 与 Clock 仍可在 metadata 中 inspect；Binary input 或 selected output 在 validation 阶段稳定拒绝，Clock 所在的 Scheduled Execution FMU 保持 inspect-only。Resource FMU 的 `resources/y.txt` 访问也已完成真实运行与 cleanup 回归。
 

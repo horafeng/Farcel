@@ -208,7 +208,7 @@ ME 回归矩阵至少包含：
 | 3.4（已完成） | application 内部 FMI2 ME state/time/input event coordinator、capability-gated `completedIntegratorStep()`、有界离散迭代与条件 reset；纯 time/no-change event 不 reset，public ME runtime 仍关闭 |
 | 3.4.1（已完成） | Stair 真实 time event 后继续 CVode 推进至后续 checkpoint；补充 CVode root/reached-state/reset/close characterization 与 event coordinator terminate/changed-flag 回归 |
 | 3.5（已完成） | 内部 `ModelExchangeRunner` 装配 FMI2 ME session、CVode 与 event coordinator；canonical result、output sampling、cooperative Stop、Progress、ResultChunk、cleanup/error precedence 与真实 VanDerPol/Stair runner 回归；public ME 仍关闭 |
-| 3.6 | Reference FMU 兼容性矩阵、Issue #882 防回归与性能/泄漏检查 |
+| 3.6（已完成） | 官方 v0.0.41 FMI2 BouncingBall/Feedthrough fixture、state/time/input event 与零状态 runner 回归、Issue #882 release regression、20 次 sequential lifecycle、temp cleanup、non-zero start、partial checkpoint、sampling 与 public-closed policy 硬化 |
 | 3.7 | 公共 API/CLI/前端集成文档、稳定性审查；FMI3 ME 仍须另立范围 |
 
 Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并保持 CS 回归稳定；之后才进入 Phase 4 的本地 `SimulationGraph`、`SimulationOrchestrator`、scheduler、data routing 与 multi-FMU node composition。FMI3 Model Exchange 与 Scheduled Execution 都不构成 Phase 3 gate，必须另行定义范围。
@@ -257,3 +257,10 @@ Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并�
 - Progress 与 chunk callback 都在 runner 调用线程执行。成功 `COMPLETED` 和 `STOPPED` run 各有恰好一个 final chunk；运行错误不伪造 terminal chunk。public facade 的预启动 stop 仍为 `CANCELLED`。
 - 真实 `VanDerPol.fmu` runner 回归验证 0→0.05 的 canonical result 和与 CS 的数值容差一致；真实 `Stair.fmu` runner 回归验证跨 1.0 time event 后继续到 1.2，保护 FMPy Issue #882 的 `CV_TOO_CLOSE` 风险。
 - 本阶段不改变 importer metadata 的 `executable_interface` / `can_execute` policy，不启用 public ME、CLI ME、GUI ME 或 FMI3 ME。公开开放留待 Phase 3.7。
+
+## 20. 3.6 Release Hardening
+
+- 官方 `Reference-FMUs.zip` v0.0.41（ZIP SHA-256 `62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403`）的实际 FMI2 inventory 为 BouncingBall、Dahlquist、Feedthrough、Resource、Stair 与 VanDerPol。新增未修改的 `2.0/BouncingBall.fmu` 和 `2.0/Feedthrough.fmu`，其 fixture SHA、来源与 BSD-2-Clause 记录在 `examples/fmus/README.md`。
+- BouncingBall 的真实 CVode root/state-event runner 回归确认 Event Mode、离散更新、conditional reset 后仍推进至原 checkpoint 和最终时间；Feedthrough 覆盖零连续状态的 private solver dummy vector，以及真实 continuous scheduled input event。Stair 的 0→1.2 repeated runner 回归是 FMPy Issue #882 的 release blocker，保留 unit 级 pure-time/no-reset 保护。
+- VanDerPol release matrix 覆盖 non-zero start time、partial final checkpoint、output interval、non-default tolerance、20 次 sequential run、ResultChunk run-id isolation 与 temp extraction directory 差集。另有 normal→stopped→normal、callback failure→success 生命周期回归。
+- 该 matrix 仅声明 internal FMI2 ME runtime 已通过 hardening，不改变 public `run_fmu(MODEL_EXCHANGE)` validation、CLI/GUI、metadata executable policy 或 FMI3 ME scope；这些仍是 Phase 3.7 之后的工作。

@@ -1,13 +1,20 @@
 # FMU Compatibility Matrix
 
 This matrix records results reproduced on Windows win64 with Python 3.13 and
-the pinned FMPy 0.3.31 dependency. `inspect` means the public
-`backend.load_fmu()` path, not merely opening the ZIP container.
+the pinned FMPy 0.3.31 dependency. The first table is the public API contract;
+the internal FMI2 ME table below is not a public support claim.
+
+## Public Compatibility
+
+`inspect` means the public `backend.load_fmu()` path, not merely opening the
+ZIP container. Public `Run` remains Co-Simulation only.
 
 | FMU | Inspect | Validate | Run | Input | Output | CSV | Note |
 |---|---:|---:|---:|---:|---:|---:|---|
 | `Stair.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `counter` changes from 1 to 2 over 0..1 s. |
 | `VanDerPol.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 2 CS; `mu` override and selected `x0` regression pass. |
+| `BouncingBall-fmi2.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI2 CS; `h`/`v` bounce regression. |
+| `Feedthrough-fmi2.fmu` | Yes | Yes | Yes | Initial/scheduled Real input | Real output | Yes | Official v0.0.41 FMI2 CS zero-state feedthrough regression. |
 | `VanDerPol-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | FMI 3 Co-Simulation；`mu` 覆盖和选定 `x0` 回归通过。 |
 | `BouncingBall-fmi3.fmu` | Yes | Yes | Yes | N/A | Yes | Yes | Official Reference-FMUs v0.0.41 FMI 3 CS; Event Mode and Early Return, with `h`/`v` bounce regression. |
 | `StateSpace-fmi3.fmu` | Yes | Yes | Yes | 初始值与计划数组 | 数组 `y` | 带索引数组列 | 官方 Reference-FMUs v0.0.41 原始 `3.0/StateSpace.fmu`；默认 `(3, 3)`/`(3,)` 尺寸与普通数组参数回归。原生 `setUInt64()` 缺陷使结构参数正向运行不可用，原始二进制保持未修改。 |
@@ -19,12 +26,27 @@ the pinned FMPy 0.3.31 dependency. `inspect` means the public
 | `manipulator.fmu` | Yes | Yes | No | Setters work | Initial sample only | No | FMI 2 CS. First `doStep` returns error because the native FMU reports `Singular matrix not invertible (getrf).`; reproduced with zero/non-zero inputs, explicit defaults, and step sizes 0.1 through 0.0001. Farcel reports the native diagnostic and releases resources. |
 | `LateralMotionControl.fmu` | Yes, with warnings | Yes | Yes | Initial + scheduled | Yes | Yes | FMI 2 CS. XML references undeclared unit `m/s`; this recoverable unit-definition problem is retained in metadata diagnostics. A generic boolean trigger schedule produces meaningful task execution. |
 
+## Internal FMI2 Model Exchange Release Matrix
+
+This table covers direct internal `ModelExchangeRunner` composition only.
+`public run_fmu(MODEL_EXCHANGE)`, CLI/GUI ME execution and metadata public
+executable policy remain disabled until Phase 3.7.
+
+| FMU | Instantiate/init | Continuous states / CVode | State event | Time event | Input event | completedIntegratorStep | Canonical result | Stop/cleanup/repeat | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| `VanDerPol.fmu` | Yes | 2 / Yes | N/A | N/A | N/A | No | non-zero start, partial final checkpoint, output interval, tolerance | 20 sequential runs, unique chunks, no new temp dir | Passed |
+| `Stair.fmu` | Yes | 1 / Yes | N/A | Yes | N/A | Yes | 0→1.2, 6 checkpoints, counter=2 | 5 sequential event runs; FMPy Issue #882 release regression | Passed |
+| `BouncingBall-fmi2.fmu` | Yes | 2 / Yes | root bounce | N/A | N/A | Yes | 0→1.0, 20 checkpoints, negative-to-positive velocity | session/solver lifecycle exercised | Passed |
+| `Feedthrough-fmi2.fmu` | Yes | 0 / private dummy vector | N/A | N/A | Real scheduled input at 0.02 | Yes | selected output changes 1→4 | session/solver lifecycle exercised | Passed |
+
 ## Metadata inventory
 
 | FMU | Inputs | Parameters | Outputs | Scalar types |
 |---|---:|---:|---:|---|
 | `Stair.fmu` | 0 | 0 | 1 | Integer |
 | `VanDerPol.fmu` | 0 | 1 | 2 | Real |
+| `BouncingBall-fmi2.fmu` | 0 | 2 | 2 | Real |
+| `Feedthrough-fmi2.fmu` | 6 | 2 | 6 | Real, Integer, Boolean, String, Enumeration |
 | `VanDerPol-fmi3.fmu` | 0 | 1 | 2 | Float64 |
 | `BouncingBall-fmi3.fmu` | 0 | 2 | 3 | Float64 |
 | `StateSpace-fmi3.fmu` | 1 array | 5 arrays + 3 structural parameters | 1 array | Float64, UInt64 |
@@ -141,7 +163,7 @@ FMI 3 Co-Simulation 的数组支持普通参数、initial/scheduled input、sele
 canonical result、chunk 和带索引的 CSV 列。对于标量整型或枚举型结构参数覆盖，Farcel
 在 Configuration Mode 中设置值，并以覆盖值解析动态有效 shape；导入 metadata 保留默认
 shape。结构参数数组、Reconfiguration Mode、运行中结构参数改变、FMI 3 Binary/Clock、
-Intermediate Update 公共回调、Scheduled Execution、Model Exchange 执行和 FMI 1 仍不支持。
+Intermediate Update 公共回调、Scheduled Execution、**public Model Exchange execution** 和 FMI 1 仍不支持；内部 FMI2 ME release matrix 见本文前部，不能据此推断 `run_fmu`/CLI/GUI 已公开 ME。
 
 ## Phase 2.3 Extended Reference FMU Compatibility Matrix
 

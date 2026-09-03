@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from farcel.application.model_exchange_runtime import ModelExchangeCheckpointCoordinator
 from farcel.contracts import (
-    DiscreteStateUpdate, InputUpdate, IntegratorStepResult,
+    DiscreteStateUpdate, ErrorCode, InputUpdate, IntegratorStepResult,
     ModelExchangeInitialization, SimulationConfig, SolverAdvanceResult,
     SolverAdvanceStatus, SolverResetReason,
 )
@@ -68,3 +69,29 @@ class ModelExchangeRuntimeTests(unittest.TestCase):
         solver = _Solver([SolverAdvanceResult(.1, SolverAdvanceStatus.STATE_EVENT)])
         outcome = self._coordinator(session, solver).advance_to(.1)
         self.assertTrue(outcome.terminate_requested); self.assertNotIn("continuous", session.events)
+
+    def test_no_progress_without_event_is_a_stable_step_error(self):
+        session = _Session()
+        solver = _Solver([SolverAdvanceResult(0.0, SolverAdvanceStatus.REACHED_TARGET)])
+        with self.assertRaisesRegex(Exception, "solver 未取得进展") as raised:
+            self._coordinator(session, solver).advance_to(.1)
+        self.assertIs(raised.exception.code, ErrorCode.STEP_ERROR)
+
+    def test_repeated_same_time_event_hits_bounded_event_cycle_guard(self):
+        session = _Session([
+            DiscreteStateUpdate(False, next_event_time_defined=True, next_event_time=0.0),
+            DiscreteStateUpdate(False, next_event_time_defined=True, next_event_time=0.0),
+        ])
+        solver = _Solver([])
+        with patch("farcel.application.model_exchange_runtime._MAX_EVENT_CYCLES_PER_CHECKPOINT", 2):
+            with self.assertRaisesRegex(Exception, "事件循环超过上限") as raised:
+                self._coordinator(session, solver, event_time=0).advance_to(.1)
+        self.assertIs(raised.exception.code, ErrorCode.STEP_ERROR)
+
+    def test_unstable_discrete_updates_hit_iteration_guard(self):
+        session = _Session([DiscreteStateUpdate(True), DiscreteStateUpdate(True)])
+        solver = _Solver([SolverAdvanceResult(.05, SolverAdvanceStatus.STATE_EVENT)])
+        with patch("farcel.application.model_exchange_runtime._MAX_ME_DISCRETE_ITERATIONS", 2):
+            with self.assertRaisesRegex(Exception, "离散状态迭代超过上限") as raised:
+                self._coordinator(session, solver).advance_to(.1)
+        self.assertIs(raised.exception.code, ErrorCode.STEP_ERROR)
