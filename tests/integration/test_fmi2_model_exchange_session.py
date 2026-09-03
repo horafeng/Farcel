@@ -95,7 +95,12 @@ class Fmi2ModelExchangeSessionIntegrationTests(unittest.TestCase):
             coordinator = ModelExchangeCheckpointCoordinator(session, solver, config, initialization, needs_completed_integrator_step=True)
             for checkpoint in (.2, .4, .6, .8): self.assertTrue(coordinator.advance_to(checkpoint).checkpoint_reached)
             event = coordinator.advance_to(1.0)
+            self.assertTrue(event.checkpoint_reached)
             self.assertEqual(event.event_count, 1)
+            self.assertEqual(session.read_outputs()["counter"], 2)
+            after_event = coordinator.advance_to(1.2)
+            self.assertTrue(after_event.checkpoint_reached)
+            self.assertAlmostEqual(coordinator.current_time, 1.2, places=12)
             self.assertEqual(session.read_outputs()["counter"], 2)
         finally:
             solver.close(); session.terminate(); session.close()

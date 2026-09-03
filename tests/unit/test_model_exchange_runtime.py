@@ -58,3 +58,13 @@ class ModelExchangeRuntimeTests(unittest.TestCase):
         self._coordinator(session, solver, completed=False).advance_to(.1); self.assertNotIn("completed", session.events)
         session = _Session(); solver = _Solver([SolverAdvanceResult(.1, SolverAdvanceStatus.REACHED_TARGET)])
         self._coordinator(session, solver, completed=True).advance_to(.1); self.assertEqual(session.events, ["completed"])
+
+    def test_discrete_updates_aggregate_changes_and_terminate_stays_in_event_mode(self):
+        session = _Session([DiscreteStateUpdate(True, continuous_states_changed=True), DiscreteStateUpdate(False, nominals_changed=True)])
+        solver = _Solver([SolverAdvanceResult(.1, SolverAdvanceStatus.STATE_EVENT)])
+        self._coordinator(session, solver).advance_to(.1)
+        self.assertEqual(solver.resets, [(.1, SolverResetReason.NOMINALS_CHANGED)])
+        session = _Session([DiscreteStateUpdate(False, terminate_requested=True)])
+        solver = _Solver([SolverAdvanceResult(.1, SolverAdvanceStatus.STATE_EVENT)])
+        outcome = self._coordinator(session, solver).advance_to(.1)
+        self.assertTrue(outcome.terminate_requested); self.assertNotIn("continuous", session.events)
