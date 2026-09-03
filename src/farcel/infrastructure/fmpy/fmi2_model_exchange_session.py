@@ -271,6 +271,12 @@ class FmpyFmi2ModelExchangeSession:
             self.enter_continuous_time_mode()
         return initialization
 
+    def get_initial_time(self) -> float:
+        return self._config.start_time
+
+    def get_event_indicator_count(self) -> int:
+        return self._event_indicator_count
+
     def set_inputs(self, values: Mapping[str, Any]) -> None:
         if self._terminated or self._closed:
             raise EngineError(ErrorCode.INPUT_SET_ERROR, "Session 状态不允许设置 input")
@@ -317,6 +323,23 @@ class FmpyFmi2ModelExchangeSession:
             raise EngineError(
                 ErrorCode.STEP_ERROR,
                 "FMI getContinuousStates 失败",
+                {"diagnostic": str(exc)},
+            ) from None
+        return tuple(float(value) for value in values)
+
+    def get_nominals_of_continuous_states(self) -> tuple[float, ...]:
+        self._require_continuous_time_mode()
+        if self._continuous_state_count == 0:
+            return ()
+        values = (fmi2Real * self._continuous_state_count)()
+        try:
+            self._fmu.getNominalsOfContinuousStates(
+                values, self._continuous_state_count
+            )
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.STEP_ERROR,
+                "FMI getNominalsOfContinuousStates 失败",
                 {"diagnostic": str(exc)},
             ) from None
         return tuple(float(value) for value in values)

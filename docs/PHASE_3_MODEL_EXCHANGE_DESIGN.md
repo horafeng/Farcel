@@ -204,7 +204,7 @@ ME 回归矩阵至少包含：
 | 3.1（已完成） | application runner 抽取：`FarcelEngine` 保留加载、validation 和接口分派；`CoSimulationRunner` 持有既有 CS loop；建立可注入 `ModelExchangeRunner` 骨架，ME validation 仍在 native runtime 前拒绝 |
 | 3.2（已完成） | FMI2 `ModelExchangeSession` adapter、初始化离散状态迭代、continuous-time primitive 与 application problem boundary；仍不接入 solver 或 public ME runtime |
 | 3.2.1（已完成） | 在解压和 `FMU2Model` 构造前，按 FMPy 0.3.31 最终运行时路径校验当前平台的 ME `modelIdentifier` native library；缺失时稳定为 `PLATFORM_BINARY_MISSING`，不把 CS binary 误当作 ME binary |
-| 3.3 | CVode adapter、无事件 ME checkpoint 推进与真实 FMU 基线 |
+| 3.3（已完成） | FMPy 低层 SUNDIALS 7 binding 上的 CVode adapter/factory、deterministic close、无事件 ME checkpoint 推进与 VanDerPol 数值基线；public ME runtime 仍关闭 |
 | 3.4 | state/time/input event、离散迭代、`completedIntegratorStep()` 与条件 reset |
 | 3.5 | Stop/Progress/ResultChunk/cleanup/error 端到端强化 |
 | 3.6 | Reference FMU 兼容性矩阵、Issue #882 防回归与性能/泄漏检查 |

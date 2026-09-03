@@ -60,9 +60,12 @@ class ModelExchangeContractTests(unittest.TestCase):
         self.assertTrue(
             {
                 "initialize",
+                "get_initial_time",
+                "get_event_indicator_count",
                 "set_inputs",
                 "set_time",
                 "get_continuous_states",
+                "get_nominals_of_continuous_states",
                 "set_continuous_states",
                 "get_derivatives",
                 "get_event_indicators",
@@ -79,6 +82,9 @@ class ModelExchangeContractTests(unittest.TestCase):
         self.assertTrue(
             {
                 "get_initial_states",
+                "get_initial_time",
+                "get_nominals",
+                "get_event_indicator_count",
                 "set_state",
                 "get_derivatives",
                 "get_event_indicators",

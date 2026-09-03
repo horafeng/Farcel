@@ -103,6 +103,11 @@ class _FakeNativeModel:
         for index in range(count):
             values[index] = self.continuous_states[index]
 
+    def getNominalsOfContinuousStates(self, values, count: int) -> None:
+        self.events.append("getNominalsOfContinuousStates")
+        for index in range(count):
+            values[index] = 1.0
+
     def setContinuousStates(self, values, count: int) -> None:
         self.events.append("setContinuousStates")
         self.continuous_states = [float(values[index]) for index in range(count)]
@@ -277,6 +282,7 @@ class Fmi2ModelExchangeSessionTests(unittest.TestCase):
                 session.set_time(float("nan"))
             self.assertEqual(raised.exception.code, ErrorCode.STEP_ERROR)
             self.assertEqual(session.get_continuous_states(), (1.0, -2.0))
+            self.assertEqual(session.get_nominals_of_continuous_states(), (1.0, 1.0))
             session.set_continuous_states((2.0, 3.0))
             self.assertEqual(native.continuous_states, [2.0, 3.0])
             self.assertEqual(session.get_derivatives(), (3.0, -4.0))
