@@ -1,4 +1,4 @@
-# Farcel 后端架构与第一阶段计划
+# Farcel 后端架构与演进边界
 
 ## 1. 项目目标与后端职责
 
@@ -94,3 +94,19 @@ Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组�
 Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver 尚未实现。
 
 Phase 2.3 使用官方 Reference FMU 扩展真实兼容性回归，而不增加运行能力：Feedthrough 覆盖当前 FMI 3 scalar setter/getter 与 ResultChunk/CSV 路径，Resource 覆盖已解压 FMU 的 `resources/` 访问和关闭清理，Clocks 则验证 Scheduled Execution/Clock 能被 inspect 且在 session 创建前由执行策略拒绝。FMI 3 Binary 与 Clock 不进入 adapter runtime；validation 对 Binary/Clock selected output 返回稳定的 `UNSUPPORTED_OUTPUT_TYPE`，对 Binary input 保持 `UNSUPPORTED_INPUT_TYPE`。
+
+## 8. Phase 4 以后：规划的本地多模型边界
+
+以下结构是 **Planned**，目前没有 `SimulationGraph`、scheduler、data router、多 FMU runtime 或 Simulink/AMESim/ANSYS adapter：
+
+```text
+SimulationOrchestrator
+  ├─ SimulationGraph
+  ├─ Scheduler
+  ├─ DataRouter
+  └─ ModelNodeAdapter
+       ├─ FMU node runtime（复用现有单 FMU engine）
+       └─ future direct adapters: Simulink / AMESim / ANSYS / ...
+```
+
+单 FMU engine 不会被丢弃；它将成为 FMU node runtime，由未来的 graph/orchestrator 组合。该演进仍保持 `GUI / CLI → application → contracts ← infrastructure`：图、调度和数据路由的业务语义属于 application/contracts，工具/API/native 细节继续留在 infrastructure。分布式、实时/HIL、ROM 和直接异构工具连接都必须等待本地 `SimulationGraph` 得到验证后再单独立项。

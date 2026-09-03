@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from fmpy import platform as current_platform
+from fmpy import platform as current_platform, sharedLibraryExtension
 
 from farcel.application.model_exchange_problem import SessionModelExchangeProblem
 from farcel.contracts import (
@@ -139,7 +140,11 @@ class Fmi2ModelExchangeSessionTests(unittest.TestCase):
     def test_factory_accepts_only_available_fmi2_model_exchange(self) -> None:
         factory = FmpyFmi2ModelExchangeSessionFactory()
         expected = object()
-        with patch.object(
+        with patch(
+            "farcel.infrastructure.fmpy.fmi2_model_exchange_session."
+            "_fmi2_model_exchange_library_is_present",
+            return_value=True,
+        ), patch.object(
             FmpyFmi2ModelExchangeSession, "open", return_value=expected
         ) as open_session:
             result = factory.create(_metadata(), SimulationConfig())
@@ -162,6 +167,38 @@ class Fmi2ModelExchangeSessionTests(unittest.TestCase):
         with self.assertRaises(EngineError) as raised:
             factory.create(missing_platform, SimulationConfig())
         self.assertEqual(raised.exception.code, ErrorCode.PLATFORM_BINARY_MISSING)
+
+    def test_factory_rejects_missing_model_exchange_library_before_extraction(self) -> None:
+        factory = FmpyFmi2ModelExchangeSessionFactory()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            archive_path = Path(temporary_directory) / "interface-specific.fmu"
+            co_simulation_library = (
+                f"binaries/{current_platform}/CoSimulationTest{sharedLibraryExtension}"
+            )
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                # A non-empty placeholder is sufficient: this guard must run
+                # before FMPy loads or instantiates any native library.
+                archive.writestr(co_simulation_library, b"co-simulation-only")
+
+            metadata = replace(_metadata(), source_path=str(archive_path))
+            with patch.object(FmpyFmi2ModelExchangeSession, "open") as open_session, patch(
+                "farcel.infrastructure.fmpy.fmi2_model_exchange_session."
+                "tempfile.mkdtemp"
+            ) as extraction_directory:
+                with self.assertRaises(EngineError) as raised:
+                    factory.create(metadata, SimulationConfig())
+
+        self.assertEqual(raised.exception.code, ErrorCode.PLATFORM_BINARY_MISSING)
+        self.assertEqual(raised.exception.details["platform"], current_platform)
+        self.assertEqual(
+            raised.exception.details["model_identifier"], "ModelExchangeTest"
+        )
+        self.assertEqual(
+            raised.exception.details["expected_library_archive_path"],
+            f"binaries/{current_platform}/ModelExchangeTest{sharedLibraryExtension}",
+        )
+        open_session.assert_not_called()
+        extraction_directory.assert_not_called()
 
     def test_initialize_performs_bounded_discrete_iteration_and_maps_initialization(self) -> None:
         native = _FakeNativeModel()

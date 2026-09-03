@@ -1,6 +1,6 @@
-# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1 / 3.2）
+# Phase 3：Model Exchange 与 Solver Runtime 设计冻结（3.0A / 3.0B / 3.1 / 3.2 / 3.2.1）
 
-> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner；3.2 已实现 FMI2 Model Exchange session adapter 与 continuous-time primitive。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
+> 状态：3.0A 已冻结设计；3.0B 已冻结 CS 行为并建立公共 contract 骨架；3.1 已抽取 application 层 Co-Simulation runner；3.2 已实现 FMI2 Model Exchange session adapter 与 continuous-time primitive；3.2.1 已补齐 ME interface-specific native binary guard。**尚未实现 Model Exchange runtime**，不改变现有 FMI 2/3 Co-Simulation（CS）数值行为、公开 `run_fmu()` 调用形态或版本号。
 
 ## 1. 目标、范围与非目标
 
@@ -203,11 +203,14 @@ ME 回归矩阵至少包含：
 | 3.0B（已完成） | CS characterization tests；增加 additive `execution_interface`、ME/solver DTO 与 ports；`phase-3-work` push 纳入完整后端 CI；仍不接入正式 runtime |
 | 3.1（已完成） | application runner 抽取：`FarcelEngine` 保留加载、validation 和接口分派；`CoSimulationRunner` 持有既有 CS loop；建立可注入 `ModelExchangeRunner` 骨架，ME validation 仍在 native runtime 前拒绝 |
 | 3.2（已完成） | FMI2 `ModelExchangeSession` adapter、初始化离散状态迭代、continuous-time primitive 与 application problem boundary；仍不接入 solver 或 public ME runtime |
+| 3.2.1（已完成） | 在解压和 `FMU2Model` 构造前，按 FMPy 0.3.31 最终运行时路径校验当前平台的 ME `modelIdentifier` native library；缺失时稳定为 `PLATFORM_BINARY_MISSING`，不把 CS binary 误当作 ME binary |
 | 3.3 | CVode adapter、无事件 ME checkpoint 推进与真实 FMU 基线 |
 | 3.4 | state/time/input event、离散迭代、`completedIntegratorStep()` 与条件 reset |
 | 3.5 | Stop/Progress/ResultChunk/cleanup/error 端到端强化 |
 | 3.6 | Reference FMU 兼容性矩阵、Issue #882 防回归与性能/泄漏检查 |
 | 3.7 | 公共 API/CLI/前端集成文档、稳定性审查；FMI3 ME 仍须另立范围 |
+
+Phase 3 的 exit 是完成上述 3.3–3.7 的 FMI2 ME solver/runtime 路径并保持 CS 回归稳定；之后才进入 Phase 4 的本地 `SimulationGraph`、`SimulationOrchestrator`、scheduler、data routing 与 multi-FMU node composition。FMI3 Model Exchange 与 Scheduled Execution 都不构成 Phase 3 gate，必须另行定义范围。
 
 ## 14. 前端成果进入 main 时的同步流程
 
@@ -236,3 +239,10 @@ ME 回归矩阵至少包含：
 - `FmpyFmi2ModelExchangeSession` 在 infrastructure 内封装 `FMU2Model`、native instance 与临时目录，完成 setupExperiment、参数/initial input、Initialization Mode、有限初始 `newDiscreteStates()` 迭代和 Continuous-Time Mode 进入。
 - adapter 通过现有 Farcel DTO/port 暴露 time、continuous states、derivatives、event indicators、completedIntegratorStep、Event Mode primitive、selected outputs、terminate 与幂等 close；application 的 `SessionModelExchangeProblem` 只委托这些标准值。
 - 没有 numerical solver、时间推进循环、ME `RunControl`/Progress/ResultChunk、CVode 或 FMI3 ME；显式 `run_fmu(..., execution_interface=MODEL_EXCHANGE)` 仍在 validation 阶段稳定拒绝。
+
+## 18. 3.2.1 已交付边界
+
+- `metadata.platforms` 仅表示容器中有某个可识别平台库；FMPy 0.3.31 的 `supported_platforms()` 可以识别 legacy 与 platform-tuple directory，但 `FMU2Model` 的最终运行时 resolver 只加载 `binaries/<current_platform>/<ME modelIdentifier><sharedLibraryExtension>`。
+- factory 在创建临时目录、解压和 native `FMU2Model` 构造前检查该精确 archive member。CS model identifier 的库不能满足 ME interface 的要求；缺失结果稳定映射为 `PLATFORM_BINARY_MISSING`，details 含 platform、model identifier 与 expected archive path。
+- 此修复不改变 importer metadata/executable policy；真实 `VanDerPol.fmu` ME session primitive 继续回归。显式 public `run_fmu(..., execution_interface=MODEL_EXCHANGE)` 仍由 validation 在 runner/session factory 前以 `CONFIG_ERROR` / `UNSUPPORTED_INTERFACE` 拒绝。
+- 3.2.1 不是 CVode、数值积分、ME runner、FMI3 ME 或公开 ME simulation 的实现。项目的异构数字模型集成定位、Phase 4 graph 和更远期分布式/实时方向仅记录在项目路线图中，不能被解读为现有能力。

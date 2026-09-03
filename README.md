@@ -1,6 +1,30 @@
 # Farcel
 
-Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支持通过 FMPy 读取 FMI 2.0 / 3.0 FMU 元数据、仿真前配置验证，以及 FMI 2.0 Co-Simulation 和 FMI 3.0 Co-Simulation（包括 capability-gated Event Mode 与 Early Return）的 Session 执行、所选输出变量时序采样与 CSV 导出。
+Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平台原型**。当前以单 FMU、Python 编排和 FMPy adapter 为可靠基础；它不是已经完成的多工具、分布式或实时仿真平台。
+
+## Current（当前已实现）
+
+- FMI 2.0 / 3.0 FMU 元数据 inspect；FMI 2.0 / 3.0 Co-Simulation、参数与 initial/scheduled input、selected output、`output_interval`、CSV。
+- FMI 3 Co-Simulation 的 capability-gated Event Mode 与 Early Return、数组、标量 structural parameter；以及 Farcel-owned `RunControl`、`RunProgress`、`ResultChunk`。
+- 仅供后续 solver 使用的 FMI 2 `ModelExchangeSession` primitive：初始化、连续状态、导数和事件 mode primitive 已在 infrastructure 内可用；**没有** public Model Exchange simulation 或数值积分器。
+- GUI 在独立分支开发，仍应通过公共 `create_backend()` API 调用后端；现有 GUI/CLI → application → contracts ← infrastructure 边界不变。
+
+当前桌面技术路线为 PySide6 GUI、Python application orchestration、FMPy adapter 与 native FMU；结果呈现可使用 PySide6 + matplotlib。未来可在不改变公共 contracts 的前提下加入 solver adapter，并按性能或 HIL 需求使用 native worker / C++ 实现。
+
+## Planned（规划中，尚未实现）
+
+Phase 3 正在完成单模型 FMI 2 Model Exchange：solver adapter、无事件 checkpoint、事件处理和公开运行路径仍未交付。Phase 4 才会进入多模型本地集成，目标结构为：
+
+```text
+Simulation Project → Simulation Graph → Simulation Orchestrator
+    → Model Node Adapters → FMU / Simulink / AMESim / ANSYS / ...
+```
+
+这是一张规划图，不代表这些 adapter、图编辑器或多 FMU 调度器已经存在。
+
+## Long-term（远期方向，尚未实现）
+
+异构模型集成将优先经 FMU 接入，必要时再研究直接工具 adapter；分布式执行只会在本地 `SimulationGraph` 成熟后评估。实时/HIL、ROM、跨进程 worker、云或实体环境连接均不属于当前实现范围。完整阶段边界见 [docs/PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md)。
 
 `communication_step` 是 FMU Co-Simulation 的通信点推进步长；`output_interval` 是保存到 `SimulationResult` 的结果采样间隔。未设置 `output_interval` 时它等于 `communication_step`，保持原有“每通信点一个样本”的行为。显式设置的采样间隔必须是通信步长的整数倍；Farcel 不插值，并会在正常完成时补记尚未采集的最终状态。
 
@@ -8,7 +32,7 @@ Farcel 是一个本地优先的轻量级 FMU 仿真工具。当前后端已支�
 
 FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled input 和 selected output。公共数组值使用与有效 shape 严格一致的 nested tuple（配置输入也接受同形状的 list/tuple sequence）；`SimulationResult` 与 `ResultChunk` 保留每个时间样本的数组值，不把数组元素变成公共 output key。CSV 将数组展开为稳定的零基索引列，例如 `y[0]`、`A[0,0]`。对于标量整型或枚举型 `structuralParameter`，Farcel 在初始化前按 FMI 3 Configuration Mode 写入覆盖值，并以结构参数的当前值解析带 dimension value reference 的数组有效 shape；静态 `VariableMetadata.shape` 保持导入时的默认值不变。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary 和 Clock 仍不支持。
 
-当前后端执行范围为 FMI 2 Co-Simulation 与 FMI 3 Co-Simulation。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
+当前后端的公开执行范围为 FMI 2 Co-Simulation 与 FMI 3 Co-Simulation。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
 
 仍不支持 FMI 1 runtime、Model Exchange runtime、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、multi-FMU 和 SSP；Farcel 不声称完整支持所有 FMI 3。
 
