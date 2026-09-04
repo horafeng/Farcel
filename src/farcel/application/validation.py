@@ -40,66 +40,15 @@ def resolve_execution_interface(
 def validate_config(
     metadata: ModelMetadata, config: SimulationConfig
 ) -> ValidationReport:
-    issues: list[ValidationIssue] = []
-
-    if config.schema_version != "1.0":
-        issues.append(
-            ValidationIssue(
-                "schema_version", "UNSUPPORTED_SCHEMA", "仅支持配置版本 1.0"
-            )
+    issues = list(
+        validate_timing_config(
+            config.schema_version,
+            config.start_time,
+            config.stop_time,
+            config.communication_step,
+            config.output_interval,
         )
-    if not _is_finite_number(config.start_time) or not _is_finite_number(
-        config.stop_time
-    ):
-        issues.append(
-            ValidationIssue(
-                "time", "INVALID_TIME_VALUE", "start_time 和 stop_time 必须是有限数值"
-            )
-        )
-    elif config.start_time >= config.stop_time:
-        issues.append(
-            ValidationIssue(
-                "stop_time",
-                "INVALID_TIME_RANGE",
-                "start_time 必须小于 stop_time",
-            )
-        )
-    if not _is_finite_number(config.communication_step) or config.communication_step <= 0:
-        issues.append(
-            ValidationIssue(
-                "communication_step",
-                "INVALID_STEP_SIZE",
-                "communication step size 必须是大于 0 的有限数值",
-            )
-        )
-    if config.output_interval is not None and (
-        not _is_finite_number(config.output_interval) or config.output_interval <= 0
-    ):
-        issues.append(
-            ValidationIssue(
-                "output_interval",
-                "INVALID_OUTPUT_INTERVAL",
-                "输出间隔必须是大于 0 的有限数值",
-            )
-        )
-    elif (
-        config.output_interval is not None
-        and _is_finite_number(config.communication_step)
-    ):
-        sample_step_ratio = config.output_interval / config.communication_step
-        if not math.isclose(
-            sample_step_ratio,
-            round(sample_step_ratio),
-            rel_tol=0.0,
-            abs_tol=1e-9,
-        ):
-            issues.append(
-                ValidationIssue(
-                    "output_interval",
-                    "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED",
-                    "输出间隔必须是 communication_step 的整数倍，以保证采样位于 communication point",
-                )
-            )
+    )
 
     requested_interface = config.execution_interface
     if requested_interface is not None and not isinstance(requested_interface, InterfaceType):
@@ -233,6 +182,72 @@ def validate_config(
     return ValidationReport(tuple(issues))
 
 
+def validate_timing_config(
+    schema_version: str,
+    start_time: float,
+    stop_time: float,
+    communication_step: float,
+    output_interval: float | None,
+) -> tuple[ValidationIssue, ...]:
+    """Validate timing fields shared by single-model and graph configurations."""
+
+    issues: list[ValidationIssue] = []
+    if schema_version != "1.0":
+        issues.append(
+            ValidationIssue(
+                "schema_version", "UNSUPPORTED_SCHEMA", "仅支持配置版本 1.0"
+            )
+        )
+    if not _is_finite_number(start_time) or not _is_finite_number(stop_time):
+        issues.append(
+            ValidationIssue(
+                "time", "INVALID_TIME_VALUE", "start_time 和 stop_time 必须是有限数值"
+            )
+        )
+    elif start_time >= stop_time:
+        issues.append(
+            ValidationIssue(
+                "stop_time",
+                "INVALID_TIME_RANGE",
+                "start_time 必须小于 stop_time",
+            )
+        )
+    if not _is_finite_number(communication_step) or communication_step <= 0:
+        issues.append(
+            ValidationIssue(
+                "communication_step",
+                "INVALID_STEP_SIZE",
+                "communication step size 必须是大于 0 的有限数值",
+            )
+        )
+    if output_interval is not None and (
+        not _is_finite_number(output_interval) or output_interval <= 0
+    ):
+        issues.append(
+            ValidationIssue(
+                "output_interval",
+                "INVALID_OUTPUT_INTERVAL",
+                "输出间隔必须是大于 0 的有限数值",
+            )
+        )
+    elif output_interval is not None and _is_finite_number(communication_step):
+        sample_step_ratio = output_interval / communication_step
+        if not math.isclose(
+            sample_step_ratio,
+            round(sample_step_ratio),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            issues.append(
+                ValidationIssue(
+                    "output_interval",
+                    "OUTPUT_INTERVAL_NOT_COMMUNICATION_ALIGNED",
+                    "输出间隔必须是 communication_step 的整数倍，以保证采样位于 communication point",
+                )
+            )
+    return tuple(issues)
+
+
 def _validate_execution_interface(
     metadata: ModelMetadata, config: SimulationConfig, issues: list[ValidationIssue]
 ) -> None:
@@ -309,6 +324,19 @@ def resolve_output_interval(config: SimulationConfig) -> float:
         if config.output_interval is None
         else config.output_interval
     )
+
+
+def resolve_effective_shapes(
+    metadata: ModelMetadata, config: SimulationConfig
+) -> dict[str, tuple[int, ...]]:
+    """Return effective variable shapes after a configuration has validated."""
+
+    known_variables = {variable.name: variable for variable in metadata.variables}
+    issues: list[ValidationIssue] = []
+    shapes = _resolve_effective_shapes(metadata, config, known_variables, issues)
+    if issues:
+        raise ValueError("有效数组 shape 只能为已验证的 SimulationConfig 解析")
+    return shapes
 
 
 def _resolve_effective_shapes(

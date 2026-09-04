@@ -365,7 +365,7 @@ backend.run_graph(
 |---|---|
 | 4.0A | 本架构、time/coupling/stop 语义冻结；无 runtime 代码 |
 | 4.0B | graph contracts 与 contract-boundary tests |
-| 4.1 | graph validation；以 temporary effective `SimulationConfig` 复用单模型 validation |
+| 4.1 | **Completed**：application-internal `GraphValidator` 仅 inspect metadata，复用 `ValidationReport` 与 temporary effective `SimulationConfig`；无 runtime/public API |
 | 4.2A | `CoSimulationNodeRuntime` |
 | 4.2B | `ModelExchangeNodeRuntime` 与 ME routed-input event bridge（release blocker） |
 | 4.3 | `SimulationOrchestrator` global scheduler；先以 fake runtimes 测试 |
@@ -377,6 +377,20 @@ backend.run_graph(
 4.6A 的最小真实集成矩阵为：2-node `A -> B`、3-node `A -> B -> C`、FMI2 +
 FMI3 CS、CS + ME、array routing、stop、failure cleanup、repeated run 和
 deterministic result。
+
+### 4.1 implementation note
+
+`farcel.application.graph_validation.GraphValidator` 只依赖 `ModelImporter`
+port，并且只执行 metadata inspection；它不创建 session、solver 或 scheduler。它复用
+既有 `ValidationIssue` / `ValidationReport` 和 node effective
+`SimulationConfig` validation，稳定报告 graph timing、identity/import、connection
+endpoint、single-driver 与 input-schedule conflict issue codes。
+
+Connection data type 使用 conservative canonical comparison：FMI2 `Real` /
+`Integer` 分别与 FMI3 `Float64` / `Int32` 对齐，其余仅允许相同的受支持 type width；
+Binary、Clock 和未知 type 稳定拒绝。array shape 通过现有 structural-parameter
+effective-shape resolver 比较，而不是静态 metadata shape。cycles/self-loop 仍合法；
+4.1 没有 graph runtime 或 public API。
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
