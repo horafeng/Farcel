@@ -1,9 +1,9 @@
 # Phase 4：多模型架构与全局时间语义（4.0A）
 
-> 状态：**4.0A architecture/time semantics freeze。** 本文是后续 Phase 4
-> 实现的约束，不实现 `SimulationGraph` contracts、`ModelNodeRuntime`、
-> scheduler、`DataRouter`、`validate_graph()` 或 `run_graph()`。当前公开的单
-> FMU API 和运行时行为不变。
+> 状态：**4.0A architecture/time semantics freeze；4.0B graph contracts
+> completed。** 4.0B 的声明性 DTO 位于 `farcel.contracts.graph`；它不实现
+> `ModelNodeRuntime`、scheduler、`DataRouter`、`validate_graph()` 或
+> `run_graph()`。当前公开的单 FMU API 和运行时行为不变。
 
 ## 1. 目标、范围和明确非目标
 
@@ -239,9 +239,10 @@ best-effort 执行 `terminate()` 与 `close()`；一个 cleanup failure 不得�
 graph runtime error 的 diagnostics 至少可附加 `node_id`、适用的 `connection`、
 `current_time` 和 `phase`。
 
-## 10. 4.0B contract 计划（本阶段不实现）
+## 10. 4.0B contract 计划与实现状态
 
-4.0B 将新增纯 Farcel/Python DTO，名称和最小字段冻结如下：
+4.0B 已在 `farcel.contracts.graph` 新增如下纯 Farcel/Python DTO；它们保持
+声明性，semantic validation 留给 4.1：
 
 ```python
 PortReference(node_id, variable_name)
@@ -272,6 +273,11 @@ GraphSimulationConfig(
 `SimulationConfig`，复用既有 `validate_config()` 与
 `resolve_execution_interface()`；不能复制单模型的 default、validation 或 interface
 selection logic。
+
+`ModelNodeConfig.selected_outputs` 只选择未来 graph result 要记录的 node output，
+不限制 connection dependency。例如 `A.y -> B.u` 时，即使 A 的
+`selected_outputs == ()`，后续 runtime 仍必须读取 `A.y` 用于 routing；runtime
+也不得为了路由而自动修改 recording selection。
 
 ## 11. Port、Connection 与 validation
 

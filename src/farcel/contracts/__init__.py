@@ -1,6 +1,14 @@
 """Public, implementation-independent engine contracts."""
 
 from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.graph import (
+    Connection,
+    GraphSimulationConfig,
+    ModelNode,
+    ModelNodeConfig,
+    PortReference,
+    SimulationGraph,
+)
 from farcel.contracts.models import (
     CapabilitySet,
     DefaultExperiment,
@@ -45,11 +53,13 @@ from farcel.contracts.ports import (
 
 __all__ = [
     "CapabilitySet",
+    "Connection",
     "DefaultExperiment",
     "DiscreteStateUpdate",
     "EngineError",
     "ErrorCode",
     "ExportReport",
+    "GraphSimulationConfig",
     "InputUpdate",
     "IntegratorStepResult",
     "InterfaceType",
@@ -60,6 +70,9 @@ __all__ = [
     "ModelExchangeSession",
     "ModelExchangeSessionFactory",
     "ModelMetadata",
+    "ModelNode",
+    "ModelNodeConfig",
+    "PortReference",
     "ResultChunk",
     "ResultExporter",
     "RunControl",
@@ -69,6 +82,7 @@ __all__ = [
     "SessionHandle",
     "SimulationConfig",
     "SimulationEngine",
+    "SimulationGraph",
     "SimulationResult",
     "SimulationSession",
     "SimulationState",

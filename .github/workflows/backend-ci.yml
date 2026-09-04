@@ -6,6 +6,7 @@ on:
       - main
       - phase-2-work
       - phase-3-work
+      - phase-4-work
   pull_request:
     branches:
       - main
