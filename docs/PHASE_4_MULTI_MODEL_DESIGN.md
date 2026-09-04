@@ -368,7 +368,7 @@ backend.run_graph(
 | 4.1 | **Completed**：application-internal `GraphValidator` 仅 inspect metadata，复用 `ValidationReport` 与 temporary effective `SimulationConfig`；无 runtime/public API |
 | 4.2A | **Completed**：application-internal `CoSimulationNodeRuntime` 与 factory；单节点 checkpoint boundary，无 graph scheduler/runtime API |
 | 4.2B | **Completed**：application-internal `ModelExchangeNodeRuntime` 与 ME routed-input Event Mode bridge；无 scheduler/runtime public API |
-| 4.3 | `SimulationOrchestrator` global scheduler；先以 fake runtimes 测试 |
+| 4.3 | **Completed**：application-internal `SimulationOrchestrator` global checkpoint primitive；以 fake runtimes 固化 Jacobi 语义 |
 | 4.4 | `DataRouter`：scalar/Boolean/Integer/String/array routing |
 | 4.5 | `GraphSimulationResult`、RunControl、RunProgress、error 与 deterministic cleanup |
 | 4.6A | real multi-FMU integration regressions |
@@ -425,6 +425,22 @@ event 且没有 state/nominal change 仍不 reset solver（FMPy Issue #882 regre
 
 ME node runtime 不产生 result、progress 或 control 语义，也不切换既有
 `ModelExchangeRunner` 或 public `run_fmu()`；global scheduler 从 4.3 才开始。
+
+### 4.3 implementation note
+
+`SimulationOrchestrator` 是 application-internal checkpoint primitive。它接收已经
+创建的、有序 `ModelNodeRuntime` bindings 和一个临时 `route_snapshot` callback；该
+callback 只是后续 4.4 `DataRouter` 的 seam，不解析 graph `Connection`。
+
+初始化先完成全部 node `initialize()`，随后才读取全部 initial outputs。每个宏步以
+detached previous snapshot 为唯一输入，严格执行 route-all、set-all、advance-all、
+read-all；因此不会发生 same-checkpoint propagation，feedback 与 self-loop 都是显式
+一拍延迟。checkpoint target 由 step index 计算，避免累加浮点漂移。
+
+只有完整 advance 与 post-step snapshot 都成功后，scheduler 才提交 `current_time`、
+`completed_steps` 和新 snapshot；任何失败都会禁止继续推进，但 4.3 不做 rollback。
+本阶段不引入 RunControl、progress、result/sampling 或 deterministic cleanup；真实
+multi-FMU integration 留给 4.6A，public `run_graph` 留给 4.6B。
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
