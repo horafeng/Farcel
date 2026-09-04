@@ -366,7 +366,7 @@ backend.run_graph(
 | 4.0A | 本架构、time/coupling/stop 语义冻结；无 runtime 代码 |
 | 4.0B | graph contracts 与 contract-boundary tests |
 | 4.1 | **Completed**：application-internal `GraphValidator` 仅 inspect metadata，复用 `ValidationReport` 与 temporary effective `SimulationConfig`；无 runtime/public API |
-| 4.2A | `CoSimulationNodeRuntime` |
+| 4.2A | **Completed**：application-internal `CoSimulationNodeRuntime` 与 factory；单节点 checkpoint boundary，无 graph scheduler/runtime API |
 | 4.2B | `ModelExchangeNodeRuntime` 与 ME routed-input event bridge（release blocker） |
 | 4.3 | `SimulationOrchestrator` global scheduler；先以 fake runtimes 测试 |
 | 4.4 | `DataRouter`：scalar/Boolean/Integer/String/array routing |
@@ -391,6 +391,23 @@ Connection data type 使用 conservative canonical comparison：FMI2 `Real` /
 Binary、Clock 和未知 type 稳定拒绝。array shape 通过现有 structural-parameter
 effective-shape resolver 比较，而不是静态 metadata shape。cycles/self-loop 仍合法；
 4.1 没有 graph runtime 或 public API。
+
+### 4.2A implementation note
+
+`ModelNodeRuntime` 是 `application.node_runtime` 内部 Protocol，不是 public
+contract。`CoSimulationNodeRuntime` 只包装既有 `SimulationSession`；它以
+`advance_to(target)` 吸收 FMI3 Early Return，只有完整到达 target checkpoint 才
+成功返回，并以每个 target 独立的 attempt guard 防止无限 fragment。
+
+runtime 自己维护 node-local `input_schedule` cursor，因此同一 checkpoint 的 update
+只消费一次，Early Return retry 不会重复写入。未来 routed values 通过
+`set_inputs()` 进入；`selected_outputs` 仍只是 recording selection。创建 session 时，
+future runtime factory 必须使用“recorded outputs 加 Connection source dependency”的
+effective selected outputs，但不得修改用户的 `ModelNodeConfig`。
+
+4.2A 不生成 `SimulationResult`、`RunProgress`、`ResultChunk` 或 `RunControl` 语义，
+也不切换既有 `CoSimulationRunner` / `run_fmu()`。ME node runtime 及 routed-input
+Event Mode bridge 仍是 4.2B release blocker。
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
