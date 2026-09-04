@@ -3,6 +3,7 @@
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.graph import (
     Connection,
+    GraphSimulationResult,
     GraphSimulationConfig,
     ModelNode,
     ModelNodeConfig,
@@ -60,6 +61,7 @@ __all__ = [
     "ErrorCode",
     "ExportReport",
     "GraphSimulationConfig",
+    "GraphSimulationResult",
     "InputUpdate",
     "IntegratorStepResult",
     "InterfaceType",

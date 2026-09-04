@@ -117,7 +117,9 @@ class SimulationOrchestratorTests(unittest.TestCase):
                 if phase == "read":
                     runtime.failure = {}; orchestrator.initialize(); runtime.failure = {"read": RuntimeError("read")}
                 else: orchestrator.initialize()
-                with self.assertRaisesRegex(RuntimeError, phase): orchestrator.advance_next_checkpoint()
+                with self.assertRaises(EngineError) as raised: orchestrator.advance_next_checkpoint()
+                self.assertIs(raised.exception.code, ErrorCode.INTERNAL_ERROR)
+                self.assertEqual(raised.exception.details["phase"], {"set": "input", "advance": "advance", "read": "checkpoint_output_read"}[phase])
                 self.assertEqual((orchestrator.current_time, orchestrator.completed_steps, orchestrator.is_failed), (0.0, 0, True))
                 with self.assertRaises(EngineError): orchestrator.advance_next_checkpoint()
 
@@ -125,7 +127,9 @@ class SimulationOrchestratorTests(unittest.TestCase):
         runtime = _Runtime("A", {"y": 1}, [], failure={"initialize": RuntimeError("init")})
         failed = self._orchestrator((("A", runtime),), route=lambda _: {})
         with self.assertRaises(EngineError): failed.advance_next_checkpoint()
-        with self.assertRaisesRegex(RuntimeError, "init"): failed.initialize()
+        with self.assertRaises(EngineError) as raised: failed.initialize()
+        self.assertIs(raised.exception.code, ErrorCode.INTERNAL_ERROR)
+        self.assertEqual(raised.exception.details["phase"], "initialize")
         self.assertTrue(failed.is_failed)
         with self.assertRaises(EngineError): failed.advance_next_checkpoint()
 

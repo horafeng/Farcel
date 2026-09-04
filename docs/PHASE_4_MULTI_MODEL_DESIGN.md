@@ -370,7 +370,7 @@ backend.run_graph(
 | 4.2B | **Completed**：application-internal `ModelExchangeNodeRuntime` 与 ME routed-input Event Mode bridge；无 scheduler/runtime public API |
 | 4.3 | **Completed**：application-internal `SimulationOrchestrator` global checkpoint primitive；以 fake runtimes 固化 Jacobi 语义 |
 | 4.4 | **Completed**：application-internal `DataRouter`；validated connections 的 previous-snapshot exact-value routing |
-| 4.5 | `GraphSimulationResult`、RunControl、RunProgress、error 与 deterministic cleanup |
+| 4.5 | **Completed**：internal graph run lifecycle、nested result、checkpoint stop/progress 与 deterministic cleanup |
 | 4.6A | real multi-FMU integration regressions |
 | 4.6B | public `validate_graph`/`run_graph`、docs/examples/CI hardening |
 
@@ -460,6 +460,21 @@ dependency 的并集。
 
 4.4 不创建真实 FMU graph，不接入 result/control/cleanup；这些分别留给 4.5、4.6A
 和 4.6B 的 public API。
+
+### 4.5 implementation note
+
+`GraphSimulationResult` 是 additive nested contract；只记录每个 `ModelNodeConfig`
+的 `selected_outputs`，routing dependency 不自动进入 result。internal
+`GraphSimulationRunner` lazily obtains already-created bindings, wires `DataRouter` and
+`SimulationOrchestrator`, samples global checkpoints without interpolation, and reuses
+`RunControl` / `RunProgress`. Pre-start stop is `CANCELLED`; after initialization stop is
+observed only at global checkpoint boundaries, including after a whole in-flight macro-step.
+
+Cleanup is deterministic declaration-order terminate-all followed by close-all, best effort;
+execution primary errors win and cleanup diagnostics are attached. The runtime factory must
+clean up any partial construction before it raises. There is still no rollback, real FMU graph,
+graph export/chunk API, or public graph composition/API; 4.6A is real integration and 4.6B
+is public composition.
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整

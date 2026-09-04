@@ -62,9 +62,9 @@ class SimulationOrchestrator:
             assert self._snapshot is not None
             return self._snapshot
         try:
-            for _, runtime in self._nodes:
-                runtime.initialize()
-            snapshot = self._read_snapshot()
+            for node_id, runtime in self._nodes:
+                self._call(node_id, "initialize", self._current_time, runtime.initialize)
+            snapshot = self._read_snapshot("initial_output_read", self._current_time)
         except Exception:
             self._failed = True
             raise
@@ -81,14 +81,15 @@ class SimulationOrchestrator:
 
         target = self._checkpoint_target()
         try:
-            routed_inputs = self._materialize_routed_inputs(
-                self._route_snapshot(self._snapshot)
-            )
+            try:
+                routed_inputs = self._materialize_routed_inputs(self._route_snapshot(self._snapshot))
+            except EngineError as exc:
+                raise self._with_details(exc, phase="routing", current_time=self._current_time) from None
             for node_id, runtime in self._nodes:
-                runtime.set_inputs(routed_inputs.get(node_id, {}))
-            for _, runtime in self._nodes:
-                runtime.advance_to(target)
-            snapshot = self._read_snapshot()
+                self._call(node_id, "input", self._current_time, runtime.set_inputs, routed_inputs.get(node_id, {}))
+            for node_id, runtime in self._nodes:
+                self._call(node_id, "advance", self._current_time, runtime.advance_to, target, target_time=target)
+            snapshot = self._read_snapshot("checkpoint_output_read", target)
         except Exception:
             self._failed = True
             raise
@@ -121,10 +122,24 @@ class SimulationOrchestrator:
                 )
         return materialized
 
-    def _read_snapshot(self) -> Snapshot:
+    def _read_snapshot(self, phase: str, current_time: float) -> Snapshot:
         return MappingProxyType(
             {
-                node_id: MappingProxyType(dict(runtime.read_outputs()))
+                node_id: MappingProxyType(dict(self._call(node_id, phase, current_time, runtime.read_outputs)))
                 for node_id, runtime in self._nodes
             }
         )
+
+    def _call(self, node_id, phase, current_time, operation, *args, **extra):
+        try:
+            return operation(*args)
+        except EngineError as exc:
+            raise self._with_details(exc, node_id=node_id, phase=phase, current_time=current_time, **extra) from None
+        except Exception as exc:
+            raise EngineError(ErrorCode.INTERNAL_ERROR, "Graph node runtime 未预期错误", {"node_id": node_id, "phase": phase, "current_time": current_time, "diagnostic": str(exc), **extra}) from None
+
+    @staticmethod
+    def _with_details(error, **details):
+        merged = dict(error.details)
+        for key, value in details.items(): merged.setdefault(key, value)
+        return EngineError(error.code, error.message, merged)

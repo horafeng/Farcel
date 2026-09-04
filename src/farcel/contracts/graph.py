@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from farcel.contracts.models import InputUpdate, InterfaceType
+from farcel.contracts.models import InputUpdate, InterfaceType, SimulationState
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,3 +66,37 @@ class GraphSimulationConfig:
     stop_time: float = 1.0
     communication_step: float = 0.01
     output_interval: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GraphSimulationResult:
+    start_time: float
+    stop_time: float
+    step_size: float
+    completed_steps: int
+    final_time: float
+    completion_state: SimulationState
+    timestamps: tuple[float, ...]
+    node_outputs: Mapping[str, Mapping[str, tuple[Any, ...]]]
+
+    def __post_init__(self) -> None:
+        if not self.timestamps or not all(math.isfinite(time) for time in self.timestamps):
+            raise ValueError("GraphSimulationResult 必须包含有限时间样本")
+        if any(left >= right for left, right in zip(self.timestamps, self.timestamps[1:])):
+            raise ValueError("GraphSimulationResult 时间轴必须严格单调递增")
+        if self.timestamps[0] != self.start_time or self.timestamps[-1] != self.final_time:
+            raise ValueError("GraphSimulationResult 时间轴端点不匹配")
+        if self.completed_steps < 0:
+            raise ValueError("completed_steps 不能为负数")
+        if not self.start_time <= self.final_time <= self.stop_time:
+            raise ValueError("final_time 必须位于 start_time 与 stop_time 之间")
+        if any(len(samples) != len(self.timestamps) for outputs in self.node_outputs.values() for samples in outputs.values()):
+            raise ValueError("GraphSimulationResult 输出样本数必须匹配时间轴")
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.timestamps)
+
+    @property
+    def successful(self) -> bool:
+        return self.completion_state is SimulationState.COMPLETED
