@@ -74,9 +74,13 @@ CSV 导出按指定路径写入 UTF-8 文件，自动创建父目录并覆盖同
 
 `run_fmu()` remains a synchronous, blocking call. The caller owns its worker
 thread; Farcel does not create threads or import a GUI framework. `RunControl`
-is safe to call from another thread and requests a cooperative stop at the next
-communication point. It cannot interrupt a native FMU already executing
-`doStep()`.
+is safe to call from another thread and requests a cooperative, non-preemptive
+stop. Farcel never hard-kills an active native call: for Co-Simulation it
+observes the request around outer communication progression after the current
+native `doStep()` returns; for Model Exchange it observes the request around
+outer checkpoint/event progression after the current CVode / solver advance
+returns. The worst-case response delay is therefore the active native call,
+not a promise to stop at every FMI communication point.
 
 ```python
 from farcel import RunControl, create_backend

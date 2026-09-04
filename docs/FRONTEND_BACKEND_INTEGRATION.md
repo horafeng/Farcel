@@ -136,22 +136,28 @@ Binary input 提交值会返回 `UNSUPPORTED_INPUT_TYPE`；选择 Binary 或 Clo
 
 ## 7. Sampling Semantics
 
-`communication_step` is the Co-Simulation communication-point step. For Model
-Exchange it is the external checkpoint/input-event grid; it does not call FMU
-`doStep`, and the solver advances continuously between checkpoints. The optional
-`output_interval` independently controls when Farcel records a `SimulationResult`
-sample. When omitted (`None`), it resolves to `communication_step` for backward
-compatibility. An explicit interval must be a positive, finite integer multiple
-of `communication_step`; this Phase 2.0A rule guarantees every sample lies on an
-actual communication point and Farcel does not interpolate values.
+For Co-Simulation, `communication_step` is the FMU `doStep()` communication
+interval. For Model Exchange, it is Farcel's outer checkpoint/control/input-event
+grid: it does not call FMU `doStep`, and the solver advances continuously
+between checkpoints. The optional `output_interval` independently controls when
+Farcel records a `SimulationResult` sample. When omitted (`None`), it resolves
+to `communication_step` for backward compatibility. An explicit interval must
+be a positive, finite integer multiple of `communication_step`; this Phase 2.0A
+rule guarantees every sample lies on an actual outer communication point or
+checkpoint, and Farcel does not interpolate values.
 
-`completed_steps` is the number of successfully completed FMU communication
-steps, while `sample_count` is the number of stored result samples. They no
-longer have a fixed relationship. Farcel records the initial state and, after a
-successful run, appends the final state if that communication point was not
-already sampled. Empty `selected_outputs` still produces this sampled timeline,
-but keeps `outputs` empty. Input schedules remain applied at communication
-points, independently of result sampling.
+For Co-Simulation, `completed_steps` is the number of successfully completed
+Farcel outer communication targets / communication steps. For Model Exchange,
+it is the number of successfully and completely reached Farcel outer
+checkpoints. CVode internal steps, state/root events, time events, input events,
+`completedIntegratorStep()`, Event Mode discrete iterations, and solver resets
+do not increment it. `sample_count` is the number of stored result samples, so
+the two metrics do not have a fixed relationship. Farcel records the initial
+state and, after a successful run, appends the final state if that outer point
+was not already sampled. Empty `selected_outputs` still produces this sampled
+timeline, but keeps `outputs` empty. Input schedules remain applied on the
+configured outer communication/checkpoint grid, independently of result
+sampling.
 
 For FMI 3 Co-Simulation, `supports_event_mode` and `supports_early_return` in
 the existing capability metadata determine whether Farcel enables the respective
@@ -172,17 +178,22 @@ result = backend.run_fmu(path, config, control=control, on_progress=callback)
 ```
 
 `RunControl.request_stop()` is thread-safe and may be called from another
-caller-owned thread. It is cooperative: Farcel checks it before every
-communication step, so the maximum response delay is the currently executing
-native `doStep()`. Farcel cannot hard-kill or otherwise interrupt that call.
-Farcel itself creates no threads, event loop, or GUI integration.
+caller-owned thread. It is cooperative and non-preemptive: Farcel checks it
+around outer Co-Simulation communication progression and outer Model Exchange
+checkpoint/event progression. It cannot hard-kill an active native call. A
+Co-Simulation request is observed after the current native `doStep()` returns;
+a Model Exchange request is observed after the current native CVode / solver
+`integrate_to()` advance returns, including after an event boundary. The maximum
+response delay is therefore the active native call. Farcel itself creates no
+threads, event loop, or GUI integration.
 
-`on_progress` receives a lightweight `RunProgress` after initialization, after
-each successful communication step, and once in a terminal state. Its fraction
-is the clamped real-time ratio `(current_time - start_time) / (stop_time -
-start_time)`. The callback executes on the same thread that invoked `run_fmu`;
-GUI callers must marshal it to the UI thread themselves. A callback exception is
-converted to `INTERNAL_ERROR` and does not skip terminate/close cleanup.
+`on_progress` receives a lightweight `RunProgress` after initialization, during
+successful outer communication/checkpoint progression, and once in a terminal
+state. Its fraction is the clamped real-time ratio `(current_time - start_time)
+/ (stop_time - start_time)`. The callback executes on the same thread that
+invoked `run_fmu`; GUI callers must marshal it to the UI thread themselves. A
+callback exception is converted to `INTERNAL_ERROR` and does not skip
+terminate/close cleanup.
 
 A stop requested before loading raises `CANCELLED` without creating an FMU
 session. After initialization, a user stop returns `SimulationResult` with
@@ -237,7 +248,7 @@ concatenating chunks reproduces `SimulationResult.outputs[name]` exactly.
 result = backend.run_fmu(path, config)
 ```
 
-`run_fmu` 会重新加载 metadata、复用 application validation、创建 session、初始化、执行 step、仅在结果采样时读取选择的输出并清理资源。成功返回 `SimulationResult`；GUI 不需要也不应直接管理 session 生命周期。
+`run_fmu` 会重新加载 metadata、复用 application validation、解析执行接口、初始化对应 runtime，并仅在结果采样时读取选择的输出和清理资源。Co-Simulation 由 session `doStep()` 推进；Model Exchange 由其独立 session、checkpoint/event coordinator 与 solver 推进。成功返回 `SimulationResult`；GUI 不需要也不应直接管理 session 生命周期。
 
 当前公开高层运行 API 是同步、阻塞调用。GUI 必须在自己的调度边界之外调用它（例如 GUI 框架认可的后台任务），绝不能在 UI event-loop 线程直接运行长仿真。只有 `RunControl.request_stop()` 可安全从另一个线程调用；FarcelEngine 整体并不声明 thread-safe，也不提供 asyncio 或 timeout hard-kill。`on_progress` 与 `on_result_chunk` 均在 run 调用线程执行。
 
@@ -245,7 +256,7 @@ result = backend.run_fmu(path, config)
 
 `SimulationResult` 是纯 Farcel / Python 数据：
 
-- `timestamps`：记录的、严格递增的实际 communication points；首项为 `start_time`，完成或停止时末项为 `final_time`；
+- `timestamps`：记录的、严格递增的实际 outer points（Co-Simulation communication points 或 Model Exchange checkpoints）；首项为 `start_time`，完成或停止时末项为 `final_time`；
 - `outputs`：变量名到同长度 tuple 的映射，只包含 `selected_outputs`；
 - `start_time`、`stop_time`、`step_size`、`final_time`；
 - `completed_steps`、`sample_count`、`completion_state` 和 `successful`。
