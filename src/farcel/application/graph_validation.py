@@ -100,6 +100,7 @@ class GraphValidator:
         for index, node in enumerate(graph.nodes):
             if _is_blank(node.model_path):
                 continue
+            node_field = f"nodes[{index}]"
             try:
                 metadata = self._importer.load(Path(node.model_path))
             except EngineError as error:

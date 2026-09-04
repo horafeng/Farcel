@@ -194,6 +194,35 @@ class GraphValidationTests(unittest.TestCase):
             [("nodes[0].model_path", "IMPORT_ERROR", "cannot import")],
         )
 
+    def test_importer_errors_keep_the_current_multi_node_index(self) -> None:
+        good = _metadata("good", ())
+        cases = (
+            (("bad-first.fmu", "good.fmu", "good.fmu"), 0, "first import failed"),
+            (("good.fmu", "bad-middle.fmu", "good.fmu"), 1, "middle import failed"),
+        )
+        for paths, failed_index, message in cases:
+            with self.subTest(paths=paths):
+                importer = _Importer(
+                    {
+                        "good.fmu": good,
+                        paths[failed_index]: EngineError(ErrorCode.IMPORT_ERROR, message),
+                    }
+                )
+                graph = SimulationGraph(
+                    nodes=tuple(
+                        ModelNode(f"node-{index}", path)
+                        for index, path in enumerate(paths)
+                    )
+                )
+
+                report = GraphValidator(importer).validate(graph, GraphSimulationConfig())
+
+                self.assertEqual(importer.loaded, list(paths))
+                self.assertEqual(
+                    [(issue.field, issue.code, issue.message) for issue in report.issues],
+                    [(f"nodes[{failed_index}].model_path", "IMPORT_ERROR", message)],
+                )
+
     def test_connection_endpoint_and_causality_issues(self) -> None:
         source = _metadata("source", (_variable("not_output", "Real", "input"),))
         target = _metadata("target", (_variable("not_input", "Real", "output"),))
