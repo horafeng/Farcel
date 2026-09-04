@@ -367,7 +367,7 @@ backend.run_graph(
 | 4.0B | graph contracts 与 contract-boundary tests |
 | 4.1 | **Completed**：application-internal `GraphValidator` 仅 inspect metadata，复用 `ValidationReport` 与 temporary effective `SimulationConfig`；无 runtime/public API |
 | 4.2A | **Completed**：application-internal `CoSimulationNodeRuntime` 与 factory；单节点 checkpoint boundary，无 graph scheduler/runtime API |
-| 4.2B | `ModelExchangeNodeRuntime` 与 ME routed-input event bridge（release blocker） |
+| 4.2B | **Completed**：application-internal `ModelExchangeNodeRuntime` 与 ME routed-input Event Mode bridge；无 scheduler/runtime public API |
 | 4.3 | `SimulationOrchestrator` global scheduler；先以 fake runtimes 测试 |
 | 4.4 | `DataRouter`：scalar/Boolean/Integer/String/array routing |
 | 4.5 | `GraphSimulationResult`、RunControl、RunProgress、error 与 deterministic cleanup |
@@ -407,7 +407,24 @@ effective selected outputs，但不得修改用户的 `ModelNodeConfig`。
 
 4.2A 不生成 `SimulationResult`、`RunProgress`、`ResultChunk` 或 `RunControl` 语义，
 也不切换既有 `CoSimulationRunner` / `run_fmu()`。ME node runtime 及 routed-input
-Event Mode bridge 仍是 4.2B release blocker。
+Event Mode bridge 由后续 4.2B 完成。
+
+### 4.2B implementation note
+
+`ModelExchangeNodeRuntime` 以既有 `ModelExchangeSession`、`SolverAdapter` 和
+`ModelExchangeCheckpointCoordinator` 实现同一个 application-internal
+`ModelNodeRuntime` boundary。routed input 只通过
+`ModelExchangeCheckpointCoordinator.apply_inputs()` 进入，因此不会出现 raw
+`set_inputs()` 后直接 integrate 的绕行。
+
+`apply_inputs()` 把 routed input、当前 checkpoint 已 due 的 node-local schedule 和
+FMI time event 合并到同一套 Event Mode/discrete-state/Continuous-Time Mode handling；
+ME schedule cursor 仍由 coordinator 独占。reset 保持既有优先级
+`NOMINALS_CHANGED`、`CONTINUOUS_STATES_CHANGED`、`OTHER_PROBLEM_CHANGE`；纯 time
+event 且没有 state/nominal change 仍不 reset solver（FMPy Issue #882 regression）。
+
+ME node runtime 不产生 result、progress 或 control 语义，也不切换既有
+`ModelExchangeRunner` 或 public `run_fmu()`；global scheduler 从 4.3 才开始。
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整

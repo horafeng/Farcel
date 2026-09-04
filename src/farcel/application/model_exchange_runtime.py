@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 from dataclasses import dataclass
 
 from farcel.contracts.errors import EngineError, ErrorCode
@@ -118,12 +119,32 @@ class ModelExchangeCheckpointCoordinator:
                 raise self._error("solver 未取得进展且没有可处理事件", checkpoint=checkpoint)
         return ModelExchangeCheckpointOutcome(self._current_time, True, False, event_count)
 
+    def apply_inputs(self, values: Mapping[str, Any]) -> bool:
+        """Apply routed inputs as one FMI input event at the current time.
+
+        The existing event loop owns scheduled inputs and time events, so any
+        event already due at this checkpoint is deliberately folded into this
+        same Event Mode cycle.
+        """
+        if not values:
+            return False
+        return self._handle_event(
+            input_due=self._input_due(),
+            time_due=self._time_event_due(),
+            state_event=False,
+            integrator_event=False,
+            external_inputs=values,
+        )
+
     def _handle_event(self, *, input_due: bool, time_due: bool, state_event: bool,
-                      integrator_event: bool) -> bool:
+                      integrator_event: bool,
+                      external_inputs: Mapping[str, Any] | None = None) -> bool:
         if input_due:
             update = self._config.input_schedule[self._next_input_index]
             if update.values: self._session.set_inputs(update.values)
             self._next_input_index += 1
+        if external_inputs:
+            self._session.set_inputs(external_inputs)
         self._session.enter_event_mode()
         states_changed = nominals_changed = False
         final_update = None
@@ -146,7 +167,7 @@ class ModelExchangeCheckpointCoordinator:
         self._session.enter_continuous_time_mode()
         reason = (SolverResetReason.NOMINALS_CHANGED if nominals_changed else
                   SolverResetReason.CONTINUOUS_STATES_CHANGED if states_changed else
-                  SolverResetReason.OTHER_PROBLEM_CHANGE if (input_due or state_event or integrator_event) else None)
+                  SolverResetReason.OTHER_PROBLEM_CHANGE if (input_due or external_inputs or state_event or integrator_event) else None)
         if reason is not None:
             self._solver.reset(self._current_time, reason)
         return False
