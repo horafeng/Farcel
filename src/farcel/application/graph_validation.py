@@ -114,7 +114,9 @@ class GraphValidator:
 
         if timing_valid:
             for index, metadata in metadata_by_index.items():
-                effective_config = _effective_config(graph.nodes[index].config, config)
+                effective_config = build_node_simulation_config(
+                    graph.nodes[index].config, config
+                )
                 node_report = validate_config(metadata, effective_config)
                 issues.extend(_prefix_node_issues(index, node_report))
                 config_valid_by_index[index] = node_report.is_valid
@@ -306,9 +308,13 @@ def _validate_connection(
         )
 
 
-def _effective_config(
-    node_config: ModelNodeConfig, graph_config: GraphSimulationConfig
+def build_node_simulation_config(
+    node_config: ModelNodeConfig,
+    graph_config: GraphSimulationConfig,
+    *,
+    selected_outputs: tuple[str, ...] | None = None,
 ) -> SimulationConfig:
+    """Map graph-global and node-local settings to one runtime config."""
     return SimulationConfig(
         schema_version=graph_config.schema_version,
         start_time=graph_config.start_time,
@@ -318,7 +324,11 @@ def _effective_config(
         relative_tolerance=node_config.relative_tolerance,
         parameters=node_config.parameters,
         initial_inputs=node_config.initial_inputs,
-        selected_outputs=node_config.selected_outputs,
+        selected_outputs=(
+            node_config.selected_outputs
+            if selected_outputs is None
+            else selected_outputs
+        ),
         input_schedule=node_config.input_schedule,
         execution_interface=node_config.execution_interface,
     )

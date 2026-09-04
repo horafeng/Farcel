@@ -371,7 +371,7 @@ backend.run_graph(
 | 4.3 | **Completed**：application-internal `SimulationOrchestrator` global checkpoint primitive；以 fake runtimes 固化 Jacobi 语义 |
 | 4.4 | **Completed**：application-internal `DataRouter`；validated connections 的 previous-snapshot exact-value routing |
 | 4.5 | **Completed**：internal graph run lifecycle、nested result、checkpoint stop/progress 与 deterministic cleanup |
-| 4.6A | real multi-FMU integration regressions |
+| 4.6A | **Completed**：application-internal real multi-FMU runtime composition 与 FMI2/FMI3 CS、FMI2 CS/ME integration regressions |
 | 4.6B | public `validate_graph`/`run_graph`、docs/examples/CI hardening |
 
 4.6A 的最小真实集成矩阵为：2-node `A -> B`、3-node `A -> B -> C`、FMI2 +
@@ -478,6 +478,23 @@ is public composition.
 
 4.5 lifecycle release regressions are hardened for stop, progress, error attribution, and
 deterministic cleanup.
+
+### 4.6A implementation note
+
+`GraphRuntimeBindingsFactory` is application-internal and receives its importer and existing
+Co-Simulation / FMI2 Model Exchange node-runtime factories through dependency injection.
+Validation remains separate: callers validate first, then the factory loads metadata and creates
+uninitialized bindings in graph declaration order. It shares the node-to-`SimulationConfig`
+mapping with `GraphValidator`; each runtime reads the ordered union of recording outputs and
+`DataRouter` source dependencies without mutating `ModelNodeConfig` or changing result selection.
+
+Interface dispatch continues to use `resolve_execution_interface`, including the FMI2
+dual-interface Co-Simulation preference. If construction fails, already returned runtimes are
+best-effort closed and their diagnostics attach without replacing the creation error. Real
+Feedthrough regressions cover FMI2 CS, FMI3 CS, mixed FMI2/FMI3 Jacobi routing, FMI2 CS/ME
+feedback through the existing ME coordinator, sampling, stop, and repeated construction. No
+FarcelEngine/backend public graph API or composition root, public docs/CI release hardening,
+export, CLI, or FMI3 Model Exchange support is added; those remain 4.6B work.
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
