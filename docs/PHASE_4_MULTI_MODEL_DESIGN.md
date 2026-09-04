@@ -476,6 +476,9 @@ clean up any partial construction before it raises. There is still no rollback, 
 graph export/chunk API, or public graph composition/API; 4.6A is real integration and 4.6B
 is public composition.
 
+4.5 lifecycle release regressions are hardened for stop, progress, error attribution, and
+deterministic cleanup.
+
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
 backend tests、frontend/backend smoke 和 `git diff --check`。禁止 rebase 与 force。
