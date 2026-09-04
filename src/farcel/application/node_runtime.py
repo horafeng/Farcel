@@ -118,8 +118,8 @@ class CoSimulationNodeRuntime:
     def terminate(self) -> None:
         if self._terminated or self._closed or not self._initialized:
             return
-        self._session.terminate()
         self._terminated = True
+        self._session.terminate()
 
     def close(self) -> None:
         if self._closed:

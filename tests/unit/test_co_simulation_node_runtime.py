@@ -272,12 +272,27 @@ class CoSimulationNodeRuntimeTests(unittest.TestCase):
         self.assertEqual((session.terminate_calls, session.close_calls), (1, 1))
 
         failed = _Session()
-        failed.terminate_error = EngineError(ErrorCode.TERMINATION_ERROR, "terminate failed")
+        termination_error = EngineError(ErrorCode.TERMINATION_ERROR, "terminate failed")
+        failed.terminate_error = termination_error
         failed_runtime = self._initialized(failed)
-        with self.assertRaises(EngineError):
+        with self.assertRaises(EngineError) as raised:
             failed_runtime.terminate()
+        self.assertIs(raised.exception, termination_error)
+        self.assertEqual(failed.terminate_calls, 1)
+        failed_runtime.terminate()
+        self.assertEqual(failed.terminate_calls, 1)
+        for operation, code in (
+            (lambda: failed_runtime.set_inputs({"u": 1.0}), ErrorCode.INPUT_SET_ERROR),
+            (lambda: failed_runtime.advance_to(0.01), ErrorCode.STEP_ERROR),
+            (failed_runtime.read_outputs, ErrorCode.OUTPUT_READ_ERROR),
+        ):
+            with self.subTest(code=code):
+                with self.assertRaises(EngineError) as lifecycle_error:
+                    operation()
+                self.assertIs(lifecycle_error.exception.code, code)
         failed_runtime.close()
-        self.assertEqual(failed.close_calls, 1)
+        failed_runtime.close()
+        self.assertEqual((failed.terminate_calls, failed.close_calls), (1, 1))
 
     @staticmethod
     def _config(**overrides) -> SimulationConfig:
