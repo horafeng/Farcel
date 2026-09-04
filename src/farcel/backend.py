@@ -2,7 +2,12 @@
 
 from farcel.application.engine import FarcelEngine
 from farcel.infrastructure.export import CsvResultExporter
-from farcel.infrastructure.fmpy import FmpyImporter, FmpySessionFactory
+from farcel.infrastructure.fmpy import (
+    FmpyCvodeSolverFactory,
+    FmpyFmi2ModelExchangeSessionFactory,
+    FmpyImporter,
+    FmpySessionFactory,
+)
 
 
 def create_backend() -> FarcelEngine:
@@ -12,4 +17,6 @@ def create_backend() -> FarcelEngine:
         importer=FmpyImporter(),
         session_factory=FmpySessionFactory(),
         result_exporter=CsvResultExporter(),
+        model_exchange_session_factory=FmpyFmi2ModelExchangeSessionFactory(),
+        solver_factory=FmpyCvodeSolverFactory(),
     )

@@ -9,7 +9,12 @@ from enum import Enum
 
 from farcel import create_backend
 from farcel.contracts.errors import EngineError, ErrorCode
-from farcel.contracts.models import ModelMetadata, SimulationConfig, SimulationResult
+from farcel.contracts.models import (
+    InterfaceType,
+    ModelMetadata,
+    SimulationConfig,
+    SimulationResult,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--start-time", type=float, default=0.0)
     validate_parser.add_argument("--stop-time", type=float, default=1.0)
     validate_parser.add_argument("--step-size", type=float, default=0.01)
+    _add_execution_interface_argument(validate_parser)
     validate_parser.add_argument(
         "--output-interval",
         type=float,
@@ -49,11 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="选择输出变量；可重复指定",
     )
-    run_parser = subparsers.add_parser("run", help="执行最小 FMI 2.0 Co-Simulation")
+    run_parser = subparsers.add_parser("run", help="执行 Farcel 当前支持的单 FMU 接口")
     run_parser.add_argument("fmu", help="要执行的 .fmu 文件")
     run_parser.add_argument("--start-time", type=float, default=0.0)
     run_parser.add_argument("--stop-time", type=float, default=1.0)
     run_parser.add_argument("--step-size", type=float, default=0.01)
+    _add_execution_interface_argument(run_parser)
     run_parser.add_argument(
         "--output-interval",
         type=float,
@@ -83,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--start-time", type=float, default=0.0)
     export_parser.add_argument("--stop-time", type=float, default=1.0)
     export_parser.add_argument("--step-size", type=float, default=0.01)
+    _add_execution_interface_argument(export_parser)
     export_parser.add_argument(
         "--output-interval",
         type=float,
@@ -221,6 +229,18 @@ def _build_config(
         parameters=_parse_parameters(args.parameter),
         initial_inputs=_parse_parameters(args.input),
         selected_outputs=selected_outputs,
+        execution_interface=(
+            InterfaceType(args.interface) if args.interface is not None else None
+        ),
+    )
+
+
+def _add_execution_interface_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--interface",
+        choices=(InterfaceType.CO_SIMULATION.value, InterfaceType.MODEL_EXCHANGE.value),
+        default=None,
+        help="执行接口；省略时优先 Co-Simulation，其次可执行的 FMI2 Model Exchange",
     )
 
 
@@ -263,6 +283,12 @@ def _print_metadata(metadata: ModelMetadata) -> None:
     print(f"模型名称: {metadata.model_name}")
     print(f"接口类型: {interfaces}")
     print(f"可执行接口: {executable}")
+    executable_interfaces = ", ".join(
+        item.interface_type.value
+        for item in metadata.interface_capabilities
+        if item.can_execute
+    )
+    print(f"当前可用接口: {executable_interfaces or '无'}")
     print(f"平台: {', '.join(metadata.platforms) or '无'}")
     print(
         "默认实验: "

@@ -11,6 +11,7 @@ from farcel.contracts._arrays import (
 )
 from farcel.contracts.errors import ErrorCode
 from farcel.contracts.models import (
+    InterfaceCapability,
     InputUpdate,
     InterfaceType,
     ModelMetadata,
@@ -19,6 +20,21 @@ from farcel.contracts.models import (
     ValidationReport,
     VariableMetadata,
 )
+
+
+def resolve_execution_interface(
+    metadata: ModelMetadata, config: SimulationConfig
+) -> InterfaceType | None:
+    """Resolve the preferred public execution interface for a valid config."""
+
+    requested = config.execution_interface
+    if isinstance(requested, InterfaceType):
+        return requested
+    for interface_type in (InterfaceType.CO_SIMULATION, InterfaceType.MODEL_EXCHANGE):
+        capability = _interface_capability(metadata, interface_type)
+        if capability is not None and capability.can_execute:
+            return interface_type
+    return None
 
 
 def validate_config(
@@ -85,32 +101,26 @@ def validate_config(
                 )
             )
 
-    co_simulation = next(
-        (
-            capability
-            for capability in metadata.interface_capabilities
-            if capability.interface_type is InterfaceType.CO_SIMULATION
-        ),
-        None,
-    )
-    if InterfaceType.CO_SIMULATION not in metadata.interface_types:
+    requested_interface = config.execution_interface
+    if requested_interface is not None and not isinstance(requested_interface, InterfaceType):
         issues.append(
             ValidationIssue(
-                "model",
-                ErrorCode.UNSUPPORTED_INTERFACE.value,
-                "FMU 可以解析，但 Farcel 当前只执行 Co-Simulation FMU",
+                "execution_interface",
+                "INVALID_EXECUTION_INTERFACE",
+                "execution_interface 必须是 InterfaceType 或 None",
             )
         )
-    elif not metadata.capabilities.can_execute or (
-        metadata.executable_interface is not InterfaceType.CO_SIMULATION
-    ):
-        if co_simulation is not None and co_simulation.needs_execution_tool:
-            code = ErrorCode.UNSUPPORTED_INTERFACE.value
-            message = "FMU 可以解析，但需要 Farcel 当前不支持的外部执行工具"
-        else:
-            code = ErrorCode.PLATFORM_BINARY_MISSING.value
-            message = "FMU 可以解析，但缺少当前平台可执行的 Co-Simulation 二进制"
-        issues.append(ValidationIssue("model", code, message))
+    elif requested_interface is InterfaceType.SCHEDULED_EXECUTION:
+        issues.append(
+            ValidationIssue(
+                "execution_interface",
+                ErrorCode.UNSUPPORTED_INTERFACE.value,
+                "Scheduled Execution runtime 尚未在当前里程碑启用",
+            )
+        )
+
+    if requested_interface is None or isinstance(requested_interface, InterfaceType):
+        _validate_execution_interface(metadata, config, issues)
 
     known_variables = {variable.name: variable for variable in metadata.variables}
     effective_shapes = _resolve_effective_shapes(
@@ -221,6 +231,75 @@ def validate_config(
             )
 
     return ValidationReport(tuple(issues))
+
+
+def _validate_execution_interface(
+    metadata: ModelMetadata, config: SimulationConfig, issues: list[ValidationIssue]
+) -> None:
+    requested = config.execution_interface
+    if requested is InterfaceType.SCHEDULED_EXECUTION:
+        return
+    effective = resolve_execution_interface(metadata, config)
+    if requested is None:
+        if effective is not None:
+            return
+        declared_me = _interface_capability(metadata, InterfaceType.MODEL_EXCHANGE)
+        declared_cs = _interface_capability(metadata, InterfaceType.CO_SIMULATION)
+        if declared_me is not None and metadata.fmi_version != "2.0" and declared_cs is None:
+            message = "FMU 包含 Model Exchange，但 Farcel 当前仅公开支持 FMI 2.0 Model Exchange"
+            code = ErrorCode.UNSUPPORTED_INTERFACE.value
+        elif any(
+            capability is not None and capability.needs_execution_tool
+            for capability in (declared_cs, declared_me)
+        ):
+            message = "FMU 可以解析，但需要 Farcel 当前不支持的外部执行工具"
+            code = ErrorCode.UNSUPPORTED_INTERFACE.value
+        elif declared_cs is None and declared_me is None:
+            message = "FMU 可以解析，但当前不包含 Farcel 可执行接口"
+            code = ErrorCode.UNSUPPORTED_INTERFACE.value
+        else:
+            message = "FMU 可以解析，但缺少当前平台对应接口的可执行二进制"
+            code = ErrorCode.PLATFORM_BINARY_MISSING.value
+        issues.append(ValidationIssue("model", code, message))
+        return
+
+    capability = _interface_capability(metadata, requested)
+    if capability is None:
+        issues.append(
+            ValidationIssue("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value, "FMU 未声明所请求的执行接口")
+        )
+    elif requested is InterfaceType.MODEL_EXCHANGE and metadata.fmi_version != "2.0":
+        issues.append(
+            ValidationIssue("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value, "Farcel 当前仅公开支持 FMI 2.0 Model Exchange")
+        )
+    elif capability.needs_execution_tool:
+        issues.append(
+            ValidationIssue("execution_interface", ErrorCode.UNSUPPORTED_INTERFACE.value, "FMU 需要 Farcel 当前不支持的外部执行工具")
+        )
+    elif not capability.can_execute:
+        issues.append(
+            ValidationIssue("execution_interface", ErrorCode.PLATFORM_BINARY_MISSING.value, "FMU 缺少当前平台所请求接口的可执行二进制")
+        )
+
+
+def _interface_capability(
+    metadata: ModelMetadata, interface_type: InterfaceType
+) -> InterfaceCapability | None:
+    capability = next(
+        (item for item in metadata.interface_capabilities if item.interface_type is interface_type),
+        None,
+    )
+    if capability is not None:
+        return capability
+    if interface_type not in metadata.interface_types:
+        return None
+    return InterfaceCapability(
+        interface_type=interface_type,
+        can_execute=(
+            metadata.capabilities.can_execute
+            and metadata.executable_interface is interface_type
+        ),
+    )
 
 
 def resolve_output_interval(config: SimulationConfig) -> float:

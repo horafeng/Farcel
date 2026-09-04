@@ -74,6 +74,22 @@ class FmpyImporterIntegrationTests(unittest.TestCase):
             metadata.interface_capabilities[0].model_identifier,
             "MetadataTestCS",
         )
+        self.assertFalse(metadata.interface_capabilities[1].can_execute)
+
+    def test_fmi2_model_exchange_binary_is_checked_against_its_own_identifier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fmu = self._write_fmu(
+                Path(directory),
+                "model-exchange-only.fmu",
+                FMI2_XML,
+                with_dll=False,
+                library_identifiers=("MetadataTestME",),
+            )
+            metadata = FmpyImporter().load(fmu)
+
+        self.assertEqual(metadata.executable_interface, InterfaceType.MODEL_EXCHANGE)
+        self.assertFalse(metadata.interface_capabilities[0].can_execute)
+        self.assertTrue(metadata.interface_capabilities[1].can_execute)
 
     def test_maps_fmi3_scheduled_execution_without_claiming_it_can_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -127,13 +143,20 @@ class FmpyImporterIntegrationTests(unittest.TestCase):
 
     @staticmethod
     def _write_fmu(
-        directory: Path, name: str, model_description: str, *, with_dll: bool
+        directory: Path,
+        name: str,
+        model_description: str,
+        *,
+        with_dll: bool,
+        library_identifiers: tuple[str, ...] = (),
     ) -> Path:
         path = directory / name
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("modelDescription.xml", model_description)
             if with_dll:
                 archive.writestr("binaries/win64/MetadataTestCS.dll", b"")
+            for model_identifier in library_identifiers:
+                archive.writestr(f"binaries/win64/{model_identifier}.dll", b"")
         return path
 
 
