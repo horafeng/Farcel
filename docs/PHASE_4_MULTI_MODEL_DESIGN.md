@@ -369,7 +369,7 @@ backend.run_graph(
 | 4.2A | **Completed**：application-internal `CoSimulationNodeRuntime` 与 factory；单节点 checkpoint boundary，无 graph scheduler/runtime API |
 | 4.2B | **Completed**：application-internal `ModelExchangeNodeRuntime` 与 ME routed-input Event Mode bridge；无 scheduler/runtime public API |
 | 4.3 | **Completed**：application-internal `SimulationOrchestrator` global checkpoint primitive；以 fake runtimes 固化 Jacobi 语义 |
-| 4.4 | `DataRouter`：scalar/Boolean/Integer/String/array routing |
+| 4.4 | **Completed**：application-internal `DataRouter`；validated connections 的 previous-snapshot exact-value routing |
 | 4.5 | `GraphSimulationResult`、RunControl、RunProgress、error 与 deterministic cleanup |
 | 4.6A | real multi-FMU integration regressions |
 | 4.6B | public `validate_graph`/`run_graph`、docs/examples/CI hardening |
@@ -441,6 +441,25 @@ read-all；因此不会发生 same-checkpoint propagation，feedback 与 self-lo
 `completed_steps` 和新 snapshot；任何失败都会禁止继续推进，但 4.3 不做 rollback。
 本阶段不引入 RunControl、progress、result/sampling 或 deterministic cleanup；真实
 multi-FMU integration 留给 4.6A，public `run_graph` 留给 4.6B。
+
+### 4.4 implementation note
+
+`DataRouter` 是 application-internal pure routing component：它接收
+`SimulationGraph.connections` 和 previous checkpoint snapshot，生成 per-node routed
+input mapping，并可直接作为 `SimulationOrchestrator` 的 `route_snapshot` callback。
+它不加载 metadata，也不复制 `GraphValidator` 的 type/shape validation；值按原样
+透传，包含 scalar、Boolean、Integer、String、Enumeration 和 tuple/nested-tuple array，
+不做 conversion、broadcast 或 reshape。
+
+feedback/self-loop 没有特殊求解，仍只读取 supplied previous snapshot。若 runtime
+snapshot 缺少某个连接 source，router 稳定报告 `OUTPUT_READ_ERROR`。其
+`source_outputs_by_node` 提供声明顺序、fan-out 去重的 routing read dependency；
+`selected_outputs` 仍只代表 future result recording，router 不修改 caller 的
+`ModelNodeConfig`。未来 composition 必须自行构造 recording outputs 与 routing
+dependency 的并集。
+
+4.4 不创建真实 FMU graph，不接入 result/control/cleanup；这些分别留给 4.5、4.6A
+和 4.6B 的 public API。
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整
