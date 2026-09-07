@@ -13,12 +13,12 @@ from farcel.contracts import (
 
 class _Session:
     def __init__(self, updates=()):
-        self.updates = list(updates); self.events = []; self.inputs = []
-    def set_inputs(self, values): self.inputs.append(values)
+        self.updates = list(updates); self.events = []; self.inputs = []; self.operations = []
+    def set_inputs(self, values): self.inputs.append(values); self.operations.append(("inputs", values))
     def completed_integrator_step(self): self.events.append("completed"); return IntegratorStepResult()
-    def enter_event_mode(self): self.events.append("event")
-    def update_discrete_states(self): self.events.append("update"); return self.updates.pop(0) if self.updates else DiscreteStateUpdate(False)
-    def enter_continuous_time_mode(self): self.events.append("continuous")
+    def enter_event_mode(self): self.events.append("event"); self.operations.append(("event", None))
+    def update_discrete_states(self): self.events.append("update"); self.operations.append(("update", None)); return self.updates.pop(0) if self.updates else DiscreteStateUpdate(False)
+    def enter_continuous_time_mode(self): self.events.append("continuous"); self.operations.append(("continuous", None))
 
 
 class _Solver:
@@ -95,3 +95,63 @@ class ModelExchangeRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "离散状态迭代超过上限") as raised:
                 self._coordinator(session, solver).advance_to(.1)
         self.assertIs(raised.exception.code, ErrorCode.STEP_ERROR)
+
+    def test_apply_empty_inputs_is_a_complete_noop(self):
+        session = _Session(); solver = _Solver([])
+        coordinator = self._coordinator(session, solver)
+
+        self.assertFalse(coordinator.apply_inputs({}))
+
+        self.assertEqual((session.inputs, session.events, solver.targets, solver.resets), ([], [], [], []))
+        self.assertEqual(coordinator.current_time, 0)
+
+    def test_apply_routed_inputs_uses_the_existing_event_cycle_and_resets_problem(self):
+        session = _Session([DiscreteStateUpdate(False)])
+        solver = _Solver([])
+        coordinator = self._coordinator(session, solver)
+
+        self.assertFalse(coordinator.apply_inputs({"u": 2.0}))
+
+        self.assertEqual(
+            session.operations,
+            [("inputs", {"u": 2.0}), ("event", None), ("update", None), ("continuous", None)],
+        )
+        self.assertEqual(solver.resets, [(0, SolverResetReason.OTHER_PROBLEM_CHANGE)])
+        self.assertEqual((solver.targets, coordinator.current_time), ([], 0))
+
+    def test_apply_routed_inputs_preserves_state_and_nominal_reset_precedence(self):
+        for update, reason in (
+            (DiscreteStateUpdate(False, continuous_states_changed=True), SolverResetReason.CONTINUOUS_STATES_CHANGED),
+            (DiscreteStateUpdate(False, continuous_states_changed=True, nominals_changed=True), SolverResetReason.NOMINALS_CHANGED),
+        ):
+            with self.subTest(reason=reason):
+                session = _Session([update]); solver = _Solver([])
+                self._coordinator(session, solver).apply_inputs({"u": 2.0})
+                self.assertEqual(solver.resets, [(0, reason)])
+
+    def test_apply_routed_inputs_merges_due_schedule_and_time_event_once(self):
+        session = _Session([DiscreteStateUpdate(False)])
+        solver = _Solver([SolverAdvanceResult(.1, SolverAdvanceStatus.REACHED_TARGET)])
+        coordinator = self._coordinator(
+            session,
+            solver,
+            schedule=(InputUpdate(0, {"scheduled": 1.0}),),
+            event_time=0,
+        )
+
+        self.assertFalse(coordinator.apply_inputs({"routed": 2.0}))
+        outcome = coordinator.advance_to(.1)
+
+        self.assertTrue(outcome.checkpoint_reached)
+        self.assertEqual(session.inputs, [{"scheduled": 1.0}, {"routed": 2.0}])
+        self.assertEqual(session.events.count("event"), 1)
+        self.assertEqual(solver.targets, [.1])
+
+    def test_apply_routed_inputs_returns_terminate_without_continuous_or_reset(self):
+        session = _Session([DiscreteStateUpdate(False, terminate_requested=True)])
+        solver = _Solver([])
+
+        self.assertTrue(self._coordinator(session, solver).apply_inputs({"u": 2.0}))
+
+        self.assertNotIn("continuous", session.events)
+        self.assertEqual(solver.resets, [])

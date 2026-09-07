@@ -13,9 +13,9 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 
 **Phase 3 — Completed。** FMI2 `ModelExchangeSession`、CVode SolverAdapter、event coordinator 与 public `ModelExchangeRunner` 已完成 Reference FMU release hardening：continuous/state/time/input event、零状态、repeat、temp cleanup 与 Issue #882 均有回归保护。`run_fmu`、validation、metadata 与 CLI 都支持可执行的 FMI 2 Model Exchange；默认仍优先 Co-Simulation。FMI 3 Model Exchange 与 Scheduled Execution 仍未实现。
 
-## 规划：本地多模型集成
+## 已完成：本地多模型集成
 
-**Phase 4 — Planned。** 在单模型 ME 完成后，建立 `ModelNode`、`Port`、`Connection`、`SimulationGraph`，加入 graph validation、单机 multi-FMU scheduler 与 data routing。现有单 FMU engine 将复用为 node runtime，不会被废弃。
+**Phase 4 — Completed。** 已交付 graph contracts、metadata validation、Co-Simulation / FMI2 Model Exchange node runtimes、explicit-Jacobi scheduler/data router、`GraphSimulationResult`、global control/progress/cleanup、真实 FMI2/FMI3 multi-FMU regressions，以及 public `validate_graph()` / `run_graph()`。本机 graph 仍是同步、single-machine、previous-checkpoint coupling；它不包含 project persistence 或 GUI graph editor。
 
 **Phase 5 — Planned。** 仿真项目与图形化装配：项目定义、图编辑/连接、运行配置与可视化工作流。此阶段不意味着已经支持任意第三方工具的直接连接。
 
@@ -27,11 +27,12 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 
 **Phase 8 — Long-term optional。** 实时/HIL、ROM 和性能导向的 native worker/C++ 加速仅在相应需求与本地基线成熟后单独设计。它们目前不存在，也不由当前 Python orchestration 伪装实现。
 
-## 目标架构（Planned）
+## 目标架构
 
 ```text
-Simulation Project → Simulation Graph → Simulation Orchestrator
-    → Model Node Adapters → FMU / Simulink / AMESim / ANSYS / ...
+GUI / CLI → FarcelEngine.run_graph → GraphValidator → GraphSimulationRunner
+    → GraphRuntimeBindingsFactory → DataRouter / SimulationOrchestrator
+    → FMU CS / FMI2 ME node runtimes
 ```
 
 当前架构仍为：

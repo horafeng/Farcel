@@ -6,6 +6,7 @@ on:
       - main
       - phase-2-work
       - phase-3-work
+      - phase-4-work
   pull_request:
     branches:
       - main
@@ -44,6 +45,7 @@ jobs:
         run: |
           python examples/backend_api_example.py
           python examples/model_exchange_api_example.py
+          python examples/graph_api_example.py
       - name: CLI smoke
         run: |
           python -m farcel.cli inspect examples\fmus\VanDerPol-fmi3.fmu

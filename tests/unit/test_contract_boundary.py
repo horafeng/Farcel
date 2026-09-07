@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import models
+from farcel.contracts import graph, models
 
 
 class ContractBoundaryTests(unittest.TestCase):
@@ -29,6 +29,13 @@ class ContractBoundaryTests(unittest.TestCase):
             models.ExportReport,
             models.RunSummary,
             models.SimulationResult,
+            graph.PortReference,
+            graph.Connection,
+            graph.ModelNodeConfig,
+            graph.ModelNode,
+            graph.SimulationGraph,
+            graph.GraphSimulationConfig,
+            graph.GraphSimulationResult,
         )
 
         annotations = []
@@ -39,6 +46,18 @@ class ContractBoundaryTests(unittest.TestCase):
         self.assertTrue(
             all("fmpy" not in annotation.lower() for annotation in annotations)
         )
+
+    def test_graph_result_annotations_are_public_contract_types_only(self) -> None:
+        forbidden = (
+            "fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure",
+        )
+        annotations = [str(annotation).lower()
+            for annotation in get_type_hints(graph.GraphSimulationResult).values()]
+        self.assertTrue(all(
+            forbidden_name not in annotation
+            for annotation in annotations
+            for forbidden_name in forbidden
+        ))
 
     def test_contracts_and_application_do_not_import_native_or_gui_dependencies(self) -> None:
         source_root = Path(__file__).parents[2] / "src" / "farcel"
