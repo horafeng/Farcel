@@ -91,22 +91,25 @@ Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，�
 
 Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组提供完整数据链路：validation 对 public nested sequence 严格匹配 `VariableMetadata.shape`，adapter 在 Initialization Mode 内 flatten 写入并按 getter 的 `nValues=product(shape)` reshape 为 nested tuple。数组参数、initial/scheduled input、selected output、canonical `SimulationResult`、`ResultChunk` 和 CSV 都使用同一数组语义；CSV 仅在导出边界展开为零基 indexed columns。此能力不引入新 DTO、NumPy 或 FMPy 对象到 public contracts，也不改变标量路径。
 
-Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker、多 FMU 和 ME solver 尚未实现。
+Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker 和 FMI3 ME solver 尚未实现。
 
 Phase 2.3 使用官方 Reference FMU 扩展真实兼容性回归，而不增加运行能力：Feedthrough 覆盖当前 FMI 3 scalar setter/getter 与 ResultChunk/CSV 路径，Resource 覆盖已解压 FMU 的 `resources/` 访问和关闭清理，Clocks 则验证 Scheduled Execution/Clock 能被 inspect 且在 session 创建前由执行策略拒绝。FMI 3 Binary 与 Clock 不进入 adapter runtime；validation 对 Binary/Clock selected output 返回稳定的 `UNSUPPORTED_OUTPUT_TYPE`，对 Binary input 保持 `UNSUPPORTED_INPUT_TYPE`。
 
-## 8. Phase 4 以后：规划的本地多模型边界
+## 8. Phase 4：本地多模型公共边界
 
-以下结构是 **Planned**，目前没有 `SimulationGraph`、scheduler、data router、多 FMU runtime 或 Simulink/AMESim/ANSYS adapter：
+Phase 4 now exposes local synchronous multi-FMU execution through the application facade:
 
 ```text
-SimulationOrchestrator
-  ├─ SimulationGraph
-  ├─ Scheduler
-  ├─ DataRouter
-  └─ ModelNodeAdapter
-       ├─ FMU node runtime（复用现有单 FMU engine）
-       └─ future direct adapters: Simulink / AMESim / ANSYS / ...
+GUI
+  -> FarcelEngine.validate_graph / run_graph
+       -> GraphValidator
+       -> GraphSimulationRunner
+            -> GraphRuntimeBindingsFactory
+            -> DataRouter / SimulationOrchestrator
+            -> CS / FMI2 ME ModelNodeRuntime
+            -> infrastructure adapters
 ```
 
-单 FMU engine 不会被丢弃；它将成为 FMU node runtime，由未来的 graph/orchestrator 组合。该演进仍保持 `GUI / CLI → application → contracts ← infrastructure`：图、调度和数据路由的业务语义属于 application/contracts，工具/API/native 细节继续留在 infrastructure。分布式、实时/HIL、ROM 和直接异构工具连接都必须等待本地 `SimulationGraph` 得到验证后再单独立项。
+`GraphValidator` remains metadata-only and precedes runtime composition. `GraphRuntimeBindingsFactory` injects existing CS/ME node factories; `GraphSimulationRunner` owns global result, progress, stop and cleanup semantics. The graph is explicit Jacobi / previous-checkpoint only, so no per-node order becomes numerical semantics.
+
+The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, distributed execution, SSP, real-time/HIL, worker/RPC, FMI3 ME, Scheduled Execution, strong coupling, and graph persistence/project management remain deferred.

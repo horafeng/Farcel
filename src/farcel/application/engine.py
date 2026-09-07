@@ -13,6 +13,13 @@ from farcel.application.runners import (
     ModelExchangeRunner,
     validate_result_chunk_size,
 )
+from farcel.application.graph_runner import GraphSimulationRunner
+from farcel.application.graph_runtime_factory import GraphRuntimeBindingsFactory
+from farcel.application.graph_validation import GraphValidator
+from farcel.application.node_runtime import (
+    CoSimulationNodeRuntimeFactory,
+    ModelExchangeNodeRuntimeFactory,
+)
 from farcel.application.validation import resolve_execution_interface, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
@@ -28,6 +35,11 @@ from farcel.contracts.models import (
     StepResult,
     StepStatus,
     ValidationReport,
+)
+from farcel.contracts.graph import (
+    GraphSimulationConfig,
+    GraphSimulationResult,
+    SimulationGraph,
 )
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
@@ -72,6 +84,14 @@ class FarcelEngine:
         self._model_exchange_runner: ExecutionRunner = ModelExchangeRunner(
             model_exchange_session_factory, solver_factory
         )
+        self._graph_validator = GraphValidator(importer)
+        self._graph_runtime_factory = GraphRuntimeBindingsFactory(
+            importer,
+            CoSimulationNodeRuntimeFactory(session_factory),
+            ModelExchangeNodeRuntimeFactory(
+                model_exchange_session_factory, solver_factory
+            ),
+        )
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))
@@ -86,16 +106,21 @@ class FarcelEngine:
             raise EngineError(
                 ErrorCode.CONFIG_ERROR,
                 "仿真配置验证失败",
-                {
-                    "issues": tuple(
-                        {
-                            "field": issue.field,
-                            "code": issue.code,
-                            "message": issue.message,
-                        }
-                        for issue in report.issues
-                    )
-                },
+                self._validation_report_details(report),
+            )
+        return report
+
+    def validate_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+    ) -> ValidationReport:
+        report = self._graph_validator.validate(graph, config)
+        if not report.is_valid:
+            raise EngineError(
+                ErrorCode.CONFIG_ERROR,
+                "Graph 仿真配置验证失败",
+                self._validation_report_details(report),
             )
         return report
 
@@ -229,6 +254,22 @@ class FarcelEngine:
             step_attempt_limit=_MAX_STEP_ATTEMPTS_PER_COMMUNICATION_TARGET,
         )
 
+    def run_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+    ) -> GraphSimulationResult:
+        if control is not None and control.stop_requested:
+            raise EngineError(ErrorCode.CANCELLED, "Graph 仿真开始前已请求停止")
+        self.validate_graph(graph, config)
+        runner = GraphSimulationRunner(
+            lambda: self._graph_runtime_factory.create(graph, config)
+        )
+        return runner.run(graph, config, control=control, on_progress=on_progress)
+
     def export_result(
         self, result: SimulationResult, destination: str | Path
     ) -> ExportReport:
@@ -241,6 +282,19 @@ class FarcelEngine:
             return self._sessions[handle.session_id]
         except KeyError:
             raise EngineError(ErrorCode.INTERNAL_ERROR, "Session 不存在或已经关闭") from None
+
+    @staticmethod
+    def _validation_report_details(report: ValidationReport) -> dict[str, tuple[dict[str, str], ...]]:
+        return {
+            "issues": tuple(
+                {
+                    "field": issue.field,
+                    "code": issue.code,
+                    "message": issue.message,
+                }
+                for issue in report.issues
+            )
+        }
 
     def _select_execution_runner(self, interface: InterfaceType) -> ExecutionRunner:
         if interface is InterfaceType.CO_SIMULATION:

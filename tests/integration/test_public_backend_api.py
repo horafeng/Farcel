@@ -13,6 +13,8 @@ from farcel.contracts import (
     EngineError,
     ErrorCode,
     ExportReport,
+    GraphSimulationConfig,
+    GraphSimulationResult,
     InputUpdate,
     InterfaceType,
     ModelMetadata,
@@ -49,6 +51,17 @@ class PublicBackendApiTests(unittest.TestCase):
         for name in ("control", "on_progress", "on_result_chunk", "result_chunk_size"):
             self.assertIn(name, parameters)
             self.assertIs(parameters[name].kind, inspect.Parameter.KEYWORD_ONLY)
+        self.assertTrue(callable(backend.validate_graph))
+        graph_parameters = inspect.signature(backend.run_graph).parameters
+        self.assertEqual(tuple(graph_parameters), ("graph", "config", "control", "on_progress"))
+        self.assertTrue(all(
+            graph_parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+            for name in ("control", "on_progress")
+        ))
+        self.assertNotIn("on_result_chunk", graph_parameters)
+        self.assertNotIn("result_chunk_size", graph_parameters)
+        self.assertTrue(issubclass(GraphSimulationConfig, object))
+        self.assertTrue(issubclass(GraphSimulationResult, object))
 
     def test_fmi2_complete_workflow_uses_public_api(self) -> None:
         metadata, result = self._run_public_workflow(FMU_DIRECTORY / "VanDerPol.fmu")

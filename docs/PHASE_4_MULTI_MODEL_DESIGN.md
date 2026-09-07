@@ -372,11 +372,13 @@ backend.run_graph(
 | 4.4 | **Completed**：application-internal `DataRouter`；validated connections 的 previous-snapshot exact-value routing |
 | 4.5 | **Completed**：internal graph run lifecycle、nested result、checkpoint stop/progress 与 deterministic cleanup |
 | 4.6A | **Completed**：application-internal real multi-FMU runtime composition 与 FMI2/FMI3 CS、FMI2 CS/ME integration regressions |
-| 4.6B | public `validate_graph`/`run_graph`、docs/examples/CI hardening |
+| 4.6B | **Completed**：public `validate_graph`/`run_graph`、composition root、docs/examples/installed-consumer/CI release hardening；**Phase 4 Completed** |
 
-4.6A 的最小真实集成矩阵为：2-node `A -> B`、3-node `A -> B -> C`、FMI2 +
-FMI3 CS、CS + ME、array routing、stop、failure cleanup、repeated run 和
-deterministic result。
+4.6A 的真实 release 集成矩阵为：FMI2 CS → FMI2 CS、FMI3 CS → FMI3 CS、
+mixed FMI2 → FMI3 → FMI2 CS chain、FMI2 CS ↔ ME feedback、sampling、stop、
+failure cleanup、repeated run 和 deterministic result。FMI3 single-FMU array
+runtime、GraphValidator exact-shape 与 DataRouter tuple pass-through 都已有 coverage，
+但不声称已完成 real multi-FMU array integration release coverage。
 
 ### 4.1 implementation note
 
@@ -493,8 +495,23 @@ dual-interface Co-Simulation preference. If construction fails, already returned
 best-effort closed and their diagnostics attach without replacing the creation error. Real
 Feedthrough regressions cover FMI2 CS, FMI3 CS, mixed FMI2/FMI3 Jacobi routing, FMI2 CS/ME
 feedback through the existing ME coordinator, sampling, stop, and repeated construction. No
-FarcelEngine/backend public graph API or composition root, public docs/CI release hardening,
-export, CLI, or FMI3 Model Exchange support is added; those remain 4.6B work.
+At the 4.6A checkpoint, public graph API/composition-root and docs/CI release hardening were
+still deferred to 4.6B; graph export, CLI, and FMI3 Model Exchange remain out of scope.
+
+### 4.6B implementation note
+
+`FarcelEngine.validate_graph(graph, config)` reuses `GraphValidator` and maps an invalid
+`ValidationReport` to the same stable `CONFIG_ERROR.details["issues"]` schema used by
+`validate_config`. `run_graph(graph, config, *, control=None, on_progress=None)` checks a
+pre-start `RunControl` before metadata inspection, validates before any native runtime creation,
+then delegates lazy composition to `GraphRuntimeBindingsFactory` and lifecycle/result behavior to
+`GraphSimulationRunner`. The engine constructor and existing single-FMU surface remain unchanged;
+`create_backend()` is graph-capable with its existing dependencies.
+
+Graph DTOs remain public through `farcel.contracts`, while the root `farcel` surface remains
+minimal. There is no graph chunk/export/CLI API or FMI3 ME runtime. Public real-FMU, STOPPED,
+progress, installed-consumer, example and wheel-installed CI regressions freeze the application
+boundary for future GUI consumers.
 
 若 frontend 成果已合入 `main`，才可执行 `Phase 4.SYNC`：确认 clean
 `phase-4-work`，fetch origin，正常 `merge origin/main`，逐处解决冲突后执行完整

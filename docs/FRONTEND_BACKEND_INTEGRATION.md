@@ -4,12 +4,14 @@
 
 ## 1. Backend Capabilities
 
-当前默认后端提供四个完整用例：
+当前默认后端提供六个完整用例：
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
 - run：同步执行单个 FMI 2.0 Co-Simulation、FMI 2.0 Model Exchange 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及按默认或有效尺寸解析的数组按当前 capability 与 metadata 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
+- graph validate：在 native runtime 创建前验证 `SimulationGraph`、全局时间、node metadata、connection causality/type/shape 与 driver conflict。
+- graph run：同步执行本机 multi-FMU graph，返回 nested `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
 
 FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
 
@@ -23,13 +25,20 @@ from farcel.contracts import (
     EngineError,
     ErrorCode,
     ExportReport,
+    Connection,
+    GraphSimulationConfig,
+    GraphSimulationResult,
     InputUpdate,
     InterfaceType,
     ModelMetadata,
+    ModelNode,
+    ModelNodeConfig,
+    PortReference,
     ResultChunk,
     RunControl,
     RunProgress,
     SimulationConfig,
+    SimulationGraph,
     SimulationResult,
     ValidationReport,
 )
@@ -314,9 +323,59 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`；
-- 本文列出的 `ModelMetadata`、`SimulationConfig`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`；
+- 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
 
 以下部分应继续演进而不作为 GUI v1 依赖：低层 session/step 方法、session handle、FMI 3 advanced flags、`RunSummary`、未实现配置项的运行语义、基础设施类、diagnostic details 的自由文本和 `value_reference`。新增字段和错误码应保持向后兼容；删除或改义冻结字段时再提升 contract schema / major version。
+
+## 16. Graph Workflow
+
+GUI may inspect each FMU with `backend.load_fmu(path)` to build its port and
+parameter UI, then construct public `ModelNode`, `SimulationGraph` and
+`GraphSimulationConfig` values. It must call `backend.validate_graph(graph,
+config)` before `backend.run_graph(graph, config)`. GUI must not import the
+application `GraphValidator`, `GraphRuntimeBindingsFactory`, scheduler, or any
+FMPy class.
+
+`GraphSimulationConfig.start_time`, `stop_time`, `communication_step` and
+`output_interval` are graph-global. `ModelNodeConfig` deliberately has no
+global timing fields. The graph duration must be an integer multiple of
+`communication_step`; there is no partial final macro-step.
+
+Graph v1 uses explicit Jacobi previous-checkpoint ZOH: `A(t_k)` drives B over
+`[t_k, t_(k+1)]`; A's newly computed `t_(k+1)` output never drives B in that
+same macro-step. Feedback and self-loops are legal but one-checkpoint delayed;
+Farcel does not perform algebraic-loop, strong, fixed-point, or Newton coupling.
+All nodes initialize before the initial snapshot. A connected target may use
+`initial_inputs` as a t0/feedback guess, but the first routed source value then
+overrides that held input for the first interval. A connected input cannot also
+have an `input_schedule` driver.
+
+`ModelNodeConfig.selected_outputs` controls only `GraphSimulationResult`
+recording. The backend automatically reads a connection source dependency even
+when it is not selected, but it does not add that dependency to the result.
+GUI must not mutate `selected_outputs` merely to support routing. Node interface
+selection reuses `InterfaceType` and metadata capabilities: FMI2 dual-interface
+defaults to Co-Simulation; FMI2 ME may be explicitly selected; FMI3 ME remains
+unsupported. There is no public solver selector.
+
+`run_graph()` is synchronous and blocking. A pre-start stop raises `CANCELLED`;
+after initialization a stop is observed only at a complete global checkpoint,
+so all nodes have the same final time in a `STOPPED` result. `RunProgress` is
+global graph progress, not per-node/solver progress, and its callback executes
+on the `run_graph()` caller thread; Qt callers must marshal it themselves.
+
+`GraphSimulationResult.node_outputs` has the stable nested form
+`node_id -> variable_name -> tuple(samples)`. Its samples have the same length
+as `timestamps`; a node with no selected outputs has `{}`. Validation failures
+are `CONFIG_ERROR` with issue `field` / `code` / `message` entries such as
+`nodes[i]`, `connections[i]` or `communication_step`. Runtime errors preserve
+the existing `ErrorCode` model and may add node, connection, phase, time or
+cleanup diagnostics. GUI should use `code` and `details`, never parse messages.
+
+Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, graph CSV
+export, or graph CLI. Existing `ResultChunk` and `export_result()` apply only to
+single-model `SimulationResult`; GUI must not pass a `GraphSimulationResult` to
+the single-model CSV exporter.

@@ -40,6 +40,27 @@ falls back to Model Exchange.
 | `BouncingBall-fmi2.fmu` | Yes | 2 / Yes | root bounce | N/A | N/A | Yes | 0→1.0, 20 checkpoints, negative-to-positive velocity | session/solver lifecycle exercised | Passed |
 | `Feedthrough-fmi2.fmu` | Yes | 0 / private dummy vector | N/A | N/A | Real scheduled input at 0.02 | Yes | selected output changes 1→4 | session/solver lifecycle exercised | Passed |
 
+## Public Multi-FMU Graph Compatibility
+
+`create_backend().validate_graph()` and `run_graph()` cover local, synchronous
+`SimulationGraph` execution. These rows use explicit Jacobi previous-checkpoint
+values and zero-order hold; they do not claim strong coupling, all scalar
+combinations, real array graph coverage, or FMI3 Model Exchange.
+
+| Graph | Runtime coverage | Routing semantics | Status |
+|---|---|---|---|
+| FMI2 CS → FMI2 CS | `Feedthrough-fmi2.fmu` source/target | Real canonical `Real` routing; routing-only source remains absent from result | Passed |
+| FMI3 CS → FMI3 CS | `Feedthrough-fmi3.fmu` source/target | Real `Float64` routing and recording/read-set separation | Passed |
+| FMI2 CS → FMI3 CS → FMI2 CS | Feedthrough chain | FMI2 `Real` / FMI3 `Float64` compatibility and one-checkpoint delay | Passed |
+| FMI2 CS ↔ FMI2 ME | Feedthrough feedback pair | Previous-checkpoint feedback; ME input passes its existing Event Mode/coordinator path | Passed |
+
+Graph control/progress, sampling endpoint, deterministic cleanup, repeated runs,
+public installed-consumer import, and public example execution are covered by
+the release regression suite. Single-FMU FMI3 array runtime, graph validation
+exact-shape checks, and `DataRouter` tuple/nested-tuple unit pass-through are
+supported independently; real multi-FMU array integration is not a released
+coverage claim.
+
 ## Metadata inventory
 
 | FMU | Inputs | Parameters | Outputs | Scalar types |
