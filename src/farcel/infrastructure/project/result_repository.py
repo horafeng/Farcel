@@ -13,6 +13,11 @@ from farcel.infrastructure.project.result_codec import JsonProjectRunArtifactCod
 
 
 _RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_WINDOWS_RESERVED_STEMS = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 
 
 class LocalJsonProjectRunArtifactRepository:
@@ -83,6 +88,8 @@ def _safe_run_id(run_id: object) -> str:
         raise _format_error("run_id 不是安全的 portable filename stem", Path(str(run_id)), ValueError())
     if run_id in {".", ".."} or run_id.endswith((".", " ")):
         raise _format_error("run_id 不是安全的 portable filename stem", Path(run_id), ValueError())
+    if run_id.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
+        raise _format_error("run_id 不能是 Windows reserved device name", Path(run_id), ValueError())
     return run_id
 
 

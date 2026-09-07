@@ -4,8 +4,9 @@
 > local JSON repository completed; Phase 5.3A asset integrity completed; Phase
 > 5.3B project validation and graph materialization completed; Phase 5.4A
 > ProjectService / `run_case` orchestration, Phase 5.4B result-artifact
-> codec/provenance, and Phase 5.4C1 result-artifact filesystem repository
-> completed.** Phase 5.4C2 run-history persistence integration does not exist.
+> codec/provenance, Phase 5.4C1 result-artifact filesystem repository, and
+> Phase 5.4C2 run-history/project persistence integration completed.** Public
+> backend Project APIs do not exist.
 
 ## 1. Goals and non-goals
 
@@ -297,10 +298,23 @@ duplicate run ID fails rather than overwriting history. Real-path containment
 rejects traversal and symlink escape; relocation works because no absolute
 project path is stored. Format/path/codec failures use `PROJECT_FORMAT_ERROR`;
 filesystem, missing-file, and existing-target failures use `PROJECT_IO_ERROR`.
+Windows reserved device stems (including extension forms such as `CON.backup`)
+are rejected in addition to the portable filename character policy.
 
-Phase 5.4C2 will add run-ID generation, `ProjectRunRecord` append,
-`project.json` save-back, and cross-file failure handling. It must reuse the
-5.4B artifact codec and C1 repository rather than redefine their semantics.
+Phase 5.4C2 now connects only completed canonical results to persistence. Its
+application service generates a UUID-hex run ID, rejects a duplicate current
+history ID, builds the 5.4B artifact, saves the C1 artifact first, then creates
+and appends `ProjectRunRecord` in a new immutable `SimulationProject` before
+saving `project.json`. `COMPLETED` and `STOPPED` results both follow this path.
+The caller's project object is unchanged and existing history order is kept.
+
+The frozen cross-file failure policy is deliberately not a transaction: if the
+artifact save fails, `project.json` is untouched. If artifact save succeeds but
+the project save fails, the artifact remains as an immutable orphan and the old
+`project.json` remains without a dangling history entry. The re-raised project
+error retains its code/details and adds `run_id`, `orphan_result_path`, and
+`history_committed=False`. No rollback delete, database transaction, or journal
+is introduced.
 
 ## 9. Persistence and error rules
 
@@ -336,7 +350,7 @@ The intended delivery sequence is:
 | 5.4A | **Completed**: ProjectService, one-case `run_case`, validation, asset recheck and `run_graph` delegation | result persistence or public backend Project API |
 | 5.4B | **Completed**: result artifact DTO, provenance snapshot and strict JSON codec | filesystem persistence or run-history mutation |
 | 5.4C1 | **Completed**: safe atomic `results/<run_id>.json` artifact repository | run-history or project persistence integration |
-| 5.4C2 | Not implemented: run/history/project persistence integration | checkpoint/restart or distributed runtime |
+| 5.4C2 | **Completed**: artifact-first run history and project persistence integration | public backend Project API or checkpoint/restart |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and

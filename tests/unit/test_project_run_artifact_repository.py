@@ -80,7 +80,7 @@ class ProjectRunArtifactRepositoryTests(unittest.TestCase):
         self.assertIs(raised.exception.code, ErrorCode.PROJECT_FORMAT_ERROR)
 
     def test_unsafe_run_ids_and_result_paths_are_format_errors(self) -> None:
-        unsafe_ids = ("", " ", ".", "..", "../escape", "foo/bar", "foo\\bar", "C:/bad", "C:\\bad", "/absolute", "bad:name", "bad?", "bad*")
+        unsafe_ids = ("", " ", ".", "..", "../escape", "foo/bar", "foo\\bar", "C:/bad", "C:\\bad", "/absolute", "bad:name", "bad?", "bad*", "CON", "con", "NUL", "PRN", "AUX", "COM1", "COM9", "LPT1", "LPT9", "CON.extra")
         for run_id in unsafe_ids:
             with self.subTest(run_id=run_id):
                 with self.assertRaises(EngineError) as raised:
