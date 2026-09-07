@@ -1,9 +1,9 @@
 # Phase 5 — Simulation Project Architecture & Persistence Design
 
-> Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed.** This
-> document specifies the boundary for later Phase 5 work. The declarative
-> project DTOs and `ProjectRepository` port now exist; Phase 5.2+ JSON codec,
-> save/open API, validation, `run_case`, and result persistence do not.
+> Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
+> local JSON repository completed.** The canonical UTF-8 `project.json` codec
+> and atomic local repository now exist. Phase 5.3+ validation, safe path
+> resolution, `run_case`, and result persistence do not.
 
 ## 1. Goals and non-goals
 
@@ -167,8 +167,10 @@ serializer contract for this phase:
 }
 ```
 
-The actual later codec must serialize the existing Farcel-owned graph DTOs;
-this document does not create a second graph schema.
+Phase 5.2 serializes these existing Farcel-owned graph DTOs directly; it does
+not create a second graph schema. Its canonical UTF-8 output uses the field
+order shown above, `ensure_ascii=False`, two-space indentation and a trailing
+newline. Only project schema `"1.0"` is accepted for save/load.
 
 ## 6. Model assets, paths, and metadata
 
@@ -262,17 +264,18 @@ relying on an undocumented non-standard JSON encoder behavior is forbidden.
 
 ## 9. Persistence and error rules
 
-The later local JSON repository owns only encode/decode and filesystem
-persistence. Saving `project.json` must write a sibling temporary file, flush
-and close it, then atomically replace `project.json`. It must not truncate the
-existing file before a new valid document is safely ready; a save failure must
-leave the last usable project document intact.
+The Phase 5.2 local JSON repository owns only encode/decode and filesystem
+persistence. Saving `project.json` encodes the complete document before I/O,
+writes a sibling temporary file in UTF-8, flushes and fsyncs it, closes it, and
+then uses atomic replacement. It never truncates an existing `project.json`
+before a new valid document is ready; I/O failure leaves the prior document
+intact and best-effort removes the temporary file.
 
-Project semantic validation uses `CONFIG_ERROR` plus `ValidationReport`.
-Later persistence work should add stable, additive `PROJECT_FORMAT_ERROR` and
-`PROJECT_IO_ERROR` codes for malformed/unsupported documents and filesystem
-failures. `EXPORT_ERROR` must not be repurposed for project load/save. Phase
-5.0 does not modify `ErrorCode`.
+Project semantic validation remains a future `CONFIG_ERROR` plus
+`ValidationReport` concern. Phase 5.2 adds stable, additive
+`PROJECT_FORMAT_ERROR` and `PROJECT_IO_ERROR` codes for malformed/unsupported
+documents and filesystem failures. `EXPORT_ERROR` is not repurposed for project
+load/save.
 
 ## 10. Frontend boundary and staged implementation
 
@@ -287,7 +290,7 @@ The intended delivery sequence is:
 | Stage | Planned scope | Explicitly not delivered by Phase 5.0 |
 |---|---|---|
 | 5.1 | **Completed**: Farcel project DTO/port and contract tests | persistence/runtime |
-| 5.2 | local JSON repository, schema and atomic save/open | run-case execution |
+| 5.2 | **Completed**: local JSON repository, schema and atomic save/open | run-case execution |
 | 5.3 | project validation, path resolution, relocation acceptance | altered Graph semantics |
 | 5.4 | case orchestration, run history/result codec and provenance | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
