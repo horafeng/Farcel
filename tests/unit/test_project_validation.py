@@ -85,6 +85,16 @@ class ProjectValidationTests(unittest.TestCase):
             ),
         )
 
+    def test_blank_asset_id_is_reported(self) -> None:
+        asset = self._asset("asset", "models/plant.fmu", b"plant")
+        project = self._project(
+            assets=(ModelAsset(" ", asset.display_name, asset.relative_path, asset.sha256),)
+        )
+
+        report = ProjectValidator(_Importer({})).validate(self.root, project)
+
+        self.assertEqual(_field_codes(report), (("model_assets[0].asset_id", "EMPTY_ASSET_ID"),))
+
     def test_asset_integrity_issues_aggregate_and_block_bound_node_import(self) -> None:
         valid = self._asset("valid", "models/valid.fmu", b"valid")
         invalid = self._asset("bad", "models/bad.fmu", b"actual contents")

@@ -2,8 +2,9 @@
 
 > Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
 > local JSON repository completed; Phase 5.3A asset integrity completed; Phase
-> 5.3B project validation and graph materialization completed.** Phase 5.4
-> case orchestration, `run_case`, and result persistence do not exist.
+> 5.3B project validation and graph materialization completed; Phase 5.4A
+> ProjectService / `run_case` orchestration completed.** Phase 5.4B result
+> artifact codec/provenance and Phase 5.4C run-history persistence do not exist.
 
 ## 1. Goals and non-goals
 
@@ -213,10 +214,13 @@ exact `ModelAsset.relative_path`, and builds this temporary absolute-path graph
 for existing `GraphValidator` validation. Project-wide validation does not add
 another FMI, parameter, connection, or timing validator.
 
-Phase 5.3B does not add `ProjectService`, `run_case`, simulation execution,
-result persistence/provenance artifacts, a public backend project API, asset
-import/copy operations, or repository semantic validation. Phase 5.4 remains a
-separate acceptance milestone.
+Phase 5.4A adds only a thin `ProjectService`: it selects one case by exact ID,
+validates the project, rechecks the target case's assets, materializes a
+temporary absolute-path graph, and delegates unchanged to existing `run_graph`.
+It forwards `RunControl` and graph progress unchanged and returns the existing
+`GraphSimulationResult` unchanged. It does not add result persistence,
+provenance artifacts, run IDs, run-history mutation, public backend project
+APIs, asset import/copy operations, or repository semantic validation.
 
 ## 7. Validation and run-case reuse
 
@@ -304,7 +308,9 @@ The intended delivery sequence is:
 | 5.2 | **Completed**: local JSON repository, schema and atomic save/open | run-case execution |
 | 5.3A | **Completed**: asset path/integrity/relocation foundation | project-wide validation or altered Graph semantics |
 | 5.3B | **Completed**: project validation and graph materialization | Graph execution or case orchestration |
-| 5.4 | case orchestration, run history/result codec and provenance | checkpoint/restart or distributed runtime |
+| 5.4A | **Completed**: ProjectService, one-case `run_case`, validation, asset recheck and `run_graph` delegation | result persistence or public backend Project API |
+| 5.4B | Not implemented: result artifact codec and provenance | run-history persistence |
+| 5.4C | Not implemented: run-history/result persistence integration | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and
