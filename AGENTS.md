@@ -4,7 +4,7 @@
 
 Farcel is a lightweight local FMU simulation application based on the FMI standard.
 
-The first release focuses on:
+The current released backend scope includes:
 
 - FMI 2.0 Co-Simulation
 - Basic FMI 3.0 Co-Simulation
@@ -14,6 +14,8 @@ The first release focuses on:
 - Simulation execution
 - Result collection and visualization support
 - CSV export
+- FMI 2.0 Model Exchange with CVode/BDF
+- local synchronous multi-FMU `SimulationGraph` execution
 
 The current backend implementation uses Python and FMPy.
 
@@ -82,6 +84,8 @@ Farcel currently targets:
 
 - FMI 2.0 Co-Simulation
 - Basic FMI 3.0 Co-Simulation
+- FMI 2.0 Model Exchange through Farcel-owned CVode/BDF orchestration
+- Local synchronous multi-FMU `SimulationGraph` execution
 
 "Basic FMI 3.0 Co-Simulation" does not imply complete support for every FMI 3.0 advanced capability.
 
@@ -91,7 +95,6 @@ Advanced FMI 3 features may be added incrementally.
 
 The following interfaces may be detected, parsed and displayed, but are not currently executed:
 
-- FMI 2.0 Model Exchange
 - FMI 3.0 Model Exchange
 - FMI 3.0 Scheduled Execution
 
@@ -115,9 +118,7 @@ An unsupported execution interface must not cause metadata inspection to fail un
 
 Do not implement the following unless explicitly requested:
 
-- Model Exchange solver
 - Scheduled Execution runtime
-- Multi-FMU simulation
 - Co-simulation master algorithms
 - Distributed simulation
 - Worker processes
@@ -266,7 +267,7 @@ The project has already completed:
 - error model
 - basic tests
 
-### Milestone 2 — Real FMU Metadata Inspection
+### Milestone 2 — Single-FMU execution foundation
 
 The following real chain is working:
 
@@ -292,8 +293,20 @@ Current capabilities include:
 - human-readable CLI inspection
 - JSON inspection output
 - stable error mapping
+- FMI 2.0 / 3.0 Co-Simulation execution, including supported inputs and CSV
+- FMI 2.0 Model Exchange execution through Farcel-owned CVode/BDF orchestration
 
-Real simulation execution has not yet been implemented.
+### Milestone 3 — FMI 2.0 Model Exchange
+
+- public `run_fmu()` / validation / CLI support for executable FMI 2 Model Exchange
+- Farcel-owned session, solver and result contracts; CVode/native details stay in infrastructure
+- FMI 3 Model Exchange remains inspection-only
+
+### Milestone 4 — Local multi-FMU graph execution
+
+- `SimulationGraph`, `GraphSimulationConfig`, `GraphSimulationResult`
+- public `validate_graph()` / `run_graph()` through `create_backend()`
+- local synchronous explicit-Jacobi, previous-checkpoint routing for FMI2/FMI3 Co-Simulation and FMI2 Model Exchange nodes
 
 ---
 
@@ -304,7 +317,7 @@ An FMU is currently considered executable by the Farcel MVP only when the curren
 At minimum, current execution policy considers:
 
 - supported FMI version
-- Co-Simulation availability
+- a supported interface: FMI 2/3 Co-Simulation or FMI 2 Model Exchange
 - compatible current-platform binary
 - external execution-tool requirements
 
