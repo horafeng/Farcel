@@ -3,8 +3,9 @@
 > Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
 > local JSON repository completed; Phase 5.3A asset integrity completed; Phase
 > 5.3B project validation and graph materialization completed; Phase 5.4A
-> ProjectService / `run_case` orchestration and Phase 5.4B result-artifact
-> codec/provenance completed.** Phase 5.4C run-history persistence does not exist.
+> ProjectService / `run_case` orchestration, Phase 5.4B result-artifact
+> codec/provenance, and Phase 5.4C1 result-artifact filesystem repository
+> completed.** Phase 5.4C2 run-history persistence integration does not exist.
 
 ## 1. Goals and non-goals
 
@@ -286,10 +287,20 @@ It does not save a CVode integrator state, an FMI native instance, or simulation
 time for continuation after the process closes. Checkpoint/restart and
 distributed recovery are outside Phase 5.
 
-Phase 5.4C will add only filesystem integration: atomic
-`results/<run_id>.json` writes, run-ID generation, `ProjectRunRecord` append,
-project save-back, and failure atomicity. It must reuse the 5.4B artifact codec
-rather than redefine result/provenance semantics.
+Phase 5.4C1 now persists only the independent artifact using
+`results/<run_id>.json`. It accepts portable safe run IDs (letters/digits first,
+then letters/digits/`-`/`_`/`.` only), returns the canonical relative path, and
+accepts only that exact `results/<safe-run-id>.json` shape on load. It writes
+the 5.4B codec text as UTF-8 through a sibling temporary file, flushes and
+fsyncs it, then commits atomically. Existing artifact files are immutable: a
+duplicate run ID fails rather than overwriting history. Real-path containment
+rejects traversal and symlink escape; relocation works because no absolute
+project path is stored. Format/path/codec failures use `PROJECT_FORMAT_ERROR`;
+filesystem, missing-file, and existing-target failures use `PROJECT_IO_ERROR`.
+
+Phase 5.4C2 will add run-ID generation, `ProjectRunRecord` append,
+`project.json` save-back, and cross-file failure handling. It must reuse the
+5.4B artifact codec and C1 repository rather than redefine their semantics.
 
 ## 9. Persistence and error rules
 
@@ -324,7 +335,8 @@ The intended delivery sequence is:
 | 5.3B | **Completed**: project validation and graph materialization | Graph execution or case orchestration |
 | 5.4A | **Completed**: ProjectService, one-case `run_case`, validation, asset recheck and `run_graph` delegation | result persistence or public backend Project API |
 | 5.4B | **Completed**: result artifact DTO, provenance snapshot and strict JSON codec | filesystem persistence or run-history mutation |
-| 5.4C | Not implemented: run-history/result persistence integration | checkpoint/restart or distributed runtime |
+| 5.4C1 | **Completed**: safe atomic `results/<run_id>.json` artifact repository | run-history or project persistence integration |
+| 5.4C2 | Not implemented: run/history/project persistence integration | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and

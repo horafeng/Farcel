@@ -7,6 +7,7 @@ from farcel.contracts import (
     GraphSimulationResult,
     ProjectAssetSnapshot,
     ProjectRunArtifact,
+    ProjectRunArtifactRepository,
     SimulationCase,
     SimulationGraph,
     SimulationState,
@@ -31,6 +32,10 @@ class ProjectResultContractTests(unittest.TestCase):
         self.assertTrue(hasattr(ProjectRunArtifact, "__slots__"))
         with self.assertRaises(FrozenInstanceError):
             snapshot.sha256 = "b" * 64
+
+    def test_artifact_repository_port_is_public(self) -> None:
+        self.assertTrue(hasattr(ProjectRunArtifactRepository, "save"))
+        self.assertTrue(hasattr(ProjectRunArtifactRepository, "load"))
 
 
 def _result() -> GraphSimulationResult:

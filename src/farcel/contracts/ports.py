@@ -23,6 +23,7 @@ from farcel.contracts.models import (
     ValidationReport,
 )
 from farcel.contracts.project import SimulationProject
+from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 
 
@@ -128,6 +129,14 @@ class ProjectRepository(Protocol):
     def load(self, project_root: Path) -> SimulationProject: ...
 
     def save(self, project_root: Path, project: SimulationProject) -> None: ...
+
+
+class ProjectRunArtifactRepository(Protocol):
+    """Persistence boundary for ProjectRunArtifact files."""
+
+    def save(self, project_root: Path, artifact: ProjectRunArtifact) -> str: ...
+
+    def load(self, project_root: Path, result_path: str) -> ProjectRunArtifact: ...
 
 
 class SimulationEngine(Protocol):
