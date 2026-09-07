@@ -1,9 +1,9 @@
 # Phase 5 — Simulation Project Architecture & Persistence Design
 
 > Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
-> local JSON repository completed; Phase 5.3A asset integrity completed.**
-> Phase 5.3B project validation, graph materialization, `run_case`, and result
-> persistence do not exist.
+> local JSON repository completed; Phase 5.3A asset integrity completed; Phase
+> 5.3B project validation and graph materialization completed.** Phase 5.4
+> case orchestration, `run_case`, and result persistence do not exist.
 
 ## 1. Goals and non-goals
 
@@ -207,8 +207,16 @@ persisted models/plant.fmu
 ```
 
 It neither changes the persisted graph nor gives Project knowledge to
-`GraphValidator`. Project validation must first check that every case node path
-is registered as a `ModelAsset.relative_path`.
+`GraphValidator`. Phase 5.3B checks project/case/run identifiers and duplicate
+asset paths, aggregates single-asset integrity reports, binds each case node by
+exact `ModelAsset.relative_path`, and builds this temporary absolute-path graph
+for existing `GraphValidator` validation. Project-wide validation does not add
+another FMI, parameter, connection, or timing validator.
+
+Phase 5.3B does not add `ProjectService`, `run_case`, simulation execution,
+result persistence/provenance artifacts, a public backend project API, asset
+import/copy operations, or repository semantic validation. Phase 5.4 remains a
+separate acceptance milestone.
 
 ## 7. Validation and run-case reuse
 
@@ -295,7 +303,7 @@ The intended delivery sequence is:
 | 5.1 | **Completed**: Farcel project DTO/port and contract tests | persistence/runtime |
 | 5.2 | **Completed**: local JSON repository, schema and atomic save/open | run-case execution |
 | 5.3A | **Completed**: asset path/integrity/relocation foundation | project-wide validation or altered Graph semantics |
-| 5.3B | Not implemented: project validation and graph materialization | Graph execution or case orchestration |
+| 5.3B | **Completed**: project validation and graph materialization | Graph execution or case orchestration |
 | 5.4 | case orchestration, run history/result codec and provenance | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
