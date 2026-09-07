@@ -1,9 +1,9 @@
 # Phase 5 — Simulation Project Architecture & Persistence Design
 
 > Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
-> local JSON repository completed.** The canonical UTF-8 `project.json` codec
-> and atomic local repository now exist. Phase 5.3+ validation, safe path
-> resolution, `run_case`, and result persistence do not.
+> local JSON repository completed; Phase 5.3A asset integrity completed.**
+> Phase 5.3B project validation, graph materialization, `run_case`, and result
+> persistence do not exist.
 
 ## 1. Goals and non-goals
 
@@ -181,10 +181,13 @@ value-reference mapping objects, or NumPy values into project JSON. Current FMI
 metadata still comes from `backend.load_fmu()` / the existing `ModelImporter`.
 
 All JSON paths use canonical project-relative `/` separators. `sha256` is the
-SHA-256 of the asset file bytes, encoded as lowercase hexadecimal. The project
-layer must later reject empty/bad paths, absolute paths, `../` traversal,
-path traversal through symlinks, and every path resolving outside the supplied
-project root.
+SHA-256 of the asset file bytes, encoded as lowercase hexadecimal. Phase 5.3A
+now checks one `ModelAsset` against an explicitly supplied project root:
+canonical relative syntax (including cross-platform absolute-path rejection),
+resolved-root containment including symlink escape, existing regular file,
+64-character lowercase SHA-256 syntax, and streamed file-content checksum.
+These checks enable relocation after a whole project directory is copied. They
+do not validate project-wide duplicates, case bindings, or graph semantics.
 
 Most importantly, `asset_id` is not `ModelNode.model_path`. The existing
 `ModelNode.model_path` meaning does not change. A persisted case graph contains
@@ -291,7 +294,8 @@ The intended delivery sequence is:
 |---|---|---|
 | 5.1 | **Completed**: Farcel project DTO/port and contract tests | persistence/runtime |
 | 5.2 | **Completed**: local JSON repository, schema and atomic save/open | run-case execution |
-| 5.3 | project validation, path resolution, relocation acceptance | altered Graph semantics |
+| 5.3A | **Completed**: asset path/integrity/relocation foundation | project-wide validation or altered Graph semantics |
+| 5.3B | Not implemented: project validation and graph materialization | Graph execution or case orchestration |
 | 5.4 | case orchestration, run history/result codec and provenance | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
