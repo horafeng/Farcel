@@ -45,6 +45,11 @@ from farcel.contracts.project import (
     SimulationCase,
     SimulationProject,
 )
+from farcel.contracts.project_result import (
+    PROJECT_RUN_ARTIFACT_SCHEMA_VERSION,
+    ProjectAssetSnapshot,
+    ProjectRunArtifact,
+)
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     ModelImporter,
@@ -85,8 +90,11 @@ __all__ = [
     "ModelNodeConfig",
     "PortReference",
     "PROJECT_SCHEMA_VERSION",
+    "PROJECT_RUN_ARTIFACT_SCHEMA_VERSION",
+    "ProjectAssetSnapshot",
     "ProjectRepository",
     "ProjectRunRecord",
+    "ProjectRunArtifact",
     "ResultChunk",
     "ResultExporter",
     "RunControl",

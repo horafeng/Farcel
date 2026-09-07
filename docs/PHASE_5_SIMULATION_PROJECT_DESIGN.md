@@ -3,8 +3,8 @@
 > Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed; Phase 5.2
 > local JSON repository completed; Phase 5.3A asset integrity completed; Phase
 > 5.3B project validation and graph materialization completed; Phase 5.4A
-> ProjectService / `run_case` orchestration completed.** Phase 5.4B result
-> artifact codec/provenance and Phase 5.4C run-history persistence do not exist.
+> ProjectService / `run_case` orchestration and Phase 5.4B result-artifact
+> codec/provenance completed.** Phase 5.4C run-history persistence does not exist.
 
 ## 1. Goals and non-goals
 
@@ -254,7 +254,23 @@ does not add numerical execution semantics.
 
 ## 8. Run history, result artifacts, and restoration
 
-Each v1 persisted run uses `results/<run_id>.json`. A `ProjectRunRecord`
+Phase 5.4B freezes the independent `ProjectRunArtifact` schema version at
+`"1.0"`. Its in-memory artifact contains `run_id`, `project_id`, a complete
+persisted-relative `SimulationCase` snapshot, first-use-ordered snapshots of
+only the case's used assets (`asset_id`, `relative_path`, `sha256`), and the
+canonical `GraphSimulationResult`. The provenance builder does not read files
+or rehash assets: it snapshots the checksum that 5.4A already rechecked.
+
+The corresponding JSON codec is string-only in 5.4B. It uses strict top-level
+fields, UTF-8 JSON style (`ensure_ascii=False`, two-space indentation, trailing
+newline), and `allow_nan=False`. Finite floats remain JSON numbers; result
+samples use exactly `{"$farcel_float":"nan"}`,
+`{"$farcel_float":"positive_infinity"}`, or
+`{"$farcel_float":"negative_infinity"}` for non-finite floats. Raw JSON
+`NaN`/`Infinity` constants are rejected. Nested result outputs remain
+`node_id → variable_name → samples`, and decoded arrays are tuples.
+
+Each future persisted run will use `results/<run_id>.json`. A `ProjectRunRecord`
 records at least `run_id`, `case_id`, `completion_state`, `final_time`,
 `completed_steps`, and canonical project-relative `result_path`.
 
@@ -270,12 +286,10 @@ It does not save a CVode integrator state, an FMI native instance, or simulation
 time for continuation after the process closes. Checkpoint/restart and
 distributed recovery are outside Phase 5.
 
-The future result JSON codec must round-trip canonical timestamps,
-completion state, nested `node_id → variable_name → samples`, nested arrays,
-Boolean, String, Enumeration and numeric values. It must not flatten output
-names into `node.variable` strings. Before implementation it must specify an
-explicit standard-JSON representation for NaN and positive/negative infinity;
-relying on an undocumented non-standard JSON encoder behavior is forbidden.
+Phase 5.4C will add only filesystem integration: atomic
+`results/<run_id>.json` writes, run-ID generation, `ProjectRunRecord` append,
+project save-back, and failure atomicity. It must reuse the 5.4B artifact codec
+rather than redefine result/provenance semantics.
 
 ## 9. Persistence and error rules
 
@@ -309,7 +323,7 @@ The intended delivery sequence is:
 | 5.3A | **Completed**: asset path/integrity/relocation foundation | project-wide validation or altered Graph semantics |
 | 5.3B | **Completed**: project validation and graph materialization | Graph execution or case orchestration |
 | 5.4A | **Completed**: ProjectService, one-case `run_case`, validation, asset recheck and `run_graph` delegation | result persistence or public backend Project API |
-| 5.4B | Not implemented: result artifact codec and provenance | run-history persistence |
+| 5.4B | **Completed**: result artifact DTO, provenance snapshot and strict JSON codec | filesystem persistence or run-history mutation |
 | 5.4C | Not implemented: run-history/result persistence integration | checkpoint/restart or distributed runtime |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
