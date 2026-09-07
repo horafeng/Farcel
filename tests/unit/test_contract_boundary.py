@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import graph, models
+from farcel.contracts import graph, models, project
 
 
 class ContractBoundaryTests(unittest.TestCase):
@@ -36,6 +36,10 @@ class ContractBoundaryTests(unittest.TestCase):
             graph.SimulationGraph,
             graph.GraphSimulationConfig,
             graph.GraphSimulationResult,
+            project.ModelAsset,
+            project.SimulationCase,
+            project.ProjectRunRecord,
+            project.SimulationProject,
         )
 
         annotations = []
@@ -43,8 +47,13 @@ class ContractBoundaryTests(unittest.TestCase):
             hints = get_type_hints(contract_type)
             annotations.extend(str(hints[field.name]) for field in fields(contract_type))
 
+        forbidden = ("fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure")
         self.assertTrue(
-            all("fmpy" not in annotation.lower() for annotation in annotations)
+            all(
+                forbidden_name not in annotation.lower()
+                for annotation in annotations
+                for forbidden_name in forbidden
+            )
         )
 
     def test_graph_result_annotations_are_public_contract_types_only(self) -> None:

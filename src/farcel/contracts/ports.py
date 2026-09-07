@@ -22,6 +22,7 @@ from farcel.contracts.models import (
     StepResult,
     ValidationReport,
 )
+from farcel.contracts.project import SimulationProject
 from farcel.contracts.run_control import RunControl
 
 
@@ -119,6 +120,14 @@ class ResultExporter(Protocol):
     def export(
         self, result: SimulationResult, destination: Path
     ) -> ExportReport: ...
+
+
+class ProjectRepository(Protocol):
+    """Persistence boundary for a SimulationProject directory."""
+
+    def load(self, project_root: Path) -> SimulationProject: ...
+
+    def save(self, project_root: Path, project: SimulationProject) -> None: ...
 
 
 class SimulationEngine(Protocol):

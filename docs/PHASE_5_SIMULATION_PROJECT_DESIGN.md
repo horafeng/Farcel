@@ -1,9 +1,9 @@
 # Phase 5 — Simulation Project Architecture & Persistence Design
 
-> Status: **Phase 5.0 design frozen.** This document specifies the boundary
-> for later Phase 5 work. No `SimulationProject` contract, project repository,
-> JSON codec, save/open API, `run_case`, or result persistence exists in this
-> phase.
+> Status: **Phase 5.0 design frozen; Phase 5.1 contracts completed.** This
+> document specifies the boundary for later Phase 5 work. The declarative
+> project DTOs and `ProjectRepository` port now exist; Phase 5.2+ JSON codec,
+> save/open API, validation, `run_case`, and result persistence do not.
 
 ## 1. Goals and non-goals
 
@@ -286,7 +286,7 @@ The intended delivery sequence is:
 
 | Stage | Planned scope | Explicitly not delivered by Phase 5.0 |
 |---|---|---|
-| 5.1 | Farcel project DTO/port and contract tests | persistence/runtime |
+| 5.1 | **Completed**: Farcel project DTO/port and contract tests | persistence/runtime |
 | 5.2 | local JSON repository, schema and atomic save/open | run-case execution |
 | 5.3 | project validation, path resolution, relocation acceptance | altered Graph semantics |
 | 5.4 | case orchestration, run history/result codec and provenance | checkpoint/restart or distributed runtime |
