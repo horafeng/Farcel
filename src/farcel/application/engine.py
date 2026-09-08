@@ -20,6 +20,8 @@ from farcel.application.node_runtime import (
     CoSimulationNodeRuntimeFactory,
     ModelExchangeNodeRuntimeFactory,
 )
+from farcel.application.project_run_persistence import ProjectRunPersistenceService
+from farcel.application.project_service import ProjectService
 from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
@@ -192,6 +194,30 @@ class FarcelEngine:
         artifact = repository.load(Path(project_root), record.result_path)
         self._validate_project_run_artifact(project, record, artifact)
         return artifact
+
+    def run_project_case(
+        self,
+        project_root: str | Path,
+        project: SimulationProject,
+        case_id: str,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+    ) -> tuple[SimulationProject, ProjectRunRecord, GraphSimulationResult]:
+        project_repository = self._require_project_repository()
+        artifact_repository = self._require_project_run_artifact_repository()
+        root = Path(project_root)
+        result = ProjectService(self._project_validator, self.run_graph).run_case(
+            root,
+            project,
+            case_id,
+            control=control,
+            on_progress=on_progress,
+        )
+        updated_project, record = ProjectRunPersistenceService(
+            project_repository, artifact_repository
+        ).persist_run(root, project, case_id, result)
+        return updated_project, record, result
 
     def create_session(
         self, model_id: str, config: SimulationConfig

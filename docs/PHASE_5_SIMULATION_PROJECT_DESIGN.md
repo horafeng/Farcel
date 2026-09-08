@@ -6,8 +6,8 @@
 > ProjectService / `run_case` orchestration, Phase 5.4B result-artifact
 > codec/provenance, Phase 5.4C1 result-artifact filesystem repository, and
 > Phase 5.4C2 run-history/project persistence integration completed; Phase
-> 5.5A public project lifecycle API and Phase 5.5B public historical run
-> loading API completed.**
+> 5.5A public project lifecycle API, Phase 5.5B public historical run loading
+> API, and Phase 5.5C public persistent project-case execution API completed.**
 
 ## 1. Goals and non-goals
 
@@ -324,8 +324,40 @@ ProjectRunArtifactRepository → ProjectRunArtifact`. It uses only the exact
 history record and immutable artifact: it does not revalidate current FMUs or
 assets, compare the current case with `artifact.case_snapshot`, mutate the
 project, or execute a simulation. This permits historical results to remain
-readable after a current asset is removed or a case is edited. Phase 5.5C is
-reserved for public persistent project-case execution only.
+readable after a current asset is removed or a case is edited. Phase 5.5C now
+provides the public persistent project-case execution facade:
+
+```python
+updated_project, run_record, result = backend.run_project_case(
+    project_root,
+    project,
+    case_id,
+    control=None,
+    on_progress=None,
+)
+```
+
+It executes the caller-supplied project snapshot through the existing
+`ProjectService.run_case`, then persists the resulting canonical graph result
+through the existing `ProjectRunPersistenceService.persist_run`. The input
+project remains unchanged; callers use `updated_project` as their next current
+project state. A successful return means the artifact and updated `project.json`
+are committed, so `load_project_run` can immediately restore the history item.
+`STOPPED` results follow the same persistence path.
+
+The public lifecycle is therefore:
+
+```python
+backend = create_backend()
+project = backend.open_project(root)
+backend.validate_project(root, project)
+project, record, result = backend.run_project_case(root, project, "case-1")
+historical = backend.load_project_run(root, project, record.run_id)
+```
+
+Phase 5.5C adds no project scheduler or numerical runner, checkpoint/restart,
+database transaction, distributed runtime, CLI project command, GUI, public
+example, case CRUD helper, or asset import/copy workflow.
 
 The frozen cross-file failure policy is deliberately not a transaction: if the
 artifact save fails, `project.json` is untouched. If artifact save succeeds but
@@ -372,7 +404,8 @@ The intended delivery sequence is:
 | 5.4C2 | **Completed**: artifact-first run history and project persistence integration | public backend Project API or checkpoint/restart |
 | 5.5A | **Completed**: public project open/save/validate lifecycle API | historical result loading or persistent project-case execution |
 | 5.5B | **Completed**: public historical run loading | persistent project-case execution |
-| 5.5C | Not implemented: public persistent project-case execution | later project capabilities |
+| 5.5C | **Completed**: public persistent project-case execution | public example and final Phase 5 hardening |
+| 5.6 | Not implemented: public project example, frontend integration documentation and final Phase 5 acceptance/hardening | later product work |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and
