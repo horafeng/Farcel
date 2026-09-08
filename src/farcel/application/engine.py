@@ -20,6 +20,7 @@ from farcel.application.node_runtime import (
     CoSimulationNodeRuntimeFactory,
     ModelExchangeNodeRuntimeFactory,
 )
+from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
@@ -41,10 +42,12 @@ from farcel.contracts.graph import (
     GraphSimulationResult,
     SimulationGraph,
 )
+from farcel.contracts.project import SimulationProject
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     ModelExchangeSessionFactory,
     ModelImporter,
+    ProjectRepository,
     ResultExporter,
     SessionFactory,
     SimulationSession,
@@ -74,8 +77,11 @@ class FarcelEngine:
         result_exporter: ResultExporter | None = None,
         model_exchange_session_factory: ModelExchangeSessionFactory | None = None,
         solver_factory: SolverFactory | None = None,
+        project_repository: ProjectRepository | None = None,
     ) -> None:
         self._importer = importer
+        self._project_repository = project_repository
+        self._project_validator = ProjectValidator(importer)
         self._session_factory = session_factory
         self._result_exporter = result_exporter
         self._models: dict[str, ModelMetadata] = {}
@@ -120,6 +126,28 @@ class FarcelEngine:
             raise EngineError(
                 ErrorCode.CONFIG_ERROR,
                 "Graph 仿真配置验证失败",
+                self._validation_report_details(report),
+            )
+        return report
+
+    def open_project(self, project_root: str | Path) -> SimulationProject:
+        repository = self._require_project_repository()
+        return repository.load(Path(project_root))
+
+    def save_project(
+        self, project_root: str | Path, project: SimulationProject
+    ) -> None:
+        repository = self._require_project_repository()
+        repository.save(Path(project_root), project)
+
+    def validate_project(
+        self, project_root: str | Path, project: SimulationProject
+    ) -> ValidationReport:
+        report = self._project_validator.validate(Path(project_root), project)
+        if not report.is_valid:
+            raise EngineError(
+                ErrorCode.CONFIG_ERROR,
+                "项目验证失败",
                 self._validation_report_details(report),
             )
         return report
@@ -276,6 +304,11 @@ class FarcelEngine:
         if self._result_exporter is None:
             raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置结果导出实现")
         return self._result_exporter.export(result, Path(destination))
+
+    def _require_project_repository(self) -> ProjectRepository:
+        if self._project_repository is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置项目存储实现")
+        return self._project_repository
 
     def _get_session(self, handle: SessionHandle) -> _SessionRecord:
         try:

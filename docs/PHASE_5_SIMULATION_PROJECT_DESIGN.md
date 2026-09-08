@@ -5,8 +5,8 @@
 > 5.3B project validation and graph materialization completed; Phase 5.4A
 > ProjectService / `run_case` orchestration, Phase 5.4B result-artifact
 > codec/provenance, Phase 5.4C1 result-artifact filesystem repository, and
-> Phase 5.4C2 run-history/project persistence integration completed.** Public
-> backend Project APIs do not exist.
+> Phase 5.4C2 run-history/project persistence integration completed; Phase
+> 5.5A public project lifecycle API completed.**
 
 ## 1. Goals and non-goals
 
@@ -226,8 +226,12 @@ APIs, asset import/copy operations, or repository semantic validation.
 
 ## 7. Validation and run-case reuse
 
-The future `backend.validate_project(...)` operation returns project semantic
-failures as `CONFIG_ERROR` with a `ValidationReport`. It owns project schema and
+Phase 5.5A exposes `open_project(...)`, `save_project(...)`, and
+`validate_project(...)` on the public backend created by `create_backend()`.
+Open and save are structural repository operations: they do not automatically
+perform semantic project validation. Validation returns a valid
+`ValidationReport` or reports project semantic failures as `CONFIG_ERROR` with
+the stable issue details format. It owns project schema and
 identity checks, asset/case/run record consistency, safe relative paths, asset
 existence, SHA-256 integrity, and resolved-graph materialization.
 
@@ -308,6 +312,10 @@ and appends `ProjectRunRecord` in a new immutable `SimulationProject` before
 saving `project.json`. `COMPLETED` and `STOPPED` results both follow this path.
 The caller's project object is unchanged and existing history order is kept.
 
+Phase 5.5B is reserved for public historical run loading only. Phase 5.5C is
+reserved for public persistent project-case execution only; neither is exposed
+by the Phase 5.5A lifecycle API.
+
 The frozen cross-file failure policy is deliberately not a transaction: if the
 artifact save fails, `project.json` is untouched. If artifact save succeeds but
 the project save fails, the artifact remains as an immutable orphan and the old
@@ -325,8 +333,8 @@ then uses atomic replacement. It never truncates an existing `project.json`
 before a new valid document is ready; I/O failure leaves the prior document
 intact and best-effort removes the temporary file.
 
-Project semantic validation remains a future `CONFIG_ERROR` plus
-`ValidationReport` concern. Phase 5.2 adds stable, additive
+Project semantic validation is available through the Phase 5.5A public facade
+as `CONFIG_ERROR` plus `ValidationReport` concern. Phase 5.2 adds stable, additive
 `PROJECT_FORMAT_ERROR` and `PROJECT_IO_ERROR` codes for malformed/unsupported
 documents and filesystem failures. `EXPORT_ERROR` is not repurposed for project
 load/save.
@@ -351,6 +359,9 @@ The intended delivery sequence is:
 | 5.4B | **Completed**: result artifact DTO, provenance snapshot and strict JSON codec | filesystem persistence or run-history mutation |
 | 5.4C1 | **Completed**: safe atomic `results/<run_id>.json` artifact repository | run-history or project persistence integration |
 | 5.4C2 | **Completed**: artifact-first run history and project persistence integration | public backend Project API or checkpoint/restart |
+| 5.5A | **Completed**: public project open/save/validate lifecycle API | historical result loading or persistent project-case execution |
+| 5.5B | Future: public historical run loading | persistent project-case execution |
+| 5.5C | Future: public persistent project-case execution | later project capabilities |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and
