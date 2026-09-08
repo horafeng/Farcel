@@ -8,7 +8,10 @@ from farcel.infrastructure.fmpy import (
     FmpyImporter,
     FmpySessionFactory,
 )
-from farcel.infrastructure.project import LocalJsonProjectRepository
+from farcel.infrastructure.project import (
+    LocalJsonProjectRepository,
+    LocalJsonProjectRunArtifactRepository,
+)
 
 
 def create_backend() -> FarcelEngine:
@@ -22,4 +25,5 @@ def create_backend() -> FarcelEngine:
         model_exchange_session_factory=FmpyFmi2ModelExchangeSessionFactory(),
         solver_factory=FmpyCvodeSolverFactory(),
         project_repository=LocalJsonProjectRepository(),
+        project_run_artifact_repository=LocalJsonProjectRunArtifactRepository(),
     )

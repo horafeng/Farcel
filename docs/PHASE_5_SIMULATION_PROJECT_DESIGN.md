@@ -6,7 +6,8 @@
 > ProjectService / `run_case` orchestration, Phase 5.4B result-artifact
 > codec/provenance, Phase 5.4C1 result-artifact filesystem repository, and
 > Phase 5.4C2 run-history/project persistence integration completed; Phase
-> 5.5A public project lifecycle API completed.**
+> 5.5A public project lifecycle API and Phase 5.5B public historical run
+> loading API completed.**
 
 ## 1. Goals and non-goals
 
@@ -312,9 +313,19 @@ and appends `ProjectRunRecord` in a new immutable `SimulationProject` before
 saving `project.json`. `COMPLETED` and `STOPPED` results both follow this path.
 The caller's project object is unchanged and existing history order is kept.
 
-Phase 5.5B is reserved for public historical run loading only. Phase 5.5C is
-reserved for public persistent project-case execution only; neither is exposed
-by the Phase 5.5A lifecycle API.
+Phase 5.5B exposes public historical run loading without adding execution:
+
+```python
+backend.load_project_run(project_root, project, run_id) -> ProjectRunArtifact
+```
+
+The facade follows `run_id → ProjectRunRecord → result_path →
+ProjectRunArtifactRepository → ProjectRunArtifact`. It uses only the exact
+history record and immutable artifact: it does not revalidate current FMUs or
+assets, compare the current case with `artifact.case_snapshot`, mutate the
+project, or execute a simulation. This permits historical results to remain
+readable after a current asset is removed or a case is edited. Phase 5.5C is
+reserved for public persistent project-case execution only.
 
 The frozen cross-file failure policy is deliberately not a transaction: if the
 artifact save fails, `project.json` is untouched. If artifact save succeeds but
@@ -360,8 +371,8 @@ The intended delivery sequence is:
 | 5.4C1 | **Completed**: safe atomic `results/<run_id>.json` artifact repository | run-history or project persistence integration |
 | 5.4C2 | **Completed**: artifact-first run history and project persistence integration | public backend Project API or checkpoint/restart |
 | 5.5A | **Completed**: public project open/save/validate lifecycle API | historical result loading or persistent project-case execution |
-| 5.5B | Future: public historical run loading | persistent project-case execution |
-| 5.5C | Future: public persistent project-case execution | later project capabilities |
+| 5.5B | **Completed**: public historical run loading | persistent project-case execution |
+| 5.5C | Not implemented: public persistent project-case execution | later project capabilities |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and
