@@ -20,6 +20,9 @@ from farcel.application.node_runtime import (
     CoSimulationNodeRuntimeFactory,
     ModelExchangeNodeRuntimeFactory,
 )
+from farcel.application.project_run_persistence import ProjectRunPersistenceService
+from farcel.application.project_service import ProjectService
+from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import (
@@ -41,10 +44,14 @@ from farcel.contracts.graph import (
     GraphSimulationResult,
     SimulationGraph,
 )
+from farcel.contracts.project import ProjectRunRecord, SimulationProject
+from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     ModelExchangeSessionFactory,
     ModelImporter,
+    ProjectRepository,
+    ProjectRunArtifactRepository,
     ResultExporter,
     SessionFactory,
     SimulationSession,
@@ -74,8 +81,13 @@ class FarcelEngine:
         result_exporter: ResultExporter | None = None,
         model_exchange_session_factory: ModelExchangeSessionFactory | None = None,
         solver_factory: SolverFactory | None = None,
+        project_repository: ProjectRepository | None = None,
+        project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
     ) -> None:
         self._importer = importer
+        self._project_repository = project_repository
+        self._project_run_artifact_repository = project_run_artifact_repository
+        self._project_validator = ProjectValidator(importer)
         self._session_factory = session_factory
         self._result_exporter = result_exporter
         self._models: dict[str, ModelMetadata] = {}
@@ -123,6 +135,89 @@ class FarcelEngine:
                 self._validation_report_details(report),
             )
         return report
+
+    def open_project(self, project_root: str | Path) -> SimulationProject:
+        repository = self._require_project_repository()
+        return repository.load(Path(project_root))
+
+    def save_project(
+        self, project_root: str | Path, project: SimulationProject
+    ) -> None:
+        repository = self._require_project_repository()
+        repository.save(Path(project_root), project)
+
+    def validate_project(
+        self, project_root: str | Path, project: SimulationProject
+    ) -> ValidationReport:
+        report = self._project_validator.validate(Path(project_root), project)
+        if not report.is_valid:
+            raise EngineError(
+                ErrorCode.CONFIG_ERROR,
+                "项目验证失败",
+                self._validation_report_details(report),
+            )
+        return report
+
+    def load_project_run(
+        self,
+        project_root: str | Path,
+        project: SimulationProject,
+        run_id: str,
+    ) -> ProjectRunArtifact:
+        repository = self._require_project_run_artifact_repository()
+        matches = tuple(
+            record for record in project.run_history if record.run_id == run_id
+        )
+        if not matches:
+            raise self._project_run_lookup_error(
+                "UNKNOWN_RUN_ID", "请求的历史 run_id 不存在"
+            )
+        if len(matches) > 1:
+            raise self._project_run_lookup_error(
+                "DUPLICATE_RUN_ID", "run_id 在 run_history 中不唯一"
+            )
+
+        record = matches[0]
+        expected_path = f"results/{record.run_id}.json"
+        if record.result_path != expected_path:
+            raise EngineError(
+                ErrorCode.PROJECT_FORMAT_ERROR,
+                "ProjectRunRecord.result_path 与 run_id 不一致",
+                {
+                    "run_id": record.run_id,
+                    "field": "result_path",
+                    "record_value": record.result_path,
+                    "expected_value": expected_path,
+                },
+            )
+
+        artifact = repository.load(Path(project_root), record.result_path)
+        self._validate_project_run_artifact(project, record, artifact)
+        return artifact
+
+    def run_project_case(
+        self,
+        project_root: str | Path,
+        project: SimulationProject,
+        case_id: str,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+    ) -> tuple[SimulationProject, ProjectRunRecord, GraphSimulationResult]:
+        project_repository = self._require_project_repository()
+        artifact_repository = self._require_project_run_artifact_repository()
+        root = Path(project_root)
+        result = ProjectService(self._project_validator, self.run_graph).run_case(
+            root,
+            project,
+            case_id,
+            control=control,
+            on_progress=on_progress,
+        )
+        updated_project, record = ProjectRunPersistenceService(
+            project_repository, artifact_repository
+        ).persist_run(root, project, case_id, result)
+        return updated_project, record, result
 
     def create_session(
         self, model_id: str, config: SimulationConfig
@@ -276,6 +371,80 @@ class FarcelEngine:
         if self._result_exporter is None:
             raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置结果导出实现")
         return self._result_exporter.export(result, Path(destination))
+
+    def _require_project_repository(self) -> ProjectRepository:
+        if self._project_repository is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置项目存储实现")
+        return self._project_repository
+
+    def _require_project_run_artifact_repository(
+        self,
+    ) -> ProjectRunArtifactRepository:
+        if self._project_run_artifact_repository is None:
+            raise EngineError(
+                ErrorCode.NOT_IMPLEMENTED,
+                "未配置 ProjectRunArtifactRepository",
+            )
+        return self._project_run_artifact_repository
+
+    @staticmethod
+    def _project_run_lookup_error(issue_code: str, issue_message: str) -> EngineError:
+        return EngineError(
+            ErrorCode.CONFIG_ERROR,
+            "历史运行查询配置无效",
+            {
+                "issues": (
+                    {
+                        "field": "run_id",
+                        "code": issue_code,
+                        "message": issue_message,
+                    },
+                )
+            },
+        )
+
+    @staticmethod
+    def _validate_project_run_artifact(
+        project: SimulationProject,
+        record: ProjectRunRecord,
+        artifact: ProjectRunArtifact,
+    ) -> None:
+        checks = (
+            ("artifact.run_id", record.run_id, artifact.run_id),
+            ("artifact.project_id", project.project_id, artifact.project_id),
+            (
+                "artifact.case_snapshot.case_id",
+                record.case_id,
+                artifact.case_snapshot.case_id,
+            ),
+            (
+                "artifact.result.completion_state",
+                record.completion_state.value,
+                artifact.result.completion_state.value,
+            ),
+            (
+                "artifact.result.final_time",
+                record.final_time,
+                artifact.result.final_time,
+            ),
+            (
+                "artifact.result.completed_steps",
+                record.completed_steps,
+                artifact.result.completed_steps,
+            ),
+        )
+        for field, record_value, artifact_value in checks:
+            if record_value != artifact_value:
+                raise EngineError(
+                    ErrorCode.PROJECT_FORMAT_ERROR,
+                    "ProjectRunRecord 与 ProjectRunArtifact 不一致",
+                    {
+                        "run_id": record.run_id,
+                        "field": field,
+                        "record_value": record_value,
+                        "artifact_value": artifact_value,
+                    },
+                )
 
     def _get_session(self, handle: SessionHandle) -> _SessionRecord:
         try:

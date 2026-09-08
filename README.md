@@ -8,13 +8,14 @@ Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平�
 - FMI 3 Co-Simulation 的 capability-gated Event Mode 与 Early Return、数组、标量 structural parameter；以及 Farcel-owned `RunControl`、`RunProgress`、`ResultChunk`。
 - FMI 2.0 Model Exchange 已通过 public `run_fmu()`、validation、metadata 与 CLI 暴露：session、CVode、event coordinator、canonical result、sampling、Stop、Progress、ResultChunk 与 cleanup 均复用同一套 Farcel contracts。双接口 FMU 默认优先 Co-Simulation；FMI 3 Model Exchange 与 Scheduled Execution 仍为 inspect-only。
 - 本机同步 multi-FMU `SimulationGraph`：public `validate_graph()` / `run_graph()`、FMI2/FMI3 Co-Simulation 混合连接、FMI2 CS/ME coupling、explicit Jacobi previous-checkpoint routing、global `RunControl` / `RunProgress` 和 nested `GraphSimulationResult` 已完成。图的全局时间属于 `GraphSimulationConfig`，节点配置属于 `ModelNodeConfig`。
+- Phase 5 backend project layer：`SimulationProject`、`ModelAsset`、`SimulationCase`、portable `project.json`、SHA-256 asset validation、project-relative graph persistence、relocation、RunHistory 与 `results/<run_id>.json` 已完成。默认 backend 提供 public `save_project()`、`open_project()`、`validate_project()`、`run_project_case()` 和 `load_project_run()`。
 - GUI 在独立分支开发，仍应通过公共 `create_backend()` API 调用后端；现有 GUI/CLI → application → contracts ← infrastructure 边界不变。
 
 当前桌面技术路线为 PySide6 GUI、Python application orchestration、FMPy adapter 与 native FMU；结果呈现可使用 PySide6 + matplotlib。未来可在不改变公共 contracts 的前提下加入 solver adapter，并按性能或 HIL 需求使用 native worker / C++ 实现。
 
 ## Planned（规划中，尚未实现）
 
-Phase 5 才进入 simulation project、graph editor、persistence 与 GUI workflow；Simulink / AMESim / ANSYS direct adapter 仍没有实现。现有 graph 只支持经已验证 FMU runtime 的本机同步组合。
+Phase 5 backend project engineering-management layer 已实现；PySide6 Project/Graph editor、canvas、scope 与 project UI 仍是独立 frontend 工作。Simulink / AMESim / ANSYS direct adapter 仍没有实现。现有 graph 只支持经已验证 FMU runtime 的本机同步组合。
 
 ## Long-term（远期方向，尚未实现）
 
@@ -28,7 +29,7 @@ FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled i
 
 当前后端的公开执行范围为 FMI 2 Co-Simulation、FMI 2 Model Exchange 与 FMI 3 Co-Simulation。`execution_interface=None` 时按当前可执行能力选择，双接口 FMU 始终优先 Co-Simulation；显式接口绝不静默回退。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
 
-仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、distributed simulation、HIL/real-time、graph persistence/project manager、graph CSV export 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。
+仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、distributed simulation、HIL/real-time、checkpoint/restart、database/server project store、graph CSV export 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。
 
 官方 Reference FMU v0.0.41 已真实验证的 FMI 3 Co-Simulation scalar runtime 类型包括 Float32、Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String 和 Enumeration。Binary 与 Clock 仍可在 metadata 中 inspect；Binary input 或 selected output 在 validation 阶段稳定拒绝，Clock 所在的 Scheduled Execution FMU 保持 inspect-only。Resource FMU 的 `resources/y.txt` 访问也已完成真实运行与 cleanup 回归。
 
@@ -196,3 +197,37 @@ result = backend.run_graph(graph, config)
 ```
 
 Graph v1 is synchronous and uses explicit Jacobi / previous-checkpoint ZOH: `A(t_k)` drives B throughout `[t_k, t_k+1]`; feedback and self-loops are legal but one-checkpoint delayed. A routing source is read even when it is not selected for recording, but it does not automatically appear in `GraphSimulationResult`. A complete executable example is [examples/graph_api_example.py](examples/graph_api_example.py).
+
+## Project API Quick Start
+
+Project persistence uses the supplied project root as runtime context; absolute
+project paths are not serialized. A project directory has this portable shape:
+
+```text
+MyProject/
+├── project.json
+├── models/
+│   └── plant.fmu
+└── results/
+    └── <run_id>.json
+```
+
+After constructing public `SimulationProject`, `ModelAsset`, and
+`SimulationCase` DTOs, consumers use the same default backend for the complete
+lifecycle:
+
+```python
+backend = create_backend()
+backend.save_project(root, project)
+project = backend.open_project(root)
+backend.validate_project(root, project)
+project, record, result = backend.run_project_case(root, project, case_id)
+historical = backend.load_project_run(root, project, record.run_id)
+```
+
+`run_project_case()` is synchronous; GUI callers own worker scheduling and
+replace their current project state with the returned `project`. The complete,
+self-checking public consumer example is
+[examples/project_api_example.py](examples/project_api_example.py). Project
+API semantics and frontend ownership are documented in
+[docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md).

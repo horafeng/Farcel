@@ -4,14 +4,28 @@
 
 ## 1. Backend Capabilities
 
-当前默认后端提供六个完整用例：
+当前默认后端提供三组工作流：
+
+### Single-FMU workflow
 
 - inspect：读取 FMI 2.0 / 3.0 元数据，并区分“可解析”与“Farcel 当前可执行”。
 - validate：在实例化前验证时间、执行能力、参数覆盖和所选输出。
 - run：同步执行单个 FMI 2.0 Co-Simulation、FMI 2.0 Model Exchange 或 FMI 3.0 Co-Simulation FMU，返回 canonical `SimulationResult`；FMI 3 Event Mode、Early Return，以及按默认或有效尺寸解析的数组按当前 capability 与 metadata 支持。
 - export：将已经完成的 `SimulationResult` 导出为 CSV，不重新运行 FMU。
-- graph validate：在 native runtime 创建前验证 `SimulationGraph`、全局时间、node metadata、connection causality/type/shape 与 driver conflict。
-- graph run：同步执行本机 multi-FMU graph，返回 nested `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
+
+### SimulationGraph workflow
+
+- `validate_graph`：验证 public `SimulationGraph` 与 `GraphSimulationConfig`；
+- `run_graph`：同步执行本机 multi-FMU graph，返回 nested
+  `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
+
+### SimulationProject workflow
+
+- `save_project` / `open_project`：结构化 `project.json` persistence；
+- `validate_project`：显式 project semantic validation；
+- `run_project_case`：执行一个 `SimulationCase`、保存 artifact，并返回更新后的
+  project history；
+- `load_project_run`：按 `run_id` 恢复 immutable historical provenance/result。
 
 FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
 
@@ -37,6 +51,12 @@ from farcel.contracts import (
     ResultChunk,
     RunControl,
     RunProgress,
+    ModelAsset,
+    SimulationCase,
+    SimulationProject,
+    ProjectRunRecord,
+    ProjectRunArtifact,
+    ProjectAssetSnapshot,
     SimulationConfig,
     SimulationGraph,
     SimulationResult,
@@ -68,7 +88,8 @@ from farcel import create_backend
 backend = create_backend()
 ```
 
-该函数封装当前 importer、session factory 和 CSV exporter 的选择。未来替换 FMPy backend 时，GUI 工作流无需了解具体实现。
+该函数封装当前 importer、session factory、CSV exporter 和 local Project
+repositories 的选择。未来替换 FMPy backend 时，GUI 工作流无需了解具体实现。
 
 ## 5. Inspect Workflow
 
@@ -323,7 +344,7 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`load_project_run`；
 - 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
@@ -379,3 +400,96 @@ Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, graph CSV
 export, or graph CLI. Existing `ResultChunk` and `export_result()` apply only to
 single-model `SimulationResult`; GUI must not pass a `GraphSimulationResult` to
 the single-model CSV exporter.
+
+## 17. SimulationProject Workflow
+
+The Project workflow is the public boundary for engineering-management state.
+GUI code constructs and edits immutable-style `ModelAsset`, `SimulationCase`,
+and `SimulationProject` DTOs, then uses only the backend facade:
+
+```python
+backend.save_project(project_root, project)
+project = backend.open_project(project_root)
+backend.validate_project(project_root, project)
+project, record, result = backend.run_project_case(
+    project_root,
+    project,
+    case_id,
+    control=control,
+    on_progress=on_progress,
+)
+artifact = backend.load_project_run(project_root, project, record.run_id)
+```
+
+`open_project` and `save_project` are structural persistence operations. They
+do not automatically require a current FMU, checksum, or executable graph, so
+the GUI can open a damaged project and present repair UI. The GUI explicitly
+uses `validate_project`; its `CONFIG_ERROR` issue entries retain the stable
+`field`, `code`, `message` shape and must not be reconstructed from error text.
+
+The project root is runtime storage context, not a serialized DTO field:
+
+```text
+MyProject/
+├── project.json
+├── models/
+│   └── plant.fmu
+└── results/
+    └── <run_id>.json
+```
+
+Model paths stored by `ModelAsset` and `SimulationCase.graph` are canonical
+project-relative paths. GUI code may select/copy an FMU, calculate its SHA-256,
+and construct a `ModelAsset`, but this release does not provide asset-import,
+project-creation, or case-CRUD convenience APIs.
+
+GUI must not read/write `project.json` or `results/*.json`, calculate result
+paths, or construct repository adapters. It must not import application,
+infrastructure, FMPy, or a JSON codec.
+
+### Running, stopping, and updating state
+
+`run_project_case` is synchronous and blocking, just like `run_fmu` and
+`run_graph`. The backend creates no GUI worker and is not declared thread-safe.
+The GUI owns worker scheduling: run it outside the UI thread and marshal the
+same-thread `on_progress` callback back to the UI thread. Use one `RunControl`
+per run and call `control.request_stop()` from the Stop action. Stop is
+cooperative and non-preemptive; a returned `STOPPED` `GraphSimulationResult` is
+still persisted as a valid history item.
+
+The input `SimulationProject` is unchanged. After success the GUI must replace
+its current state with the returned `project`, refresh its Run History panel
+from `project.run_history`, and treat success as meaning result artifact and
+updated `project.json` are already committed. If artifact save succeeds but
+`project.json` save fails, the `EngineError` can contain `run_id`,
+`orphan_result_path`, and `history_committed=False`; GUI reports that outcome
+but must not delete the orphan artifact itself.
+
+Plot `GraphSimulationResult` directly from `result.timestamps` and
+`result.node_outputs[node_id][variable_name]`; do not reconstruct a timeline or
+flatten persistence JSON. Graph-result CSV export is not currently public.
+
+### Historical results and frontend mapping
+
+For a selected record, load history with `load_project_run`. Historical displays
+must use `artifact.case_snapshot`, `artifact.asset_snapshots`, and
+`artifact.result`, not the current case/assets: current FMUs may be missing or
+changed after a run. `UNKNOWN_RUN_ID`/`DUPLICATE_RUN_ID` are `CONFIG_ERROR`;
+missing artifact reads are `PROJECT_IO_ERROR`; artifact/history inconsistency is
+`PROJECT_FORMAT_ERROR`.
+
+Suggested MATLAB Simulate-like presentation mapping is:
+
+```text
+Project / Model browser  → SimulationProject assets and cases
+Model / parameter editor → ModelNodeConfig and GraphSimulationConfig
+Graph canvas             → SimulationGraph / ModelNode / Connection
+Run / Stop               → run_project_case / RunControl.request_stop()
+Progress bar             → RunProgress
+Result plots             → GraphSimulationResult
+Run History              → SimulationProject.run_history
+Historical viewer        → load_project_run
+```
+
+These are presentation responsibilities. FMI lifecycle, CVode, graph routing,
+graph scheduling, project JSON, and artifact persistence remain backend-owned.

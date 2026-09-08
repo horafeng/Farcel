@@ -63,7 +63,7 @@ docs/
 
 ## 6. 应推迟的设计
 
-- Scheduled Execution scheduler、多 FMU orchestrator、FMI3 Model Exchange solver。
+- Scheduled Execution scheduler、FMI3 Model Exchange solver、distributed worker/RPC、database persistence and checkpoint/restart。
 - 独立 worker 进程、远程 RPC、插件系统、数据库和复杂缓存。
 - FMI 3 全量数组绘图策略、Binary/Clock 可视化、超大结果的持久化格式。
 - C/C++ 重写细节；当前只保证语言无关契约可映射。
@@ -112,4 +112,53 @@ GUI
 
 `GraphValidator` remains metadata-only and precedes runtime composition. `GraphRuntimeBindingsFactory` injects existing CS/ME node factories; `GraphSimulationRunner` owns global result, progress, stop and cleanup semantics. The graph is explicit Jacobi / previous-checkpoint only, so no per-node order becomes numerical semantics.
 
-The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, distributed execution, SSP, real-time/HIL, worker/RPC, FMI3 ME, Scheduled Execution, strong coupling, and graph persistence/project management remain deferred.
+The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, distributed execution, SSP, real-time/HIL, worker/RPC, FMI3 ME, Scheduled Execution and strong coupling remain deferred.
+
+## 9. Phase 5: Simulation Project / Engineering Management
+
+Phase 5 is the completed backend engineering-management layer above the Phase 4
+graph runtime. Its public flow is:
+
+```text
+GUI
+  ↓
+FarcelEngine
+  ├ open_project / save_project / validate_project
+  ├ run_project_case
+  └ load_project_run
+  ↓
+SimulationProject
+  ↓
+SimulationCase
+  ↓
+resolved SimulationGraph
+  ↓
+existing GraphValidator / GraphSimulationRunner
+  ↓
+GraphSimulationResult
+  ↓
+ProjectRunPersistenceService
+  ↓
+project.json + results/<run_id>.json
+```
+
+`SimulationProject` is a serializable domain DTO and its project root is a runtime storage context supplied by the caller or an explicit runtime context; an absolute root is not a serialized business field. A `SimulationCase` owns one complete, independent `SimulationGraph` and `GraphSimulationConfig`. For v1 persistence, a case graph keeps `ModelNode.model_path` as its canonical project-relative model path, for example `models/plant.fmu`; it never replaces that value with an asset ID. The Project application layer validates an asset registration, resolves that path against the supplied project root into a temporary graph, and then delegates to the existing graph validation/run paths. The persisted graph is never rewritten during resolution.
+
+The implemented ownership boundary remains `application → contracts ← infrastructure`:
+
+- `contracts`: Farcel-owned `SimulationProject`, `ModelAsset`, `SimulationCase`,
+  `ProjectRunRecord`, `ProjectRunArtifact`, and repository ports;
+- `application`: project validation, `ProjectService` case orchestration, and
+  `ProjectRunPersistenceService` artifact-first persistence coordination;
+- `infrastructure.project`: local JSON project/run-artifact repositories and
+  codecs for filesystem I/O only.
+
+The repository must not import FMI/FMPy behavior, run an FMU, validate a graph, interpret model metadata or create a scheduler. `GraphValidator` must not learn about projects. Project validation reuses it only after materializing a resolved temporary graph. `run_case` similarly resolves a case and delegates to the existing `validate_graph()` then `run_graph()`; it introduces no Project runner, router, scheduler, node runtime or numerical semantics.
+
+Phase 5 preserves Jacobi/ZOH, graph global-grid semantics, CS/ME node runtimes,
+CVode, `DataRouter`, and `SimulationOrchestrator`; Project adds no numerical
+runner, scheduler, or solver. The resulting public lifecycle is `open/save /
+validate → run_project_case → load_project_run`. The frozen directory/schema,
+path, result-history and error rules are recorded in
+[PHASE_5_SIMULATION_PROJECT_DESIGN.md](PHASE_5_SIMULATION_PROJECT_DESIGN.md).
+PySide6 graph editing, canvas/layout/widgets and scopes remain frontend work.
