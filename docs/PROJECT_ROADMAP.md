@@ -17,9 +17,9 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 
 **Phase 4 — Completed。** 已交付 graph contracts、metadata validation、Co-Simulation / FMI2 Model Exchange node runtimes、explicit-Jacobi scheduler/data router、`GraphSimulationResult`、global control/progress/cleanup、真实 FMI2/FMI3 multi-FMU regressions，以及 public `validate_graph()` / `run_graph()`。本机 graph 仍是同步、single-machine、previous-checkpoint coupling；它不包含 project persistence 或 GUI graph editor。
 
-**Phase 5 — In Progress / design freeze。** 后端定位为 **Simulation Project / Engineering Management**。Phase 5.0 已冻结 directory-based project 的项目定义、模型资产、独立 simulation cases、run history、project validation、`run_case` 对既有 graph runtime 的复用与 JSON persistence 边界；尚未实现 `SimulationProject` DTO、repository、save/open、run-case 或结果 serializer。后端不负责 PySide6 graph canvas。此阶段也不意味着已经支持任意第三方工具的直接连接。
+**Phase 5 — Completed。** 后端 **Simulation Project / Engineering Management** layer 已交付 `SimulationProject` / `ModelAsset` / `SimulationCase` DTO、local JSON `project.json` repository、portable relative model paths、SHA-256 asset integrity、relocation、`ProjectValidator`、`ProjectService`、result provenance artifact、safe `results/<run_id>.json` repository、RunHistory 与 artifact-first persistence。默认 backend 公开 `open_project`、`save_project`、`validate_project`、`run_project_case` 和 `load_project_run`；历史结果可在当前 FMU 或 case 后续变化时按 artifact provenance 恢复。后端不负责 PySide6 graph canvas，也不意味着已经支持任意第三方工具的直接连接。
 
-Phase 5 的后端职责是 project definition、persistence、model assets、cases、run history、project validation 和 `run_case` orchestration。前端职责是 PySide6 graph editor、canvas、blocks、connections、scope 和 project UI。Project 位于现有 `SimulationGraph` 之上；它不改变 Phase 4 的数值语义、validator、router、orchestrator 或 node runtime。
+Phase 5 的后端职责是 project definition、persistence、model assets、cases、run history、project validation 和 public persistent case execution。前端职责是 PySide6 graph editor、canvas、blocks、connections、scope 和 project UI。Project 位于现有 `SimulationGraph` 之上；它不改变 Phase 4 的数值语义、validator、router、orchestrator 或 node runtime。
 
 ## 远期方向
 
@@ -37,14 +37,14 @@ GUI / CLI → FarcelEngine.run_graph → GraphValidator → GraphSimulationRunne
     → FMU CS / FMI2 ME node runtimes
 ```
 
-Phase 5 计划在不改变上述 Graph runtime 的前提下增加一层：
+Phase 5 已在不改变上述 Graph runtime 的前提下增加一层：
 
 ```text
 GUI / CLI → FarcelEngine / ProjectService → SimulationProject → SimulationCase
     → resolved SimulationGraph → existing validate_graph / run_graph
 ```
 
-这里只有设计冻结；`ProjectService`、project persistence 与 public project API 尚未实现。
+`ProjectService`、project persistence 与 public project API 均已实现；完整 public handoff 见 [FRONTEND_BACKEND_INTEGRATION.md](FRONTEND_BACKEND_INTEGRATION.md) 与 [../examples/project_api_example.py](../examples/project_api_example.py)。
 
 当前架构仍为：
 

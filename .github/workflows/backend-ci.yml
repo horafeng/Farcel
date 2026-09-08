@@ -47,6 +47,7 @@ jobs:
           python examples/backend_api_example.py
           python examples/model_exchange_api_example.py
           python examples/graph_api_example.py
+          python examples/project_api_example.py
       - name: CLI smoke
         run: |
           python -m farcel.cli inspect examples\fmus\VanDerPol-fmi3.fmu

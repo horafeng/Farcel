@@ -7,7 +7,9 @@
 > codec/provenance, Phase 5.4C1 result-artifact filesystem repository, and
 > Phase 5.4C2 run-history/project persistence integration completed; Phase
 > 5.5A public project lifecycle API, Phase 5.5B public historical run loading
-> API, and Phase 5.5C public persistent project-case execution API completed.**
+> API, Phase 5.5C public persistent project-case execution API, and Phase 5.6
+> public example/documentation/CI finalization completed. Phase 5 backend scope
+> is complete.**
 
 ## 1. Goals and non-goals
 
@@ -405,9 +407,15 @@ The intended delivery sequence is:
 | 5.5A | **Completed**: public project open/save/validate lifecycle API | historical result loading or persistent project-case execution |
 | 5.5B | **Completed**: public historical run loading | persistent project-case execution |
 | 5.5C | **Completed**: public persistent project-case execution | public example and final Phase 5 hardening |
-| 5.6 | Not implemented: public project example, frontend integration documentation and final Phase 5 acceptance/hardening | later product work |
+| 5.6 | **Completed**: public project example, frontend integration documentation, CI example coverage and final Phase 5 acceptance preparation | later product work |
 | Frontend work | PySide6 project/graph UI | backend numerical implementation |
 
 Each later stage must remain additive, preserve existing public Graph APIs and
-tests, and separately validate supported project schemas. This Phase 5.0 design
-freeze implements none of those stages.
+tests, and separately validate supported project schemas. Phase 5 backend scope
+is complete: it delivers project DTOs, JSON save/open, asset safety/integrity
+and relocation, project validation, case execution through the existing graph
+runtime, immutable result artifacts, run history, artifact-first persistence,
+and public lifecycle/history/execution APIs. It does not deliver checkpoint /
+restart, database or distributed execution, SSP, direct Simulink/AMESim/ANSYS
+adapters, realtime/HIL, FMI3 Model Exchange runtime, Scheduled Execution
+runtime, graph CSV export, or a frontend GUI implementation.
