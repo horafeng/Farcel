@@ -21,9 +21,15 @@ Farcel 的定位是**面向异构数字模型集成仿真的本地优先仿真�
 
 Phase 5 的后端职责是 project definition、persistence、model assets、cases、run history、project validation 和 public persistent case execution。前端职责是 PySide6 graph editor、canvas、blocks、connections、scope 和 project UI。Project 位于现有 `SimulationGraph` 之上；它不改变 Phase 4 的数值语义、validator、router、orchestrator 或 node runtime。
 
-## 远期方向
+## 已规划：场景批量与结果后处理
 
-**Phase 6 — Long-term。** 异构模型首先通过 FMU 接入；在有明确验证与维护能力时，才考虑 Simulink、AMESim、ANSYS 等 direct adapter。
+**Phase 6 — Scenario Batch & Result Post-processing — Planned / Design frozen after 6.0。** 在不改变既有 Graph runtime、project provenance 或 persistence 语义的前提下，后续子阶段将交付 canonical GraphSimulationResult / historical artifact CSV export、调用既有 run_project_case() 的本地同步串行 case batch，以及基于 immutable artifacts 的历史结果比较和基础标量统计。它不引入新的 project runner、solver、graph scheduler、parallel/distributed runtime 或 frontend 实现。冻结设计见 [PHASE_6_SCENARIO_BATCH_RESULT_POSTPROCESSING_DESIGN.md](PHASE_6_SCENARIO_BATCH_RESULT_POSTPROCESSING_DESIGN.md)。
+
+## Later / Long-term direct-tool integration
+
+Simulink、AMESim、ANSYS 等 direct adapter 仍是远期候选。异构模型当前优先通过 FMU 接入；只有在具备明确的可行性、验证和维护能力时，才单独规划这些 proprietary direct-tool adapters。它们没有被取消，但不再占用紧接 Phase 5 的 Phase 6 编号。
+
+## 其他远期方向
 
 **Phase 7 — Long-term。** 在本地 `SimulationGraph` 和单机调度可靠后，再评估分布式执行；当前没有 worker、RPC、云服务或分布式仿真。
 
