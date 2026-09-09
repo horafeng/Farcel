@@ -52,6 +52,7 @@ from farcel.contracts.project_result import (
 )
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
+    GraphResultExporter,
     ModelImporter,
     ModelExchangeProblem,
     ModelExchangeSession,
@@ -76,6 +77,7 @@ __all__ = [
     "ExportReport",
     "GraphSimulationConfig",
     "GraphSimulationResult",
+    "GraphResultExporter",
     "InputUpdate",
     "IntegratorStepResult",
     "InterfaceType",

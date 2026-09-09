@@ -52,6 +52,7 @@ from farcel.contracts.ports import (
     ModelImporter,
     ProjectRepository,
     ProjectRunArtifactRepository,
+    GraphResultExporter,
     ResultExporter,
     SessionFactory,
     SimulationSession,
@@ -83,6 +84,7 @@ class FarcelEngine:
         solver_factory: SolverFactory | None = None,
         project_repository: ProjectRepository | None = None,
         project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
+        graph_result_exporter: GraphResultExporter | None = None,
     ) -> None:
         self._importer = importer
         self._project_repository = project_repository
@@ -90,6 +92,7 @@ class FarcelEngine:
         self._project_validator = ProjectValidator(importer)
         self._session_factory = session_factory
         self._result_exporter = result_exporter
+        self._graph_result_exporter = graph_result_exporter
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
@@ -371,6 +374,13 @@ class FarcelEngine:
         if self._result_exporter is None:
             raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置结果导出实现")
         return self._result_exporter.export(result, Path(destination))
+
+    def export_graph_result(
+        self, result: GraphSimulationResult, destination: str | Path
+    ) -> ExportReport:
+        if self._graph_result_exporter is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Graph 结果导出实现")
+        return self._graph_result_exporter.export(result, Path(destination))
 
     def _require_project_repository(self) -> ProjectRepository:
         if self._project_repository is None:

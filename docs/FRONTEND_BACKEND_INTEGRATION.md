@@ -18,6 +18,8 @@
 - `validate_graph`：验证 public `SimulationGraph` 与 `GraphSimulationConfig`；
 - `run_graph`：同步执行本机 multi-FMU graph，返回 nested
   `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
+- `export_graph_result`：将既有 canonical `GraphSimulationResult` 导出为稳定 CSV，
+  不重新执行 graph 或读取 FMU。
 
 ### SimulationProject workflow
 
@@ -303,6 +305,21 @@ report = backend.export_result(result, destination)
 
 输入是完成或停止后的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。标量 output 保持单列；array output 展开为稳定的零基 indexed columns（例如 `y[0]`、`A[0,0]`），且 `row_count` 始终等于 sample_count。导出不会重新执行 FMU，`STOPPED` partial result 也可导出。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
 
+`export_result()` 只接受 single-model `SimulationResult`。Graph result 使用独立入口：
+
+```python
+graph_result = backend.run_graph(graph, graph_config)
+report = backend.export_graph_result(graph_result, "graph.csv")
+```
+
+`export_graph_result()` 只接受 canonical `GraphSimulationResult`。它按原始
+`timestamps` 写 `time` 列；signal header 使用可逆的
+`node/<node-id>/<variable-name>` JSON Pointer segment escaping（`~` 到 `~0`，
+`/` 到 `~1`）。node ID、variable name 按 Unicode code-point 排序，array 按 row-major
+zero-based `[i,j,...]` 展开，因此 mapping insertion order 不改变 CSV schema。它同样
+创建父目录、覆盖指定目标、不会自动添加扩展名，并支持只含已记录 samples 的 `STOPPED`
+result。
+
 ## 12. Error Contract
 
 所有面向 GUI 的后端失败均使用：
@@ -344,7 +361,7 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`load_project_run`；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`load_project_run`；
 - 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
@@ -396,10 +413,10 @@ are `CONFIG_ERROR` with issue `field` / `code` / `message` entries such as
 the existing `ErrorCode` model and may add node, connection, phase, time or
 cleanup diagnostics. GUI should use `code` and `details`, never parse messages.
 
-Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, graph CSV
-export, or graph CLI. Existing `ResultChunk` and `export_result()` apply only to
-single-model `SimulationResult`; GUI must not pass a `GraphSimulationResult` to
-the single-model CSV exporter.
+Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, or graph CLI.
+Existing `ResultChunk` and `export_result()` apply only to single-model
+`SimulationResult`; GUI must use `export_graph_result()` for a
+`GraphSimulationResult`.
 
 ## 17. SimulationProject Workflow
 
@@ -467,7 +484,16 @@ but must not delete the orphan artifact itself.
 
 Plot `GraphSimulationResult` directly from `result.timestamps` and
 `result.node_outputs[node_id][variable_name]`; do not reconstruct a timeline or
-flatten persistence JSON. Graph-result CSV export is not currently public.
+flatten persistence JSON. Historical graph CSV uses the same public exporter:
+
+```python
+artifact = backend.load_project_run(project_root, project, run_id)
+report = backend.export_graph_result(artifact.result, "historical.csv")
+```
+
+GUI must not read `project.json` or a result artifact JSON to export history;
+`load_project_run()` restores immutable provenance and `artifact.result` is the
+only export input.
 
 ### Historical results and frontend mapping
 

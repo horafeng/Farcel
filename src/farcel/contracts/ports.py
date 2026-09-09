@@ -4,6 +4,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
+from farcel.contracts.graph import GraphSimulationResult
 from farcel.contracts.models import (
     DiscreteStateUpdate,
     ExportReport,
@@ -123,6 +124,14 @@ class ResultExporter(Protocol):
     ) -> ExportReport: ...
 
 
+class GraphResultExporter(Protocol):
+    """Persist a canonical graph result without rerunning a simulation."""
+
+    def export(
+        self, result: GraphSimulationResult, destination: Path
+    ) -> ExportReport: ...
+
+
 class ProjectRepository(Protocol):
     """Persistence boundary for a SimulationProject directory."""
 
@@ -179,4 +188,8 @@ class SimulationEngine(Protocol):
 
     def export_result(
         self, result: SimulationResult, destination: str | Path
+    ) -> ExportReport: ...
+
+    def export_graph_result(
+        self, result: GraphSimulationResult, destination: str | Path
     ) -> ExportReport: ...

@@ -1,7 +1,7 @@
 """Public composition root for the default local Farcel backend."""
 
 from farcel.application.engine import FarcelEngine
-from farcel.infrastructure.export import CsvResultExporter
+from farcel.infrastructure.export import CsvGraphResultExporter, CsvResultExporter
 from farcel.infrastructure.fmpy import (
     FmpyCvodeSolverFactory,
     FmpyFmi2ModelExchangeSessionFactory,
@@ -26,4 +26,5 @@ def create_backend() -> FarcelEngine:
         solver_factory=FmpyCvodeSolverFactory(),
         project_repository=LocalJsonProjectRepository(),
         project_run_artifact_repository=LocalJsonProjectRunArtifactRepository(),
+        graph_result_exporter=CsvGraphResultExporter(),
     )
