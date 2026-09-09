@@ -50,6 +50,11 @@ from farcel.contracts.project_result import (
     ProjectAssetSnapshot,
     ProjectRunArtifact,
 )
+from farcel.contracts.project_batch import (
+    ProjectBatchProgress,
+    ProjectBatchRunItem,
+    ProjectBatchRunResult,
+)
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     GraphResultExporter,
@@ -95,6 +100,9 @@ __all__ = [
     "PROJECT_SCHEMA_VERSION",
     "PROJECT_RUN_ARTIFACT_SCHEMA_VERSION",
     "ProjectAssetSnapshot",
+    "ProjectBatchProgress",
+    "ProjectBatchRunItem",
+    "ProjectBatchRunResult",
     "ProjectRepository",
     "ProjectRunArtifactRepository",
     "ProjectRunRecord",

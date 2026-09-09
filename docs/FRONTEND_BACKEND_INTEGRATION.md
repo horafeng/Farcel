@@ -27,6 +27,8 @@
 - `validate_project`：显式 project semantic validation；
 - `run_project_case`：执行一个 `SimulationCase`、保存 artifact，并返回更新后的
   project history；
+- `run_project_cases`：按 caller-specified order 严格串行执行多个 case，并为每项
+  复用既有 persistent one-case workflow；
 - `load_project_run`：按 `run_id` 恢复 immutable historical provenance/result。
 
 FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
@@ -361,7 +363,7 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`load_project_run`；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`run_project_cases`、`load_project_run`；
 - 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
@@ -481,6 +483,43 @@ updated `project.json` are already committed. If artifact save succeeds but
 `project.json` save fails, the `EngineError` can contain `run_id`,
 `orphan_result_path`, and `history_committed=False`; GUI reports that outcome
 but must not delete the orphan artifact itself.
+
+### Serial batch execution
+
+`run_project_cases()` is the public local, synchronous serial batch entry point:
+
+```python
+batch = backend.run_project_cases(
+    project_root,
+    project,
+    ("baseline", "high_gain", "low_gain"),
+    control=control,
+    on_progress=on_batch_progress,
+)
+project = batch.updated_project
+```
+
+The caller order is the execution and `batch.items` order. Each item delegates
+to the existing `run_project_case()` workflow and therefore owns an independent
+run ID, artifact, result file, and `ProjectRunRecord`; there is no `batch.json`,
+batch persistence record, transaction, or rollback. The next item uses the
+previous item's returned `updated_project`, so its history includes every
+already committed batch item.
+
+The request is preflight-validated before the first case starts: an empty,
+duplicate, or unknown case ID raises `CONFIG_ERROR` and creates no artifact.
+If an item fails, its original `EngineError` code/details are retained with batch
+context; earlier committed items remain available and the GUI may call
+`open_project(project_root)` to reload current history. A pre-start stop raises
+`CANCELLED`; a stopped item is retained in `batch.items`, sets `batch.stopped`,
+and prevents the next item from starting. A stop between items returns the
+already committed partial batch rather than discarding it.
+
+`ProjectBatchProgress` wraps the original `RunProgress` unchanged with only
+`case_id`, one-based `case_number`, and `case_count`. GUI callers own worker
+thread scheduling and may display that batch identity with the nested progress;
+they must not loop `run_project_case()` themselves, run cases in parallel, or
+read/write `project.json` or result artifact JSON directly.
 
 Plot `GraphSimulationResult` directly from `result.timestamps` and
 `result.node_outputs[node_id][variable_name]`; do not reconstruct a timeline or

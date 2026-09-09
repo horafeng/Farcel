@@ -21,6 +21,7 @@ from farcel.application.node_runtime import (
     ModelExchangeNodeRuntimeFactory,
 )
 from farcel.application.project_run_persistence import ProjectRunPersistenceService
+from farcel.application.project_batch import ProjectBatchService
 from farcel.application.project_service import ProjectService
 from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
@@ -45,6 +46,7 @@ from farcel.contracts.graph import (
     SimulationGraph,
 )
 from farcel.contracts.project import ProjectRunRecord, SimulationProject
+from farcel.contracts.project_batch import ProjectBatchProgress, ProjectBatchRunResult
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
@@ -221,6 +223,23 @@ class FarcelEngine:
             project_repository, artifact_repository
         ).persist_run(root, project, case_id, result)
         return updated_project, record, result
+
+    def run_project_cases(
+        self,
+        project_root: str | Path,
+        project: SimulationProject,
+        case_ids: tuple[str, ...],
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[ProjectBatchProgress], None] | None = None,
+    ) -> ProjectBatchRunResult:
+        return ProjectBatchService(self.run_project_case).run(
+            project_root,
+            project,
+            case_ids,
+            control=control,
+            on_progress=on_progress,
+        )
 
     def create_session(
         self, model_id: str, config: SimulationConfig
