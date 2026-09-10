@@ -55,6 +55,13 @@ from farcel.contracts.project_batch import (
     ProjectBatchRunItem,
     ProjectBatchRunResult,
 )
+from farcel.contracts.project_comparison import (
+    ProjectRunComparison,
+    ProjectRunSignalComparison,
+    ProjectRunSignalSeries,
+    SignalStatistics,
+    SignalStatisticsStatus,
+)
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
     GraphResultExporter,
@@ -103,10 +110,13 @@ __all__ = [
     "ProjectBatchProgress",
     "ProjectBatchRunItem",
     "ProjectBatchRunResult",
+    "ProjectRunComparison",
     "ProjectRepository",
     "ProjectRunArtifactRepository",
     "ProjectRunRecord",
     "ProjectRunArtifact",
+    "ProjectRunSignalComparison",
+    "ProjectRunSignalSeries",
     "ResultChunk",
     "ResultExporter",
     "RunControl",
@@ -122,6 +132,8 @@ __all__ = [
     "SimulationResult",
     "SimulationSession",
     "SimulationState",
+    "SignalStatistics",
+    "SignalStatisticsStatus",
     "SolverAdapter",
     "SolverAdvanceResult",
     "SolverAdvanceStatus",

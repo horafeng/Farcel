@@ -30,6 +30,8 @@
 - `run_project_cases`：按 caller-specified order 严格串行执行多个 case，并为每项
   复用既有 persistent one-case workflow；
 - `load_project_run`：按 `run_id` 恢复 immutable historical provenance/result。
+- `compare_project_runs`：只比较 caller 已加载的 immutable historical artifacts，
+  不读取当前 project、FMU 或 persistence JSON，也不重新仿真。
 
 FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
 
@@ -61,6 +63,11 @@ from farcel.contracts import (
     ProjectRunRecord,
     ProjectRunArtifact,
     ProjectAssetSnapshot,
+    ProjectRunComparison,
+    ProjectRunSignalComparison,
+    ProjectRunSignalSeries,
+    SignalStatistics,
+    SignalStatisticsStatus,
     SimulationConfig,
     SimulationGraph,
     SimulationResult,
@@ -363,7 +370,7 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`run_project_cases`、`load_project_run`；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`run_project_cases`、`load_project_run`、`compare_project_runs`；
 - 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
@@ -558,3 +565,37 @@ Historical viewer        → load_project_run
 
 These are presentation responsibilities. FMI lifecycle, CVode, graph routing,
 graph scheduling, project JSON, and artifact persistence remain backend-owned.
+
+### Historical run comparison and basic scalar post-processing
+
+Load each selected historical run first, then pass the immutable artifacts to
+the comparison API. The comparison itself has no project-root, project, or run-ID
+lookup parameters:
+
+```python
+artifact_a = backend.load_project_run(project_root, project, run_id_a)
+artifact_b = backend.load_project_run(project_root, project, run_id_b)
+comparison = backend.compare_project_runs((artifact_a, artifact_b))
+```
+
+`comparison.sources` preserves the supplied `ProjectRunArtifact` values and
+their caller order as immutable provenance. Frontend display names, case
+snapshots, asset snapshots, completion state, final time, and original graph
+configuration must come from these artifacts rather than from the current
+project. A stopped source contains only its recorded historical samples.
+
+Each `ProjectRunSignalComparison` is identified structurally by `node_id` and
+`variable_name`; comparisons are deterministically ordered by those fields.
+Its series remain in caller artifact order and each `ProjectRunSignalSeries`
+keeps its own native `timestamps` and raw `samples`. Frontends may overlay
+different native x axes, but must not interpolate, resample, pad, align to a
+common grid, or claim a frontend-derived curve is a backend result.
+
+The backend emits a series for every run in the signal union. When a signal is
+absent, its series has empty timestamps/samples and `MISSING_SIGNAL` statistics.
+Only numeric scalar samples (excluding `bool`) have `AVAILABLE`
+min/max/arithmetic-mean/final statistics. Arrays are retained as raw nested
+samples with `ARRAY_SIGNAL` and are not expanded; strings, bools, and mixed
+nonnumeric values use `NON_NUMERIC_SIGNAL`. Frontends can present these statuses
+as N/A reasons, but must not replace the backend statistic definition, re-read
+`results/*.json`, or re-run historical models.

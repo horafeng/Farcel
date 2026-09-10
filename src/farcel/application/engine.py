@@ -22,6 +22,7 @@ from farcel.application.node_runtime import (
 )
 from farcel.application.project_run_persistence import ProjectRunPersistenceService
 from farcel.application.project_batch import ProjectBatchService
+from farcel.application.project_comparison import ProjectRunComparisonService
 from farcel.application.project_service import ProjectService
 from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
@@ -47,6 +48,7 @@ from farcel.contracts.graph import (
 )
 from farcel.contracts.project import ProjectRunRecord, SimulationProject
 from farcel.contracts.project_batch import ProjectBatchProgress, ProjectBatchRunResult
+from farcel.contracts.project_comparison import ProjectRunComparison
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
@@ -240,6 +242,12 @@ class FarcelEngine:
             control=control,
             on_progress=on_progress,
         )
+
+    def compare_project_runs(
+        self,
+        artifacts: tuple[ProjectRunArtifact, ...],
+    ) -> ProjectRunComparison:
+        return ProjectRunComparisonService().compare(artifacts)
 
     def create_session(
         self, model_id: str, config: SimulationConfig
