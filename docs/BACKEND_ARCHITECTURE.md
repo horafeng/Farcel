@@ -162,3 +162,34 @@ validate → run_project_case → load_project_run`. The frozen directory/schema
 path, result-history and error rules are recorded in
 [PHASE_5_SIMULATION_PROJECT_DESIGN.md](PHASE_5_SIMULATION_PROJECT_DESIGN.md).
 PySide6 graph editing, canvas/layout/widgets and scopes remain frontend work.
+
+## 10. Phase 6: Scenario Batch & Result Post-processing
+
+Phase 6 finalizes consumer-facing workflows above the existing project and graph
+layers without adding a second runtime:
+
+```text
+SimulationProject
+  ↓
+run_project_cases()
+  ↓
+existing run_project_case()
+  ↓
+ProjectRunArtifact
+  ├ export_graph_result(artifact.result)
+  └ compare_project_runs(artifacts)
+```
+
+Batching is application orchestration over the existing persistent one-case
+workflow. It is local, synchronous, serial, caller-ordered, and each case keeps
+its own artifact and run-history record. Graph CSV export consumes only the
+canonical `GraphSimulationResult`, including a result restored from an artifact.
+Historical comparison is pure artifact-only post-processing: it preserves source
+provenance and each signal's native timestamp axis, and supplies min/max/mean/
+final only for numeric scalar samples.
+
+Phase 6 adds no second Project runtime, graph scheduler, numerical solver,
+comparison persistence, parallel batch execution, interpolation, resampling, or
+common time grid. GUI consumers continue to use `create_backend()` and public
+contracts; frontend display, worker scheduling, and visualization remain outside
+the backend.

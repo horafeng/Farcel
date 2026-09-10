@@ -599,3 +599,24 @@ samples with `ARRAY_SIGNAL` and are not expanded; strings, bools, and mixed
 nonnumeric values use `NON_NUMERIC_SIGNAL`. Frontends can present these statuses
 as N/A reasons, but must not replace the backend statistic definition, re-read
 `results/*.json`, or re-run historical models.
+
+### Final Phase 6 frontend handoff
+
+The complete synchronous public handoff is:
+
+```python
+batch = backend.run_project_cases(project_root, project, case_ids)
+artifacts = tuple(
+    backend.load_project_run(project_root, batch.updated_project, item.record.run_id)
+    for item in batch.items
+)
+backend.export_graph_result(artifacts[0].result, export_path)
+comparison = backend.compare_project_runs(artifacts)
+```
+
+Frontend code may call these synchronous APIs from its own worker thread, use
+`ProjectBatchProgress` to present serial batch progress, overlay different
+native timestamp axes, and display the backend-provided scalar statistics. It
+must not parse `project.json` or result artifact JSON directly, invent batch
+persistence, import infrastructure/FMPy, or interpolate frontend curves and
+present them as canonical comparison results.

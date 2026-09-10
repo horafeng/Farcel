@@ -2,7 +2,16 @@
 
 ## Status
 
-**Phase 6.0 — Design frozen.** This document freezes the next backend product scope after Phase 5. It does not implement export, batch execution, comparison, a new public contract, a scheduler, or frontend code. Phase 6 remains planned until its later sub-phases are separately implemented and verified.
+**Phase 6 backend milestone — Completed.** Phase 6.0 design freeze completed, Phase 6.1–6.3 implementation completed, and Phase 6.4 public example/documentation/CI finalization completed. This document remains the frozen Phase 6.0 design record; its original semantic commitments below are retained.
+
+## Implementation status / delivered API
+
+| Stage | Status | Delivered public surface |
+|---|---|---|
+| 6.1 | Completed | `export_graph_result(result, destination)` for canonical and loaded historical graph results |
+| 6.2 | Completed | `run_project_cases(project_root, project, case_ids, ...)` local synchronous serial batch |
+| 6.3 | Completed | `compare_project_runs(artifacts)` immutable artifact-only comparison and scalar statistics |
+| 6.4 | Completed | Public Phase 6 workflow example, documentation synchronization, and CI coverage |
 
 ## GitHub baseline
 
@@ -74,7 +83,10 @@ They do not revalidate current cases, inspect current FMU checksums, re-run mode
 
 The only export input is canonical GraphSimulationResult. Historical export first loads its artifact and passes artifact.result to the same exporter. It must not execute an FMU, reconstruct a timeline, read FMPy, parse project.json, or parse a results JSON file into another flattening path.
 
-The future public exporter should reuse ExportReport where sufficient (destination and row_count) and the existing infrastructure/export error style. Its final facade signature is deferred; Phase 6.0 adds no API.
+At Phase 6.0 design time, the exporter facade was intentionally deferred. The
+completed delivered API is `export_graph_result(result, destination)`, reusing
+`ExportReport` where sufficient and the existing infrastructure/export error
+style.
 
 The CSV semantics are frozen:
 
@@ -151,4 +163,5 @@ The frontend consumes public APIs and marshals synchronous calls/callbacks to it
 5. Project and artifact schema versions remain 1.0 unless separately evidenced.
 6. Tests, public examples, documentation, CI, and consumer boundaries pass without Graph numerical changes or frontend merge.
 
-No Phase 6.1 implementation is included by this design freeze.
+The original Phase 6.0 design freeze contained no Phase 6.1 implementation;
+the completed later-stage delivery is recorded in the status table above.
