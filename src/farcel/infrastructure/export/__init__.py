@@ -1,3 +1,3 @@
-from farcel.infrastructure.export.csv import CsvResultExporter
+from farcel.infrastructure.export.csv import CsvGraphResultExporter, CsvResultExporter
 
-__all__ = ["CsvResultExporter"]
+__all__ = ["CsvGraphResultExporter", "CsvResultExporter"]

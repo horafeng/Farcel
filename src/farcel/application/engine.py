@@ -21,6 +21,8 @@ from farcel.application.node_runtime import (
     ModelExchangeNodeRuntimeFactory,
 )
 from farcel.application.project_run_persistence import ProjectRunPersistenceService
+from farcel.application.project_batch import ProjectBatchService
+from farcel.application.project_comparison import ProjectRunComparisonService
 from farcel.application.project_service import ProjectService
 from farcel.application.project_validation import ProjectValidator
 from farcel.application.validation import resolve_execution_interface, validate_config
@@ -45,6 +47,8 @@ from farcel.contracts.graph import (
     SimulationGraph,
 )
 from farcel.contracts.project import ProjectRunRecord, SimulationProject
+from farcel.contracts.project_batch import ProjectBatchProgress, ProjectBatchRunResult
+from farcel.contracts.project_comparison import ProjectRunComparison
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
@@ -52,6 +56,7 @@ from farcel.contracts.ports import (
     ModelImporter,
     ProjectRepository,
     ProjectRunArtifactRepository,
+    GraphResultExporter,
     ResultExporter,
     SessionFactory,
     SimulationSession,
@@ -83,6 +88,7 @@ class FarcelEngine:
         solver_factory: SolverFactory | None = None,
         project_repository: ProjectRepository | None = None,
         project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
+        graph_result_exporter: GraphResultExporter | None = None,
     ) -> None:
         self._importer = importer
         self._project_repository = project_repository
@@ -90,6 +96,7 @@ class FarcelEngine:
         self._project_validator = ProjectValidator(importer)
         self._session_factory = session_factory
         self._result_exporter = result_exporter
+        self._graph_result_exporter = graph_result_exporter
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
@@ -218,6 +225,29 @@ class FarcelEngine:
             project_repository, artifact_repository
         ).persist_run(root, project, case_id, result)
         return updated_project, record, result
+
+    def run_project_cases(
+        self,
+        project_root: str | Path,
+        project: SimulationProject,
+        case_ids: tuple[str, ...],
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[ProjectBatchProgress], None] | None = None,
+    ) -> ProjectBatchRunResult:
+        return ProjectBatchService(self.run_project_case).run(
+            project_root,
+            project,
+            case_ids,
+            control=control,
+            on_progress=on_progress,
+        )
+
+    def compare_project_runs(
+        self,
+        artifacts: tuple[ProjectRunArtifact, ...],
+    ) -> ProjectRunComparison:
+        return ProjectRunComparisonService().compare(artifacts)
 
     def create_session(
         self, model_id: str, config: SimulationConfig
@@ -371,6 +401,13 @@ class FarcelEngine:
         if self._result_exporter is None:
             raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置结果导出实现")
         return self._result_exporter.export(result, Path(destination))
+
+    def export_graph_result(
+        self, result: GraphSimulationResult, destination: str | Path
+    ) -> ExportReport:
+        if self._graph_result_exporter is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Graph 结果导出实现")
+        return self._graph_result_exporter.export(result, Path(destination))
 
     def _require_project_repository(self) -> ProjectRepository:
         if self._project_repository is None:

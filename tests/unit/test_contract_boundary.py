@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import graph, models, project
+from farcel.contracts import graph, models, project, project_batch, project_comparison
 
 
 class ContractBoundaryTests(unittest.TestCase):
@@ -40,6 +40,13 @@ class ContractBoundaryTests(unittest.TestCase):
             project.SimulationCase,
             project.ProjectRunRecord,
             project.SimulationProject,
+            project_batch.ProjectBatchProgress,
+            project_batch.ProjectBatchRunItem,
+            project_batch.ProjectBatchRunResult,
+            project_comparison.SignalStatistics,
+            project_comparison.ProjectRunSignalSeries,
+            project_comparison.ProjectRunSignalComparison,
+            project_comparison.ProjectRunComparison,
         )
 
         annotations = []

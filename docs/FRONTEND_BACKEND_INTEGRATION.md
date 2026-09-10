@@ -18,6 +18,8 @@
 - `validate_graph`：验证 public `SimulationGraph` 与 `GraphSimulationConfig`；
 - `run_graph`：同步执行本机 multi-FMU graph，返回 nested
   `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
+- `export_graph_result`：将既有 canonical `GraphSimulationResult` 导出为稳定 CSV，
+  不重新执行 graph 或读取 FMU。
 
 ### SimulationProject workflow
 
@@ -25,7 +27,11 @@
 - `validate_project`：显式 project semantic validation；
 - `run_project_case`：执行一个 `SimulationCase`、保存 artifact，并返回更新后的
   project history；
+- `run_project_cases`：按 caller-specified order 严格串行执行多个 case，并为每项
+  复用既有 persistent one-case workflow；
 - `load_project_run`：按 `run_id` 恢复 immutable historical provenance/result。
+- `compare_project_runs`：只比较 caller 已加载的 immutable historical artifacts，
+  不读取当前 project、FMU 或 persistence JSON，也不重新仿真。
 
 FMI 2 Model Exchange 可在 metadata capability 允许时运行；FMI 3 Model Exchange 与 Scheduled Execution 可以 inspect，但当前不能 run。
 
@@ -57,6 +63,11 @@ from farcel.contracts import (
     ProjectRunRecord,
     ProjectRunArtifact,
     ProjectAssetSnapshot,
+    ProjectRunComparison,
+    ProjectRunSignalComparison,
+    ProjectRunSignalSeries,
+    SignalStatistics,
+    SignalStatisticsStatus,
     SimulationConfig,
     SimulationGraph,
     SimulationResult,
@@ -303,6 +314,21 @@ report = backend.export_result(result, destination)
 
 输入是完成或停止后的 `SimulationResult` 与 `str | Path` 目标；返回 `ExportReport(destination, row_count)`。当前 exporter 写 UTF-8 CSV、创建父目录并覆盖同名文件。标量 output 保持单列；array output 展开为稳定的零基 indexed columns（例如 `y[0]`、`A[0,0]`），且 `row_count` 始终等于 sample_count。导出不会重新执行 FMU，`STOPPED` partial result 也可导出。未配置 exporter 或写文件失败时抛 `EXPORT_ERROR`。
 
+`export_result()` 只接受 single-model `SimulationResult`。Graph result 使用独立入口：
+
+```python
+graph_result = backend.run_graph(graph, graph_config)
+report = backend.export_graph_result(graph_result, "graph.csv")
+```
+
+`export_graph_result()` 只接受 canonical `GraphSimulationResult`。它按原始
+`timestamps` 写 `time` 列；signal header 使用可逆的
+`node/<node-id>/<variable-name>` JSON Pointer segment escaping（`~` 到 `~0`，
+`/` 到 `~1`）。node ID、variable name 按 Unicode code-point 排序，array 按 row-major
+zero-based `[i,j,...]` 展开，因此 mapping insertion order 不改变 CSV schema。它同样
+创建父目录、覆盖指定目标、不会自动添加扩展名，并支持只含已记录 samples 的 `STOPPED`
+result。
+
 ## 12. Error Contract
 
 所有面向 GUI 的后端失败均使用：
@@ -344,7 +370,7 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 进入 GUI 集成时建议冻结以下 v1 消费面：
 
 - `create_backend()`；
-- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`load_project_run`；
+- 高层方法 `load_fmu`、`validate_config`、`run_fmu`、`export_result`、`validate_graph`、`run_graph`、`export_graph_result`、`save_project`、`open_project`、`validate_project`、`run_project_case`、`run_project_cases`、`load_project_run`、`compare_project_runs`；
 - 本文列出的 `ModelMetadata`、`SimulationConfig`、`SimulationGraph`、`GraphSimulationConfig`、`GraphSimulationResult`、`ValidationReport`、`SimulationResult`、`ResultChunk`、`RunControl`、`RunProgress`、`ExportReport` 字段；
 - `EngineError.code/message/details`，以及 CONFIG_ERROR 的 issue `field/code/message` schema；
 - FMI 2/3 对同一高层工作流透明的原则。
@@ -396,10 +422,10 @@ are `CONFIG_ERROR` with issue `field` / `code` / `message` entries such as
 the existing `ErrorCode` model and may add node, connection, phase, time or
 cleanup diagnostics. GUI should use `code` and `details`, never parse messages.
 
-Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, graph CSV
-export, or graph CLI. Existing `ResultChunk` and `export_result()` apply only to
-single-model `SimulationResult`; GUI must not pass a `GraphSimulationResult` to
-the single-model CSV exporter.
+Graph runs currently have no `on_result_chunk`, `GraphResultChunk`, or graph CLI.
+Existing `ResultChunk` and `export_result()` apply only to single-model
+`SimulationResult`; GUI must use `export_graph_result()` for a
+`GraphSimulationResult`.
 
 ## 17. SimulationProject Workflow
 
@@ -465,9 +491,55 @@ updated `project.json` are already committed. If artifact save succeeds but
 `orphan_result_path`, and `history_committed=False`; GUI reports that outcome
 but must not delete the orphan artifact itself.
 
+### Serial batch execution
+
+`run_project_cases()` is the public local, synchronous serial batch entry point:
+
+```python
+batch = backend.run_project_cases(
+    project_root,
+    project,
+    ("baseline", "high_gain", "low_gain"),
+    control=control,
+    on_progress=on_batch_progress,
+)
+project = batch.updated_project
+```
+
+The caller order is the execution and `batch.items` order. Each item delegates
+to the existing `run_project_case()` workflow and therefore owns an independent
+run ID, artifact, result file, and `ProjectRunRecord`; there is no `batch.json`,
+batch persistence record, transaction, or rollback. The next item uses the
+previous item's returned `updated_project`, so its history includes every
+already committed batch item.
+
+The request is preflight-validated before the first case starts: an empty,
+duplicate, or unknown case ID raises `CONFIG_ERROR` and creates no artifact.
+If an item fails, its original `EngineError` code/details are retained with batch
+context; earlier committed items remain available and the GUI may call
+`open_project(project_root)` to reload current history. A pre-start stop raises
+`CANCELLED`; a stopped item is retained in `batch.items`, sets `batch.stopped`,
+and prevents the next item from starting. A stop between items returns the
+already committed partial batch rather than discarding it.
+
+`ProjectBatchProgress` wraps the original `RunProgress` unchanged with only
+`case_id`, one-based `case_number`, and `case_count`. GUI callers own worker
+thread scheduling and may display that batch identity with the nested progress;
+they must not loop `run_project_case()` themselves, run cases in parallel, or
+read/write `project.json` or result artifact JSON directly.
+
 Plot `GraphSimulationResult` directly from `result.timestamps` and
 `result.node_outputs[node_id][variable_name]`; do not reconstruct a timeline or
-flatten persistence JSON. Graph-result CSV export is not currently public.
+flatten persistence JSON. Historical graph CSV uses the same public exporter:
+
+```python
+artifact = backend.load_project_run(project_root, project, run_id)
+report = backend.export_graph_result(artifact.result, "historical.csv")
+```
+
+GUI must not read `project.json` or a result artifact JSON to export history;
+`load_project_run()` restores immutable provenance and `artifact.result` is the
+only export input.
 
 ### Historical results and frontend mapping
 
@@ -493,3 +565,58 @@ Historical viewer        → load_project_run
 
 These are presentation responsibilities. FMI lifecycle, CVode, graph routing,
 graph scheduling, project JSON, and artifact persistence remain backend-owned.
+
+### Historical run comparison and basic scalar post-processing
+
+Load each selected historical run first, then pass the immutable artifacts to
+the comparison API. The comparison itself has no project-root, project, or run-ID
+lookup parameters:
+
+```python
+artifact_a = backend.load_project_run(project_root, project, run_id_a)
+artifact_b = backend.load_project_run(project_root, project, run_id_b)
+comparison = backend.compare_project_runs((artifact_a, artifact_b))
+```
+
+`comparison.sources` preserves the supplied `ProjectRunArtifact` values and
+their caller order as immutable provenance. Frontend display names, case
+snapshots, asset snapshots, completion state, final time, and original graph
+configuration must come from these artifacts rather than from the current
+project. A stopped source contains only its recorded historical samples.
+
+Each `ProjectRunSignalComparison` is identified structurally by `node_id` and
+`variable_name`; comparisons are deterministically ordered by those fields.
+Its series remain in caller artifact order and each `ProjectRunSignalSeries`
+keeps its own native `timestamps` and raw `samples`. Frontends may overlay
+different native x axes, but must not interpolate, resample, pad, align to a
+common grid, or claim a frontend-derived curve is a backend result.
+
+The backend emits a series for every run in the signal union. When a signal is
+absent, its series has empty timestamps/samples and `MISSING_SIGNAL` statistics.
+Only numeric scalar samples (excluding `bool`) have `AVAILABLE`
+min/max/arithmetic-mean/final statistics. Arrays are retained as raw nested
+samples with `ARRAY_SIGNAL` and are not expanded; strings, bools, and mixed
+nonnumeric values use `NON_NUMERIC_SIGNAL`. Frontends can present these statuses
+as N/A reasons, but must not replace the backend statistic definition, re-read
+`results/*.json`, or re-run historical models.
+
+### Final Phase 6 frontend handoff
+
+The complete synchronous public handoff is:
+
+```python
+batch = backend.run_project_cases(project_root, project, case_ids)
+artifacts = tuple(
+    backend.load_project_run(project_root, batch.updated_project, item.record.run_id)
+    for item in batch.items
+)
+backend.export_graph_result(artifacts[0].result, export_path)
+comparison = backend.compare_project_runs(artifacts)
+```
+
+Frontend code may call these synchronous APIs from its own worker thread, use
+`ProjectBatchProgress` to present serial batch progress, overlay different
+native timestamp axes, and display the backend-provided scalar statistics. It
+must not parse `project.json` or result artifact JSON directly, invent batch
+persistence, import infrastructure/FMPy, or interpolate frontend curves and
+present them as canonical comparison results.

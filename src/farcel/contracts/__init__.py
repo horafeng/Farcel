@@ -50,8 +50,21 @@ from farcel.contracts.project_result import (
     ProjectAssetSnapshot,
     ProjectRunArtifact,
 )
+from farcel.contracts.project_batch import (
+    ProjectBatchProgress,
+    ProjectBatchRunItem,
+    ProjectBatchRunResult,
+)
+from farcel.contracts.project_comparison import (
+    ProjectRunComparison,
+    ProjectRunSignalComparison,
+    ProjectRunSignalSeries,
+    SignalStatistics,
+    SignalStatisticsStatus,
+)
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.ports import (
+    GraphResultExporter,
     ModelImporter,
     ModelExchangeProblem,
     ModelExchangeSession,
@@ -76,6 +89,7 @@ __all__ = [
     "ExportReport",
     "GraphSimulationConfig",
     "GraphSimulationResult",
+    "GraphResultExporter",
     "InputUpdate",
     "IntegratorStepResult",
     "InterfaceType",
@@ -93,10 +107,16 @@ __all__ = [
     "PROJECT_SCHEMA_VERSION",
     "PROJECT_RUN_ARTIFACT_SCHEMA_VERSION",
     "ProjectAssetSnapshot",
+    "ProjectBatchProgress",
+    "ProjectBatchRunItem",
+    "ProjectBatchRunResult",
+    "ProjectRunComparison",
     "ProjectRepository",
     "ProjectRunArtifactRepository",
     "ProjectRunRecord",
     "ProjectRunArtifact",
+    "ProjectRunSignalComparison",
+    "ProjectRunSignalSeries",
     "ResultChunk",
     "ResultExporter",
     "RunControl",
@@ -112,6 +132,8 @@ __all__ = [
     "SimulationResult",
     "SimulationSession",
     "SimulationState",
+    "SignalStatistics",
+    "SignalStatisticsStatus",
     "SolverAdapter",
     "SolverAdvanceResult",
     "SolverAdvanceStatus",
