@@ -386,8 +386,11 @@ Phase 7.2D 已提供真实独立 Python Worker subprocess，可通过 `python -m
 Worker 会在 stdout 输出唯一一行 strict JSON readiness；launcher 严格验证 schema、protocol、
 worker identity、loopback host 和 port，并对 startup timeout、early exit 与 malformed readiness
 提供稳定错误。stderr 会持续消费且只保留有限 diagnostic tail。正常 TCP session disconnect 会触发
-Worker shutdown 并令 locally-owned child 自然退出；parent 的 terminate/kill 仅是 emergency fallback，
-不是 FMI graceful cleanup。
+Worker shutdown 并令 locally-owned child 自然退出。stdout readiness 只是 bootstrap channel，
+不替代 TCP HELLO；parent-owned stdin EOF 是正常的 graceful process shutdown signal，child 的
+EOF watcher 会停止 server，随后 finally 会 best-effort `service.shutdown()`。`terminate` 与 `kill`
+只会在 stdin EOF 的有界等待超时后作为 emergency fallback；最终仍无法回收 child 会返回稳定的
+`CLEANUP_ERROR`，它们不是 FMI graceful cleanup。
 
 已证明 HELLO、PING、HAS_ASSET 与 PUT_ASSET 可真实跨 process 执行。verified asset cache 可跨
 Worker process 保留；runtime registry、runtime ID、native instance 与 connection session 不跨 process

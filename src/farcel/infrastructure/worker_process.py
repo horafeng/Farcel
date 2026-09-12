@@ -72,7 +72,7 @@ class LocalWorkerSubprocess:
         try:
             process = subprocess.Popen(
                 argv,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -96,7 +96,10 @@ class LocalWorkerSubprocess:
         try:
             descriptor = self._wait_for_readiness()
         except EngineError:
-            self._terminate_and_reap()
+            try:
+                self._terminate_and_reap()
+            except EngineError:
+                pass
             raise
         self._descriptor = descriptor
         return descriptor
@@ -114,7 +117,7 @@ class LocalWorkerSubprocess:
             raise EngineError(ErrorCode.TIMEOUT, "等待 Worker process 超时", {"phase": "worker_process_wait", "diagnostic": str(exc)}) from None
         finally:
             if process.poll() is not None:
-                self._join_readers()
+                self._cleanup_pipes_and_readers()
         return exit_code
 
     def close(self) -> None:
@@ -169,7 +172,7 @@ class LocalWorkerSubprocess:
     def _read_readiness(self, stream: TextIO) -> None:
         try:
             self._stdout_queue.put(("line", stream.readline()))
-        except UnicodeDecodeError as exc:
+        except (UnicodeDecodeError, ValueError) as exc:
             self._stdout_queue.put(("decode_error", str(exc)))
         finally:
             try:
@@ -179,7 +182,13 @@ class LocalWorkerSubprocess:
 
     def _drain_stderr(self, stream: TextIO) -> None:
         try:
-            while chunk := stream.read(1024):
+            while True:
+                try:
+                    chunk = stream.read(1)
+                except ValueError:
+                    return
+                if not chunk:
+                    return
                 with self._stderr_lock:
                     self._stderr_tail = (self._stderr_tail + chunk)[-_STDERR_TAIL_LIMIT:]
         finally:
@@ -196,21 +205,64 @@ class LocalWorkerSubprocess:
         process = self._process
         if process is None:
             return
-        if process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
-            try:
-                process.wait(timeout=self._shutdown_timeout)
-            except subprocess.TimeoutExpired:
+        if process.poll() is not None:
+            self._cleanup_pipes_and_readers()
+            return
+        self._close_stdin(process)
+        if self._wait_for_exit(process):
+            self._cleanup_pipes_and_readers()
+            return
+        try:
+            process.terminate()
+        except OSError:
+            pass
+        if self._wait_for_exit(process):
+            self._cleanup_pipes_and_readers()
+            return
+        try:
+            process.kill()
+        except OSError:
+            pass
+        if self._wait_for_exit(process):
+            self._cleanup_pipes_and_readers()
+            return
+        self._cleanup_pipes_and_readers()
+        raise EngineError(
+            ErrorCode.CLEANUP_ERROR,
+            "Worker process 无法清理",
+            {
+                "phase": "worker_process_cleanup",
+                "issue_code": "WORKER_PROCESS_CLEANUP_FAILED",
+                "pid": process.pid,
+            },
+        )
+
+    def _wait_for_exit(self, process: subprocess.Popen[str]) -> bool:
+        try:
+            process.wait(timeout=self._shutdown_timeout)
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    @staticmethod
+    def _close_stdin(process: subprocess.Popen[str]) -> None:
+        stream = process.stdin
+        if stream is None:
+            return
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+    def _cleanup_pipes_and_readers(self) -> None:
+        process = self._process
+        if process is not None:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is None:
+                    continue
                 try:
-                    process.kill()
-                except OSError:
-                    pass
-                try:
-                    process.wait(timeout=self._shutdown_timeout)
-                except subprocess.TimeoutExpired:
+                    stream.close()
+                except (OSError, ValueError):
                     pass
         self._join_readers()
 

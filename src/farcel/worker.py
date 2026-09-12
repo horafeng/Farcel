@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from typing import Sequence
 
 from farcel.application.node_runtime import (
@@ -16,7 +17,7 @@ from farcel.application.node_runtime import (
 from farcel.application.worker_protocol import WorkerProtocolValidator
 from farcel.application.worker_runtime_factory import WorkerRuntimeFactory
 from farcel.application.worker_service import WorkerApplicationService
-from farcel.contracts.errors import EngineError
+from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.ports import WorkerRequestHandler
 from farcel.contracts.worker_protocol import WORKER_PROTOCOL_VERSION, WorkerRequest, WorkerResponse
 from farcel.infrastructure.fmpy import (
@@ -59,7 +60,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Farcel internal localhost Worker")
     parser.add_argument("--worker-id", required=True)
     parser.add_argument("--cache-root", required=True)
-    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--port", type=int, default=0, choices=(0,))
     return parser
 
 
@@ -80,6 +81,9 @@ def _compose_service(worker_id: str, cache_root: Path) -> WorkerApplicationServi
 def run_worker(worker_id: str, cache_root: Path, port: int) -> int:
     """组装并运行一个 locally-owned single-session Worker。"""
 
+    if port != 0:
+        raise EngineError(ErrorCode.VALIDATION_ERROR, "Worker 只允许使用 port=0")
+
     validator = WorkerProtocolValidator()
     codec = JsonWorkerProtocolCodec(validator)
     service = _compose_service(worker_id, cache_root)
@@ -94,6 +98,12 @@ def run_worker(worker_id: str, cache_root: Path, port: int) -> int:
     )
     try:
         endpoint = server.start()
+        watcher = Thread(
+            target=_watch_parent_stdin,
+            args=(stop_event, server),
+            daemon=True,
+        )
+        watcher.start()
         readiness = {
             "schema_version": _READINESS_SCHEMA_VERSION,
             "protocol_version": WORKER_PROTOCOL_VERSION,
@@ -110,6 +120,20 @@ def run_worker(worker_id: str, cache_root: Path, port: int) -> int:
             service.shutdown()
         except Exception as exc:
             print(f"Worker shutdown failed: {exc}", file=sys.stderr)
+
+
+def _watch_parent_stdin(stop_event: Event, server: TcpWorkerServer) -> None:
+    """stdin EOF 仅表示 parent-owned Worker lifetime 结束。"""
+
+    try:
+        file_descriptor = sys.stdin.fileno()
+        while os.read(file_descriptor, 1):
+            pass
+    except OSError:
+        pass
+    finally:
+        stop_event.set()
+        server.close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

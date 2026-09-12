@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from farcel.application.worker_protocol import WorkerProtocolValidator
+from farcel.contracts.errors import EngineError
 from farcel.contracts.worker_protocol import (
     HasAssetRequest,
     PutAssetRequest,
@@ -32,6 +33,11 @@ class WorkerSubprocessIntegrationTests(unittest.TestCase):
             handshake_timeout=3,
             operation_timeout=3,
         )
+
+    def _assert_readers_finished(self, launcher: LocalWorkerSubprocess) -> None:
+        for thread in (launcher._stdout_thread, launcher._stderr_thread):
+            self.assertIsNotNone(thread)
+            self.assertFalse(thread.is_alive())
 
     def test_subprocess_asset_round_trip_natural_exit_and_cache_persistence(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -61,6 +67,7 @@ class WorkerSubprocessIntegrationTests(unittest.TestCase):
                 first_client.close()
                 first_client = None
                 self.assertEqual(first.wait(5), 0)
+                self._assert_readers_finished(first)
                 first.close()
                 first.close()
 
@@ -76,6 +83,7 @@ class WorkerSubprocessIntegrationTests(unittest.TestCase):
                     second_client.close()
                     second_client = None
                     self.assertEqual(second.wait(5), 0)
+                    self._assert_readers_finished(second)
                 finally:
                     if second_client is not None:
                         second_client.close()
@@ -92,7 +100,8 @@ class WorkerSubprocessIntegrationTests(unittest.TestCase):
                 launcher.start()
                 self.assertIsNone(launcher.poll())
                 launcher.close()
-                self.assertIsNotNone(launcher.poll())
+                self.assertEqual(launcher.wait(1), 0)
+                self._assert_readers_finished(launcher)
                 launcher.close()
             finally:
                 launcher.close()
@@ -109,3 +118,41 @@ class WorkerSubprocessIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--worker-id", result.stdout)
+
+    def test_parent_close_with_active_client_is_graceful_and_closes_transport(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            launcher = LocalWorkerSubprocess("worker-a", Path(temporary_directory), startup_timeout=5, shutdown_timeout=5)
+            client: TcpWorkerClient | None = None
+            try:
+                descriptor = launcher.start()
+                client = self._client(descriptor)
+                client.connect()
+                self.assertTrue(client.request(WorkerRequest("ping", "worker-a", WorkerMessageType.PING)).ok)
+                launcher.close()
+                self.assertEqual(launcher.wait(1), 0)
+                self._assert_readers_finished(launcher)
+                with self.assertRaises(EngineError):
+                    client.request(WorkerRequest("after-close", "worker-a", WorkerMessageType.PING))
+                launcher.close()
+            finally:
+                if client is not None:
+                    client.close()
+                launcher.close()
+
+    def test_subprocess_cache_root_with_spaces_uses_argv_safely(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            cache_root = Path(temporary_directory) / "cache root with spaces"
+            launcher = LocalWorkerSubprocess("worker-a", cache_root, startup_timeout=5, shutdown_timeout=5)
+            client: TcpWorkerClient | None = None
+            try:
+                descriptor = launcher.start()
+                client = self._client(descriptor)
+                client.connect()
+                self.assertTrue(client.request(WorkerRequest("ping-spaces", "worker-a", WorkerMessageType.PING)).ok)
+                launcher.close()
+                self.assertEqual(launcher.wait(1), 0)
+                self._assert_readers_finished(launcher)
+            finally:
+                if client is not None:
+                    client.close()
+                launcher.close()
