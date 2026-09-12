@@ -26,9 +26,12 @@ class WorkerAssetCacheTests(unittest.TestCase):
         self.cache.put_asset(self.sha256, self.content)
 
         expected = self.root / "assets" / f"{self.sha256}.fmu"
+        actual = self.cache.resolve_asset(self.sha256)
         self.assertTrue(self.cache.has_asset(self.sha256))
-        self.assertEqual(self.cache.resolve_asset(self.sha256), expected)
-        self.assertEqual(expected.read_bytes(), self.content)
+        self.assertEqual(actual, expected.resolve(strict=True))
+        self.assertEqual(actual.parent.name, "assets")
+        self.assertEqual(actual.name, f"{self.sha256}.fmu")
+        self.assertEqual(actual.read_bytes(), self.content)
 
     def test_repeated_put_and_preexisting_correct_file_are_idempotent(self) -> None:
         self.cache.put_asset(self.sha256, self.content)
@@ -43,7 +46,11 @@ class WorkerAssetCacheTests(unittest.TestCase):
         other_cache = LocalWorkerAssetCache(other_root)
         self.assertTrue(other_cache.has_asset(self.sha256))
         other_cache.put_asset(self.sha256, self.content)
-        self.assertEqual(other_cache.resolve_asset(self.sha256), path)
+        actual = other_cache.resolve_asset(self.sha256)
+        self.assertEqual(actual, path.resolve(strict=True))
+        self.assertEqual(actual.parent.name, "assets")
+        self.assertEqual(actual.name, f"{self.sha256}.fmu")
+        self.assertEqual(actual.read_bytes(), self.content)
 
     def test_missing_and_corrupted_entries_are_not_cache_hits_and_valid_put_repairs_file(self) -> None:
         self.assertFalse(self.cache.has_asset(self.sha256))
