@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import socket
 from threading import Event
 from typing import Callable
@@ -232,14 +233,13 @@ class TcpWorkerClient:
             _send_all(self._socket, encode_frame(binary_payload, max_payload_bytes=MAX_ASSET_FRAME_BYTES), "worker_tcp_asset_send")
         payload = _receive_frame(self._socket, MAX_CONTROL_FRAME_BYTES, "worker_tcp_response", allow_eof=False)
         assert payload is not None
-        response = self._codec.decode_response(payload)
+        try:
+            response = self._codec.decode_response(payload)
+        except EngineError:
+            raise _correlation_error() from None
         report = self._validator.validate_response(response, request=request)
         if not report.is_valid:
-            raise EngineError(
-                ErrorCode.INTERNAL_ERROR,
-                "Worker response correlation 无效",
-                {"phase": "worker_tcp_response", "issue_code": "WORKER_RESPONSE_CORRELATION_FAILED"},
-            )
+            raise _correlation_error()
         return response
 
 
@@ -280,8 +280,17 @@ def _send_all(socket_object: socket.socket, data: bytes, phase: str) -> None:
 
 
 def _finite_timeout(value: float, phase: str) -> float:
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-        raise EngineError(ErrorCode.VALIDATION_ERROR, "timeout 必须是正数", {"phase": phase})
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise EngineError(
+            ErrorCode.VALIDATION_ERROR,
+            "timeout 必须是正的有限数",
+            {"phase": phase},
+        )
     return float(value)
 
 
@@ -291,6 +300,14 @@ def _optional_timeout(value: float | None, phase: str) -> float | None:
 
 def _timeout_error(phase: str, cause: Exception) -> EngineError:
     return EngineError(ErrorCode.TIMEOUT, "Worker transport 超时", {"phase": phase, "diagnostic": str(cause)})
+
+
+def _correlation_error() -> EngineError:
+    return EngineError(
+        ErrorCode.INTERNAL_ERROR,
+        "Worker response correlation 无效",
+        {"phase": "worker_tcp_response", "issue_code": "WORKER_RESPONSE_CORRELATION_FAILED"},
+    )
 
 
 def _transport_error(phase: str, issue_code: str, message: str, cause: Exception) -> EngineError:

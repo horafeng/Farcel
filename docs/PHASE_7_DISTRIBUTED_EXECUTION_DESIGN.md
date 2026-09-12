@@ -370,4 +370,8 @@ operation timeout 可配置或为 `None`。response correlation 会校验 reques
 type 与 protocol version；timeout、断连和 malformed response 不会触发 retry 或 stateful replay。
 断连后 server 会 best-effort shutdown 当前 Worker session，但仍可接受新的 HELLO connection。
 
+timeout 参数现明确要求 positive finite number；`NaN`、`Infinity`、布尔值和非正值会稳定拒绝，
+而 `operation_timeout=None` 保持允许。localhost TCP regression coverage 已覆盖 timeout、response
+correlation、oversized/truncated frame、断连 cleanup、server recovery 与无 retry/replay 语义。
+
 仍未实现 subprocess Worker、LAN bind、TLS/auth、`RemoteNodeRuntime` 或 distributed graph execution。
