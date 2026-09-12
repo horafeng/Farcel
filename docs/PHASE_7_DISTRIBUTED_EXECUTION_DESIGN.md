@@ -342,3 +342,19 @@ file，symlink 与非普通文件不会作为可信 cache hit。
 
 仍未实现 socket/TCP、Worker process、protocol handler、runtime registry、asset transfer handler、
 `RemoteNodeRuntime` 或 distributed graph execution。
+
+## Phase 7.2B 实现状态
+
+Phase 7.2B 已实现 transport-independent 的 `WorkerApplicationService`、
+`WorkerRuntimeFactory` 与 process-local runtime registry。`CREATE_RUNTIME` 只通过
+`WorkerAssetStore.resolve_asset()` 取得 Worker 本机 SHA cache path，随后重新验证
+`SimulationConfig`，并复用既有 Co-Simulation / FMI2 Model Exchange runtime factories；不接收
+Coordinator model path。
+
+registry 使用 opaque runtime ID 管理 CREATED、INITIALIZED、FAILED 与 TERMINATED 状态。Worker
+只执行单个 runtime 的 initialize、set_inputs、advance_to、read_outputs、terminate 与 close；
+FAILED runtime 仅可 cleanup，shutdown 会尽力清理全部已登记 runtime。业务错误会转换为 structured
+`RemoteError`，Worker 不拥有 `SimulationGraph`、`DataRouter` 或 global scheduler。
+
+仍未实现 socket/TCP、Worker process、`WorkerClient`、`RemoteNodeRuntime` 或 distributed graph
+execution。
