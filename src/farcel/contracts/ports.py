@@ -49,6 +49,16 @@ class WorkerProtocolSemanticValidator(Protocol):
     ) -> ValidationReport: ...
 
 
+class WorkerAssetStore(Protocol):
+    """Worker 本地 content-addressed asset cache 的实现无关边界。"""
+
+    def has_asset(self, sha256: str) -> bool: ...
+
+    def put_asset(self, sha256: str, content: bytes) -> None: ...
+
+    def resolve_asset(self, sha256: str) -> Path: ...
+
+
 class SimulationSession(Protocol):
     """Implementation-independent lifecycle of one instantiated FMU."""
 

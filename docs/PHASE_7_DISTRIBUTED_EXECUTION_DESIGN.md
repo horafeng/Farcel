@@ -328,3 +328,17 @@ import application，永久依赖方向继续为 `application -> contracts <- in
 Phase 7.1 至此完成的是 contracts、protocol semantics 与 wire codec/framing，不是
 distributed runtime。仍未实现 socket/TCP、Worker process、asset cache、Worker/RPC handler、
 `RemoteNodeRuntime` 或 distributed graph execution。
+
+## Phase 7.2A 实现状态
+
+Phase 7.2A 已实现 Worker 自有的 content-addressed FMU asset cache。cache key 是
+canonical lowercase SHA-256，cache path 完全由 Worker 按
+`<cache_root>/assets/<sha256>.fmu` 生成，不接受 Coordinator path、原始文件名或调用方提供的
+filename。写入前会校验 bytes 的 SHA-256，并复用 512 MiB asset size limit。
+
+cache hit 会重新以流式 SHA-256 验证既有文件；corrupted entry 不会被信任，已验证的新内容可用
+同目录 temporary file、flush、fsync 与 atomic replace 修复。失败时会 best-effort 清理 temp
+file，symlink 与非普通文件不会作为可信 cache hit。
+
+仍未实现 socket/TCP、Worker process、protocol handler、runtime registry、asset transfer handler、
+`RemoteNodeRuntime` 或 distributed graph execution。
