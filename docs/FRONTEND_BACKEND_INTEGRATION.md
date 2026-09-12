@@ -427,6 +427,23 @@ Existing `ResultChunk` and `export_result()` apply only to single-model
 `SimulationResult`; GUI must use `export_graph_result()` for a
 `GraphSimulationResult`.
 
+### Phase 7 design boundary
+
+Phase 7.0 is a design freeze only: the current public API remains local and no
+Worker, RPC, socket runtime, or remote placement API exists. Future distributed
+execution remains additive and must keep the GUI boundary unchanged:
+`GUI -> create_backend() -> Farcel public API / farcel.contracts`. GUI must not
+construct `NodePlacement`/`ExecutionPlan` implementation objects, manage a
+socket or Worker process, transfer FMU paths, or see FMPy/native handles.
+
+The graph's established explicit-Jacobi, previous-checkpoint ZOH and global
+checkpoint barrier semantics will apply unchanged to any future local/remote
+mix. `RunProgress` remains global committed logical-time progress and
+`RunControl` remains Coordinator-owned. See
+[PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)
+for the frozen design; it is not a statement that distributed execution has
+been delivered.
+
 ## 17. SimulationProject Workflow
 
 The Project workflow is the public boundary for engineering-management state.

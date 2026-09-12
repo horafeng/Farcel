@@ -9,6 +9,7 @@ on:
       - phase-4-work
       - phase-5-work
       - phase-6-work
+      - phase-7-work
   pull_request:
     branches:
       - main

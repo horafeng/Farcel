@@ -16,11 +16,11 @@ Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平�
 
 ## Planned（规划中，尚未实现）
 
-Phase 5 backend project engineering-management layer 已实现；PySide6 Project/Graph editor、canvas、scope 与 project UI 仍是独立 frontend 工作。Simulink / AMESim / ANSYS direct adapter 仍没有实现。现有 graph 只支持经已验证 FMU runtime 的本机同步组合。
+Phase 5 backend project engineering-management layer 已实现；PySide6 Project/Graph editor、canvas、scope 与 project UI 仍是独立 frontend 工作。Simulink / AMESim / ANSYS direct adapter 仍没有实现。现有 graph 只支持经已验证 FMU runtime 的本机同步组合。Phase 7 已进入 **7.0 distributed logical-time architecture design freeze**：未来可用 Worker-backed node runtime 替换本地 node runtime，同时保持既有 Jacobi checkpoint 语义；目前仍**没有实现** Worker、RPC、socket runtime、RemoteNodeRuntime 或 distributed execution。详见 [docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)。
 
 ## Long-term（远期方向，尚未实现）
 
-异构模型集成将优先经 FMU 接入，必要时再研究直接工具 adapter；分布式执行只会在本地 `SimulationGraph` 成熟后评估。实时/HIL、ROM、跨进程 worker、云或实体环境连接均不属于当前实现范围。完整阶段边界见 [docs/PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md)。
+异构模型集成将优先经 FMU 接入，必要时再研究直接工具 adapter。Phase 7 的分布式逻辑时间设计已冻结，但 Worker/RPC/runtime 尚未实现；实时/HIL、ROM、云或实体环境连接仍不属于当前实现范围。完整阶段边界见 [docs/PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md)。
 
 `communication_step` 是 FMU Co-Simulation 的通信点推进步长；`output_interval` 是保存到 `SimulationResult` 的结果采样间隔。未设置 `output_interval` 时它等于 `communication_step`，保持原有“每通信点一个样本”的行为。显式设置的采样间隔必须是通信步长的整数倍；Farcel 不插值，并会在正常完成时补记尚未采集的最终状态。
 
@@ -30,7 +30,7 @@ FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled i
 
 当前后端的公开执行范围为 FMI 2 Co-Simulation、FMI 2 Model Exchange 与 FMI 3 Co-Simulation。`execution_interface=None` 时按当前可执行能力选择，双接口 FMU 始终优先 Co-Simulation；显式接口绝不静默回退。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
 
-仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、distributed simulation、HIL/real-time、checkpoint/restart、database/server project store 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。Phase 6 不包含 parallel/distributed batch、interpolation、resampling、common time grid 或 advanced DSP/statistics。
+仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、distributed simulation runtime、HIL/real-time、checkpoint/restart、database/server project store 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。Phase 6 不包含 parallel/distributed batch、interpolation、resampling、common time grid 或 advanced DSP/statistics。
 
 官方 Reference FMU v0.0.41 已真实验证的 FMI 3 Co-Simulation scalar runtime 类型包括 Float32、Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String 和 Enumeration。Binary 与 Clock 仍可在 metadata 中 inspect；Binary input 或 selected output 在 validation 阶段稳定拒绝，Clock 所在的 Scheduled Execution FMU 保持 inspect-only。Resource FMU 的 `resources/y.txt` 访问也已完成真实运行与 cleanup 回归。
 

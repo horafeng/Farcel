@@ -120,9 +120,10 @@ Do not implement the following unless explicitly requested:
 
 - Scheduled Execution runtime
 - Co-simulation master algorithms
-- Distributed simulation
-- Worker processes
-- RPC
+- Distributed simulation, Worker processes, and RPC **except** for the
+  explicit, separately authorized Phase 7 scope. Phase 7.0 is design/docs/CI
+  only; do not implement a Worker, RPC, socket runtime, or RemoteNodeRuntime
+  until a later Phase 7 substage explicitly authorizes it.
 - Database persistence
 - Plugin systems
 - Network services
@@ -307,6 +308,13 @@ Current capabilities include:
 - `SimulationGraph`, `GraphSimulationConfig`, `GraphSimulationResult`
 - public `validate_graph()` / `run_graph()` through `create_backend()`
 - local synchronous explicit-Jacobi, previous-checkpoint routing for FMI2/FMI3 Co-Simulation and FMI2 Model Exchange nodes
+
+### Phase 7 — Distributed Execution Foundation
+
+- Phase 7.0 design is frozen in `docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md`.
+- It preserves the Phase 4 logical checkpoint barrier and keeps Coordinator
+  graph semantics separate from future Worker node lifecycle work.
+- No Worker/RPC/RemoteNodeRuntime/distributed runtime is implemented yet.
 
 ---
 

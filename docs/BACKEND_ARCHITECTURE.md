@@ -24,7 +24,8 @@ tests/
 docs/
 ```
 
-暂不拆成多个可发布包，不引入依赖注入框架、消息总线、数据库或 worker 进程。
+暂不拆成多个可发布包，不引入依赖注入框架、消息总线、数据库或 worker 进程。Phase 7.0
+只冻结未来 trusted-localhost/LAN Worker 的设计；目前没有 worker、RPC 或网络 runtime。
 
 ## 3. 模块边界
 
@@ -63,8 +64,10 @@ docs/
 
 ## 6. 应推迟的设计
 
-- Scheduled Execution scheduler、FMI3 Model Exchange solver、distributed worker/RPC、database persistence and checkpoint/restart。
-- 独立 worker 进程、远程 RPC、插件系统、数据库和复杂缓存。
+- Scheduled Execution scheduler、FMI3 Model Exchange solver、database persistence and checkpoint/restart。
+- 独立 worker 进程、远程 RPC、插件系统、数据库和复杂缓存；它们仅在
+  [Phase 7 frozen design](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md) 明确授权的后续子阶段
+  才能逐项实现。
 - FMI 3 全量数组绘图策略、Binary/Clock 可视化、超大结果的持久化格式。
 - C/C++ 重写细节；当前只保证语言无关契约可映射。
 - 高级事件总线、可恢复运行、分布式执行和性能预优化。
@@ -112,7 +115,7 @@ GUI
 
 `GraphValidator` remains metadata-only and precedes runtime composition. `GraphRuntimeBindingsFactory` injects existing CS/ME node factories; `GraphSimulationRunner` owns global result, progress, stop and cleanup semantics. The graph is explicit Jacobi / previous-checkpoint only, so no per-node order becomes numerical semantics.
 
-The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, distributed execution, SSP, real-time/HIL, worker/RPC, FMI3 ME, Scheduled Execution and strong coupling remain deferred.
+The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, SSP, real-time/HIL, FMI3 ME, Scheduled Execution and strong coupling remain deferred. Phase 7.0 has frozen, but not implemented, the future Worker/RPC substitution design: it keeps `SimulationOrchestrator` on the Farcel-owned `ModelNodeRuntime` lifecycle boundary and keeps all graph semantics on the Coordinator.
 
 ## 9. Phase 5: Simulation Project / Engineering Management
 

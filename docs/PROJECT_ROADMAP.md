@@ -33,7 +33,13 @@ Simulink、AMESim、ANSYS 等 direct adapter 仍是远期候选。异构模型�
 
 ## 其他远期方向
 
-**Phase 7 — Long-term。** 在本地 `SimulationGraph` 和单机调度可靠后，再评估分布式执行；当前没有 worker、RPC、云服务或分布式仿真。
+**Phase 7 — Distributed Execution Foundation — Phase 7.0 design frozen。** 已从
+Phase 6 后的 main baseline 正式进入分布式逻辑时间执行的设计冻结与分阶段实施准备。
+目标是在不改变 explicit-Jacobi、previous-checkpoint ZOH、全局 checkpoint barrier
+或反馈一拍延迟语义的前提下，未来让 `ModelNodeRuntime` 可由本机或 trusted-LAN
+Worker 支持。当前仍**没有** Worker、RPC、socket runtime、RemoteNodeRuntime、asset
+cache 或 distributed runtime 实现；完整冻结设计见
+[PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)。
 
 **Phase 8 — Long-term optional。** 实时/HIL、ROM 和性能导向的 native worker/C++ 加速仅在相应需求与本地基线成熟后单独设计。它们目前不存在，也不由当前 Python orchestration 伪装实现。
 
