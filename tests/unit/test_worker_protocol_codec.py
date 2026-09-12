@@ -4,6 +4,7 @@ import json
 import math
 import unittest
 
+from farcel.application.worker_protocol import WorkerProtocolValidator
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import InputUpdate, InterfaceType, SimulationConfig
 from farcel.contracts.worker_protocol import (
@@ -19,7 +20,7 @@ _SHA = "a" * 64
 
 
 class WorkerProtocolCodecTests(unittest.TestCase):
-    def setUp(self): self.codec = JsonWorkerProtocolCodec()
+    def setUp(self): self.codec = JsonWorkerProtocolCodec(WorkerProtocolValidator())
     def test_all_request_messages_round_trip(self):
         payloads = {WorkerMessageType.HELLO: None, WorkerMessageType.PING: None, WorkerMessageType.HAS_ASSET: HasAssetRequest(_SHA), WorkerMessageType.PUT_ASSET: PutAssetRequest(_SHA, 3), WorkerMessageType.CREATE_RUNTIME: CreateRuntimeRequest("n", _SHA, self._config()), WorkerMessageType.INITIALIZE: RuntimeCommand("r"), WorkerMessageType.SET_INPUTS: SetInputsRequest("r", {"u": (1, 2)}), WorkerMessageType.ADVANCE_TO: AdvanceToRequest("r", .1), WorkerMessageType.READ_OUTPUTS: RuntimeCommand("r"), WorkerMessageType.TERMINATE: RuntimeCommand("r"), WorkerMessageType.CLOSE: RuntimeCommand("r")}
         for message_type, payload in payloads.items():

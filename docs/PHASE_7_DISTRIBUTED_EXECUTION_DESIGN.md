@@ -321,6 +321,10 @@ round-trip。codec 使用 `allow_nan=False`，拒绝 duplicate key、未知字�
 control frame 上限为 1 MiB，asset binary frame 上限为 512 MiB。PUT_ASSET 的 binary body
 只可作为 raw length-prefixed bytes，绝不进入 JSON。
 
+wire codec 属于 infrastructure，protocol semantic validator 属于 application；两者通过
+contracts-owned 的 `WorkerProtocolSemanticValidator` port 解耦。infrastructure 不直接
+import application，永久依赖方向继续为 `application -> contracts <- infrastructure`。
+
 Phase 7.1 至此完成的是 contracts、protocol semantics 与 wire codec/framing，不是
 distributed runtime。仍未实现 socket/TCP、Worker process、asset cache、Worker/RPC handler、
 `RemoteNodeRuntime` 或 distributed graph execution。

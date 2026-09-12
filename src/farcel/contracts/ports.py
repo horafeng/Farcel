@@ -26,6 +26,7 @@ from farcel.contracts.models import (
 from farcel.contracts.project import SimulationProject
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
+from farcel.contracts.worker_protocol import WorkerRequest, WorkerResponse
 
 
 class ModelImporter(Protocol):
@@ -33,6 +34,19 @@ class ModelImporter(Protocol):
 
     def load(self, path: Path) -> ModelMetadata:
         """Parse and normalise an FMU without exposing adapter-native types."""
+
+
+class WorkerProtocolSemanticValidator(Protocol):
+    """验证 Worker 协议 DTO 的语义，不依赖具体传输或编码实现。"""
+
+    def validate_request(self, request: WorkerRequest) -> ValidationReport: ...
+
+    def validate_response(
+        self,
+        response: WorkerResponse,
+        *,
+        request: WorkerRequest | None = None,
+    ) -> ValidationReport: ...
 
 
 class SimulationSession(Protocol):

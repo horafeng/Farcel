@@ -7,9 +7,9 @@ import json
 import math
 from typing import Any
 
-from farcel.application.worker_protocol import WorkerProtocolValidator
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.models import InputUpdate, InterfaceType, SimulationConfig
+from farcel.contracts.ports import WorkerProtocolSemanticValidator
 from farcel.contracts.worker_protocol import (
     AdvanceToRequest, CreateRuntimeRequest, CreateRuntimeResponse,
     HasAssetRequest, HasAssetResponse, PutAssetRequest, PutAssetResponse,
@@ -28,8 +28,8 @@ _MAPPING_FIELDS = ("$farcel_type", "entries")
 class JsonWorkerProtocolCodec:
     """仅在 DTO 与 bytes 间转换；不执行网络传输。"""
 
-    def __init__(self, validator: WorkerProtocolValidator | None = None) -> None:
-        self._validator = validator or WorkerProtocolValidator()
+    def __init__(self, validator: WorkerProtocolSemanticValidator) -> None:
+        self._validator = validator
 
     def encode_request(self, request: WorkerRequest) -> bytes:
         try:

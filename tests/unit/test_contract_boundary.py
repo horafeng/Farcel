@@ -169,3 +169,23 @@ class ContractBoundaryTests(unittest.TestCase):
                     )
 
         self.assertEqual(forbidden, [])
+
+    def test_infrastructure_does_not_import_application(self) -> None:
+        source_root = Path(__file__).parents[2] / "src" / "farcel" / "infrastructure"
+        forbidden: list[str] = []
+        for source_file in source_root.rglob("*.py"):
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                forbidden.extend(
+                    name
+                    for name in names
+                    if name == "farcel.application" or name.startswith("farcel.application.")
+                )
+
+        self.assertEqual(forbidden, [])
