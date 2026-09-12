@@ -358,3 +358,16 @@ FAILED runtime 仅可 cleanup，shutdown 会尽力清理全部已登记 runtime�
 
 仍未实现 socket/TCP、Worker process、`WorkerClient`、`RemoteNodeRuntime` 或 distributed graph
 execution。
+
+## Phase 7.2C 实现状态
+
+Phase 7.2C 已实现 localhost TCP transport。v1 server 仅绑定 `127.0.0.1`，支持 `port=0`
+ephemeral endpoint；每条连接必须先完成 HELLO，随后在持久连接中串行 request/response。control
+frame 继续使用现有 1 MiB 限制，PUT_ASSET 使用 JSON control frame 加独立 512 MiB binary frame。
+
+transport 在读取 body 前先读取并验证 4-byte header；connect 与 handshake timeout 有限，普通
+operation timeout 可配置或为 `None`。response correlation 会校验 request ID、Worker ID、message
+type 与 protocol version；timeout、断连和 malformed response 不会触发 retry 或 stateful replay。
+断连后 server 会 best-effort shutdown 当前 Worker session，但仍可接受新的 HELLO connection。
+
+仍未实现 subprocess Worker、LAN bind、TLS/auth、`RemoteNodeRuntime` 或 distributed graph execution。

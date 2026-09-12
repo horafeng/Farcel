@@ -59,6 +59,34 @@ class WorkerAssetStore(Protocol):
     def resolve_asset(self, sha256: str) -> Path: ...
 
 
+class WorkerRequestHandler(Protocol):
+    """处理已解码 Worker DTO 的传输无关 application boundary。"""
+
+    def handle_request(
+        self,
+        request: WorkerRequest,
+        *,
+        binary_payload: bytes | None = None,
+    ) -> WorkerResponse: ...
+
+    def shutdown(self) -> None: ...
+
+
+class WorkerTransportClient(Protocol):
+    """Coordinator 侧 Worker request/response transport boundary。"""
+
+    def connect(self) -> None: ...
+
+    def request(
+        self,
+        request: WorkerRequest,
+        *,
+        binary_payload: bytes | None = None,
+    ) -> WorkerResponse: ...
+
+    def close(self) -> None: ...
+
+
 class SimulationSession(Protocol):
     """Implementation-independent lifecycle of one instantiated FMU."""
 
