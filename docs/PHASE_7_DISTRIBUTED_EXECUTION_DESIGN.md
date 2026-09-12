@@ -276,3 +276,18 @@ Deferred capabilities include actual Worker/RPC implementation until 7.1+,
 automatic retry/restart, checkpoint/restart, Internet security, cloud
 orchestration, real-time/HIL, physical I/O, direct adapters, SSP, FMI3 ME,
 Scheduled Execution, strong coupling, and frontend implementation.
+
+## Phase 7.1A 实现状态
+
+Phase 7.1A 已实现 Farcel-owned 的 `PlacementKind`、`WorkerEndpoint`、
+`WorkerDescriptor`、`NodePlacement` 与 `ExecutionPlan` contracts，并提供纯
+application 层 `ExecutionPlanValidator` 和 `resolve_node_placement()`。它们只用
+`node_id` 将部署计划与 `SimulationGraph` 关联；未显式声明 placement 的 node 会解析为
+逻辑 `LOCAL`，不会把默认值写回 graph 或 project。
+
+本阶段没有修改 `SimulationGraph`、`SimulationProject` 或
+`PROJECT_SCHEMA_VERSION == "1.0"`，也没有修改既有 graph 数值执行链。validator 不做
+DNS、网络、文件系统、FMU、asset、Worker capability 或 protocol version 检查。
+
+仍未实现 protocol codec、Worker、RPC、socket、asset transfer、asset cache 或
+`RemoteNodeRuntime`。这些内容继续属于后续 Phase 7 子阶段。

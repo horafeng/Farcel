@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import graph, models, project, project_batch, project_comparison
+from farcel.contracts import distributed, graph, models, project, project_batch, project_comparison
 
 
 class ContractBoundaryTests(unittest.TestCase):
@@ -29,6 +29,10 @@ class ContractBoundaryTests(unittest.TestCase):
             models.ExportReport,
             models.RunSummary,
             models.SimulationResult,
+            distributed.WorkerEndpoint,
+            distributed.WorkerDescriptor,
+            distributed.NodePlacement,
+            distributed.ExecutionPlan,
             graph.PortReference,
             graph.Connection,
             graph.ModelNodeConfig,
@@ -54,10 +58,37 @@ class ContractBoundaryTests(unittest.TestCase):
             hints = get_type_hints(contract_type)
             annotations.extend(str(hints[field.name]) for field in fields(contract_type))
 
-        forbidden = ("fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure")
+        forbidden = (
+            "fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure",
+            "socket", "multiprocessing", "subprocess", "popen",
+        )
         self.assertTrue(
             all(
                 forbidden_name not in annotation.lower()
+                for annotation in annotations
+                for forbidden_name in forbidden
+            )
+        )
+
+    def test_distributed_contract_annotations_exclude_transport_details(self) -> None:
+        forbidden = (
+            "fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure",
+            "socket", "multiprocessing", "subprocess", "connection", "popen",
+        )
+        contract_types = (
+            distributed.WorkerEndpoint,
+            distributed.WorkerDescriptor,
+            distributed.NodePlacement,
+            distributed.ExecutionPlan,
+        )
+        annotations = [
+            str(annotation).lower()
+            for contract_type in contract_types
+            for annotation in get_type_hints(contract_type).values()
+        ]
+        self.assertTrue(
+            all(
+                forbidden_name not in annotation
                 for annotation in annotations
                 for forbidden_name in forbidden
             )
@@ -83,6 +114,9 @@ class ContractBoundaryTests(unittest.TestCase):
             "farcel.infrastructure",
             "numpy",
             "ctypes",
+            "socket",
+            "multiprocessing",
+            "subprocess",
             "PyQt",
             "PySide",
         )
