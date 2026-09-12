@@ -396,3 +396,18 @@ EOF watcher 会停止 server，随后 finally 会 best-effort `service.shutdown(
 Worker process 保留；runtime registry、runtime ID、native instance 与 connection session 不跨 process
 保留。本阶段仍未执行 real-FMU runtime lifecycle proof，未实现 `RemoteNodeRuntime`、distributed graph、
 LAN bind 或 TLS/auth。
+
+## Phase 7.2E 实现状态
+
+Phase 7.2E 使用仓库中的真实 `VanDerPol.fmu` 完成独立 Worker subprocess proof。FMU 由
+Coordinator 计算 SHA-256，并经 `PUT_ASSET` 写入 Worker 自有 cache；`CREATE_RUNTIME` 只携带
+`node_id`、`asset_sha256` 和 `SimulationConfig`，不携带 Coordinator path。
+
+FMI2 Co-Simulation 与 FMI2 Model Exchange（含 CVode）均已通过真实 TCP lifecycle：create、
+initialize、read、`SET_INPUTS({})`、两次 advance、terminate 与 close。remote output 会与 local
+backend baseline 比较；runtime close 后旧 ID 不再存在，但 Worker TCP session 仍可继续 PING。另有
+active Model Exchange runtime proof：parent-owned stdin EOF 会让 child best-effort shutdown runtime，
+并正常退出，不把 `terminate`/`kill` 当作正常 FMI cleanup。
+
+这些 proof 会在 Windows Python 3.10/3.13 CI 真正运行。尚未实现 `RemoteNodeRuntime`、Worker 到
+`SimulationGraph` 的 remote binding、distributed graph execution、LAN、TLS 或 auth。
