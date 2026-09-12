@@ -5,6 +5,7 @@ from typing import get_type_hints
 import unittest
 
 from farcel.contracts import distributed, graph, models, project, project_batch, project_comparison
+from farcel.contracts import worker_protocol
 
 
 class ContractBoundaryTests(unittest.TestCase):
@@ -33,6 +34,20 @@ class ContractBoundaryTests(unittest.TestCase):
             distributed.WorkerDescriptor,
             distributed.NodePlacement,
             distributed.ExecutionPlan,
+            worker_protocol.RemoteError,
+            worker_protocol.WorkerRequest,
+            worker_protocol.WorkerResponse,
+            worker_protocol.HasAssetRequest,
+            worker_protocol.PutAssetRequest,
+            worker_protocol.CreateRuntimeRequest,
+            worker_protocol.RuntimeCommand,
+            worker_protocol.SetInputsRequest,
+            worker_protocol.AdvanceToRequest,
+            worker_protocol.HasAssetResponse,
+            worker_protocol.PutAssetResponse,
+            worker_protocol.CreateRuntimeResponse,
+            worker_protocol.RuntimeAck,
+            worker_protocol.ReadOutputsResponse,
             graph.PortReference,
             graph.Connection,
             graph.ModelNodeConfig,
@@ -60,7 +75,7 @@ class ContractBoundaryTests(unittest.TestCase):
 
         forbidden = (
             "fmpy", "numpy", "ctypes", "pyside", "pyqt", "infrastructure",
-            "socket", "multiprocessing", "subprocess", "popen",
+            "socket", "multiprocessing", "subprocess", "popen", "path",
         )
         self.assertTrue(
             all(
@@ -80,6 +95,20 @@ class ContractBoundaryTests(unittest.TestCase):
             distributed.WorkerDescriptor,
             distributed.NodePlacement,
             distributed.ExecutionPlan,
+            worker_protocol.RemoteError,
+            worker_protocol.WorkerRequest,
+            worker_protocol.WorkerResponse,
+            worker_protocol.HasAssetRequest,
+            worker_protocol.PutAssetRequest,
+            worker_protocol.CreateRuntimeRequest,
+            worker_protocol.RuntimeCommand,
+            worker_protocol.SetInputsRequest,
+            worker_protocol.AdvanceToRequest,
+            worker_protocol.HasAssetResponse,
+            worker_protocol.PutAssetResponse,
+            worker_protocol.CreateRuntimeResponse,
+            worker_protocol.RuntimeAck,
+            worker_protocol.ReadOutputsResponse,
         )
         annotations = [
             str(annotation).lower()

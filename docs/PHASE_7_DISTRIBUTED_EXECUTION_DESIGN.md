@@ -291,3 +291,20 @@ DNS、网络、文件系统、FMU、asset、Worker capability 或 protocol versi
 
 仍未实现 protocol codec、Worker、RPC、socket、asset transfer、asset cache 或
 `RemoteNodeRuntime`。这些内容继续属于后续 Phase 7 子阶段。
+
+## Phase 7.1B 实现状态
+
+Phase 7.1B 已将 `WORKER_PROTOCOL_VERSION` 冻结为 `"1.0"`，并实现
+`WorkerMessageType`、request/response envelope、typed payload contracts 和
+structured `RemoteError`。`WorkerProtocolValidator` 只验证协议对象自身的版本、
+身份、payload、canonical SHA-256、成功/失败状态和 request/response correlation；
+它不访问网络、文件系统或 FMU。
+
+`CREATE_RUNTIME` 只携带 `node_id`、`asset_sha256` 与已构造的
+`SimulationConfig`，不包含 Coordinator absolute path、`SimulationGraph`、
+`Connection` 或 `ExecutionPlan`。Worker 因而仍只会在后续实现中按自身 cache 的
+content identity 准备 runtime，不承担 graph routing 或 scheduler。
+
+仍未实现 JSON codec、binary framing、socket/TCP、Worker、RPC、asset transfer、
+asset cache 或 `RemoteNodeRuntime`。本阶段协议对象只是 Python immutable DTO，
+不包含传输或 Worker lifecycle state machine。
