@@ -308,3 +308,19 @@ content identity 准备 runtime，不承担 graph routing 或 scheduler。
 仍未实现 JSON codec、binary framing、socket/TCP、Worker、RPC、asset transfer、
 asset cache 或 `RemoteNodeRuntime`。本阶段协议对象只是 Python immutable DTO，
 不包含传输或 Worker lifecycle state machine。
+
+## Phase 7.1C 实现状态
+
+Phase 7.1C 已实现严格 UTF-8 standard JSON codec：Worker request/response、
+`RemoteError`、typed payload、`SimulationConfig` 与通用 Farcel value 都可稳定
+round-trip。codec 使用 `allow_nan=False`，拒绝 duplicate key、未知字段、非法 enum、
+非法 `ErrorCode` 与不符合 message payload 语义的输入；不使用 pickle。
+
+非有限 float 使用显式 Farcel tag；通用 Mapping 使用独立 entries 容器，因此用户 Mapping
+不会与 float tag 产生歧义。length framing 已冻结为 4-byte unsigned big-endian header；
+control frame 上限为 1 MiB，asset binary frame 上限为 512 MiB。PUT_ASSET 的 binary body
+只可作为 raw length-prefixed bytes，绝不进入 JSON。
+
+Phase 7.1 至此完成的是 contracts、protocol semantics 与 wire codec/framing，不是
+distributed runtime。仍未实现 socket/TCP、Worker process、asset cache、Worker/RPC handler、
+`RemoteNodeRuntime` 或 distributed graph execution。
