@@ -375,3 +375,21 @@ timeout 参数现明确要求 positive finite number；`NaN`、`Infinity`、布�
 correlation、oversized/truncated frame、断连 cleanup、server recovery 与无 retry/replay 语义。
 
 仍未实现 subprocess Worker、LAN bind、TLS/auth、`RemoteNodeRuntime` 或 distributed graph execution。
+
+## Phase 7.2D 实现状态
+
+Phase 7.2D 已提供真实独立 Python Worker subprocess，可通过 `python -m farcel.worker`
+启动。child composition root 会组装 Worker asset cache、`WorkerApplicationService`、
+`WorkerRuntimeFactory`、既有 FMPy adapters、codec 与 `TcpWorkerServer`；child 固定绑定
+`127.0.0.1`，以 `port=0` 交由 OS 分配 endpoint。
+
+Worker 会在 stdout 输出唯一一行 strict JSON readiness；launcher 严格验证 schema、protocol、
+worker identity、loopback host 和 port，并对 startup timeout、early exit 与 malformed readiness
+提供稳定错误。stderr 会持续消费且只保留有限 diagnostic tail。正常 TCP session disconnect 会触发
+Worker shutdown 并令 locally-owned child 自然退出；parent 的 terminate/kill 仅是 emergency fallback，
+不是 FMI graceful cleanup。
+
+已证明 HELLO、PING、HAS_ASSET 与 PUT_ASSET 可真实跨 process 执行。verified asset cache 可跨
+Worker process 保留；runtime registry、runtime ID、native instance 与 connection session 不跨 process
+保留。本阶段仍未执行 real-FMU runtime lifecycle proof，未实现 `RemoteNodeRuntime`、distributed graph、
+LAN bind 或 TLS/auth。
