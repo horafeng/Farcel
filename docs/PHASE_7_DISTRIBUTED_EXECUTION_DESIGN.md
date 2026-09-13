@@ -456,3 +456,19 @@ mixed creation 的部分失败会关闭此前已创建的 local/remote runtime�
 聚合；node runtime cleanup 不拥有 Worker connection cleanup。本阶段未修改 `SimulationOrchestrator`、
 `DataRouter` 或 `GraphSimulationRunner`，尚未真正运行 mixed/distributed graph，也尚未将
 `WorkerDescriptor.endpoint` 自动 composition 成 live connection；Engine/Backend public API 不变。
+
+## Phase 7.3D 实现状态
+
+已使用真实 `VanDerPol.fmu` 完成 single-node remote graph 的完整
+`GraphSimulationRunner` proof。`ExecutionPlan` 的 WORKER placement 经
+`GraphRuntimeBindingsFactory` 产生 `RemoteNodeRuntime`，而
+`GraphSimulationRunner` 与 `SimulationOrchestrator` 无需知道 Worker、RPC 或 process；既有 graph
+lifecycle 自动驱动 initialize、read、advance、结果采样、terminate 与 close。
+
+remote graph result 与 local graph baseline 在 timestamps、completed steps、completion state 和 `x0`
+数值上保持一致。STOPPED 路径同样会清理 remote runtime；runner cleanup 后 Worker connection 仍可 PING，
+connection ownership 继续位于外层 composition。`RunControl` 仍只属于 Coordinator，不会发送到 Worker。
+
+本阶段未实现 mixed local/remote coupling、two Workers、feedback/Jacobi distributed parity、parallel
+advance 或 Worker crash before checkpoint commit；未修改 `GraphSimulationRunner`、
+`SimulationOrchestrator`、`DataRouter`，Engine/Backend public API 仍未变化。Phase 7.3 至此完成。
