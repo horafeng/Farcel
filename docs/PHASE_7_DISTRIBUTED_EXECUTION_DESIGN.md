@@ -411,3 +411,18 @@ active Model Exchange runtime proof：parent-owned stdin EOF 会让 child best-e
 
 这些 proof 会在 Windows Python 3.10/3.13 CI 真正运行。尚未实现 `RemoteNodeRuntime`、Worker 到
 `SimulationGraph` 的 remote binding、distributed graph execution、LAN、TLS 或 auth。
+
+## Phase 7.3A 实现状态
+
+Phase 7.3A 已新增 Coordinator-side `WorkerRpcClient`，它只依赖 contracts-owned
+`WorkerTransportClient`：负责生成 request ID、构造 Worker request，以及把业务 `RemoteError`
+恢复为保留 code、message 和 details 的 `EngineError`。它不执行 retry、reconnect 或 replay。
+
+`RemoteNodeRuntime` 已作为 `ModelNodeRuntime` 兼容的本地代理，覆盖 initialize、set inputs、
+advance、read outputs、terminate 和 close。proxy surface 上 initialize、terminate 与 close 保持幂等；
+empty set inputs 是 no-op。ordinary remote failure 后 proxy 进入 FAILED，仅允许 terminate/close；
+CLOSE failure 也不会 replay。runtime close 只发送该 runtime 的 CLOSE，绝不关闭可由多个 runtime
+共享的 Worker connection。
+
+本阶段尚未实现 asset staging、CREATE_RUNTIME factory、ExecutionPlan graph binding、
+`GraphRuntimeBindingsFactory` remote branch 或 distributed graph execution。
