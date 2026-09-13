@@ -426,3 +426,17 @@ CLOSE failure 也不会 replay。runtime close 只发送该 runtime 的 CLOSE，
 
 本阶段尚未实现 asset staging、CREATE_RUNTIME factory、ExecutionPlan graph binding、
 `GraphRuntimeBindingsFactory` remote branch 或 distributed graph execution。
+
+## Phase 7.3B 实现状态
+
+Phase 7.3B 已实现 Coordinator-side `WorkerAssetStager`。`model_path` 只在 Coordinator 本地使用；
+它以 streaming SHA-256 形成 asset identity，先查询 Worker cache，hit 时不发送 bytes，miss 时才发送
+一次 `PUT_ASSET`。upload 前会重新验证 bytes 的 size 与 SHA-256，若 staging 期间 source 发生变化会
+稳定拒绝，不会 retry、reconnect 或 replay。
+
+`RemoteNodeRuntimeFactory` 已通过 asset staging 和 `CREATE_RUNTIME` 返回未初始化的
+`RemoteNodeRuntime`。factory 不 connect/close Worker connection，不自动 initialize，且 Worker request
+中不包含 Coordinator path；CREATE_RUNTIME 继续只携带 node ID、asset SHA-256 与 config。
+
+本阶段尚未接入 ExecutionPlan、未修改 `GraphRuntimeBindingsFactory`，也尚未实现 distributed graph
+execution。
