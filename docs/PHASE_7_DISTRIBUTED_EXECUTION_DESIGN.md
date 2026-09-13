@@ -440,3 +440,19 @@ Phase 7.3B 已实现 Coordinator-side `WorkerAssetStager`。`model_path` 只在 
 
 本阶段尚未接入 ExecutionPlan、未修改 `GraphRuntimeBindingsFactory`，也尚未实现 distributed graph
 execution。
+
+## Phase 7.3C 实现状态
+
+`GraphRuntimeBindingsFactory` 已支持 placement-aware binding，而既有的
+`create(graph, config)` 保持完全 local-only 且向后兼容。新的 plan 路径会在任何 runtime 创建前验证
+`ExecutionPlan`；未声明 placement 的 node 逻辑上默认为 LOCAL，不会写回或修改 graph、plan。
+
+LOCAL node 继续复用既有 importer 与 CS/ME runtime factories。WORKER node 通过以 worker ID 为 key 注入的
+`RemoteRuntimeProvisioner` 创建，不会在 binding factory 中调用 Coordinator-local importer；缺少 provisioner
+会稳定失败，绝不静默降级为 LOCAL。local/remote node 都使用同一份 effective routing output read set，且
+bindings 始终保持 graph declaration order。
+
+mixed creation 的部分失败会关闭此前已创建的 local/remote runtime，并保留 primary error 与 cleanup failure
+聚合；node runtime cleanup 不拥有 Worker connection cleanup。本阶段未修改 `SimulationOrchestrator`、
+`DataRouter` 或 `GraphSimulationRunner`，尚未真正运行 mixed/distributed graph，也尚未将
+`WorkerDescriptor.endpoint` 自动 composition 成 live connection；Engine/Backend public API 不变。

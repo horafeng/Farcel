@@ -8,6 +8,13 @@ from farcel.contracts import (
     InterfaceType, ModelMetadata, ModelNode, ModelNodeConfig, PortReference,
     SimulationGraph,
 )
+from farcel.contracts.distributed import (
+    ExecutionPlan,
+    NodePlacement,
+    PlacementKind,
+    WorkerDescriptor,
+    WorkerEndpoint,
+)
 
 
 class _Importer:
@@ -47,6 +54,20 @@ class _NodeFactory:
         failure = self.failure_by_model.get(metadata.model_id)
         if failure: raise failure
         return self.runtime_by_model.setdefault(metadata.model_id, _Runtime(metadata.model_id))
+
+
+class _RemoteProvisioner:
+    def __init__(self, *, runtime_by_node=None, failure_by_node=None):
+        self.runtime_by_node = runtime_by_node or {}
+        self.failure_by_node = failure_by_node or {}
+        self.calls = []
+
+    def create(self, node_id, model_path, config):
+        self.calls.append((node_id, model_path, config))
+        failure = self.failure_by_node.get(node_id)
+        if failure:
+            raise failure
+        return self.runtime_by_node.setdefault(node_id, _Runtime(node_id))
 
 
 def _metadata(name, interfaces=(InterfaceType.CO_SIMULATION,), *, fmi_version="2.0"):
@@ -178,3 +199,174 @@ class GraphRuntimeBindingsFactoryTests(unittest.TestCase):
             factory.create(_graph((ModelNode("A", "A.fmu"),)), GraphSimulationConfig())
         self.assertIs(raised.exception.code, ErrorCode.UNSUPPORTED_INTERFACE)
         self.assertEqual(raised.exception.details["phase"], "runtime_creation")
+
+    @staticmethod
+    def _worker(worker_id="worker-1"):
+        return WorkerDescriptor(worker_id, WorkerEndpoint("127.0.0.1", 32123))
+
+    def test_create_with_empty_plan_defaults_all_nodes_to_existing_local_path(self):
+        metadata = {f"{name}.fmu": _metadata(name) for name in ("A", "B")}
+        cs = _NodeFactory(); factory = self._factory(metadata, cs=cs)
+        graph = _graph((ModelNode("A", "A.fmu"), ModelNode("B", "B.fmu")))
+
+        bindings = factory.create_with_plan(graph, GraphSimulationConfig(), ExecutionPlan(), {})
+
+        self.assertEqual([node_id for node_id, _ in bindings], ["A", "B"])
+        self.assertEqual(factory._importer.loaded, ["A.fmu", "B.fmu"])
+        self.assertEqual([model_id for model_id, _ in cs.calls], ["A", "B"])
+
+    def test_create_with_plan_mixes_local_and_worker_nodes_in_graph_order(self):
+        metadata = {f"{name}.fmu": _metadata(name) for name in ("A", "C")}
+        cs = _NodeFactory(); remote = _RemoteProvisioner()
+        factory = self._factory(metadata, cs=cs)
+        graph = _graph(tuple(ModelNode(name, f"{name}.fmu") for name in ("A", "B", "C")))
+        plan = ExecutionPlan(
+            workers=(self._worker(),),
+            placements=(NodePlacement("B", PlacementKind.WORKER, "worker-1"),),
+        )
+        original_nodes = graph.nodes
+        original_placements = plan.placements
+
+        bindings = factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertEqual([node_id for node_id, _ in bindings], ["A", "B", "C"])
+        self.assertEqual(factory._importer.loaded, ["A.fmu", "C.fmu"])
+        self.assertEqual([node_id for node_id, _, _ in remote.calls], ["B"])
+        self.assertEqual(graph.nodes, original_nodes)
+        self.assertEqual(plan.placements, original_placements)
+
+    def test_worker_binding_uses_routing_read_set_without_mutating_graph_node(self):
+        node_b = ModelNode("B", "B.fmu", ModelNodeConfig(selected_outputs=("recorded", "y")))
+        graph = _graph((node_b, ModelNode("C", "C.fmu")), (
+            Connection(PortReference("B", "y"), PortReference("C", "u")),
+            Connection(PortReference("B", "routing"), PortReference("C", "v")),
+        ))
+        remote = _RemoteProvisioner()
+        plan = ExecutionPlan((self._worker(),), (NodePlacement("B", PlacementKind.WORKER, "worker-1"),))
+        factory = self._factory({"C.fmu": _metadata("C")})
+
+        factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertEqual(remote.calls[0][2].selected_outputs, ("recorded", "y", "routing"))
+        self.assertEqual(node_b.config.selected_outputs, ("recorded", "y"))
+
+    def test_two_remote_nodes_dispatch_by_worker_identity_in_graph_order(self):
+        first = _RemoteProvisioner(); second = _RemoteProvisioner()
+        factory = self._factory({})
+        graph = _graph((ModelNode("A", "A.fmu"), ModelNode("B", "B.fmu"), ModelNode("C", "C.fmu")))
+        plan = ExecutionPlan(
+            workers=(self._worker("worker-1"), self._worker("worker-2")),
+            placements=(
+                NodePlacement("C", PlacementKind.WORKER, "worker-2"),
+                NodePlacement("A", PlacementKind.WORKER, "worker-1"),
+                NodePlacement("B", PlacementKind.WORKER, "worker-1"),
+            ),
+        )
+
+        bindings = factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": first, "worker-2": second})
+
+        self.assertEqual([node_id for node_id, _ in bindings], ["A", "B", "C"])
+        self.assertEqual([call[0] for call in first.calls], ["A", "B"])
+        self.assertEqual([call[0] for call in second.calls], ["C"])
+
+    def test_invalid_plan_fails_before_any_local_or_remote_runtime_creation(self):
+        importer = _Importer({"A.fmu": _metadata("A")})
+        cs = _NodeFactory(); remote = _RemoteProvisioner()
+        factory = GraphRuntimeBindingsFactory(importer, cs, _NodeFactory())
+        graph = _graph((ModelNode("A", "A.fmu"),))
+        plan = ExecutionPlan((self._worker(),), (NodePlacement("missing", PlacementKind.WORKER, "worker-1"),))
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertIs(raised.exception.code, ErrorCode.VALIDATION_ERROR)
+        self.assertEqual(raised.exception.details["phase"], "execution_plan_validation")
+        self.assertEqual(raised.exception.details["issues"][0]["code"], "UNKNOWN_PLACEMENT_NODE")
+        self.assertEqual(importer.loaded, [])
+        self.assertEqual(cs.calls, [])
+        self.assertEqual(remote.calls, [])
+
+    def test_missing_remote_provisioner_does_not_fall_back_to_local(self):
+        importer = _Importer({"A.fmu": _metadata("A"), "B.fmu": _metadata("B")})
+        factory = GraphRuntimeBindingsFactory(importer, _NodeFactory(), _NodeFactory())
+        graph = _graph((ModelNode("A", "A.fmu"), ModelNode("B", "B.fmu")))
+        plan = ExecutionPlan((self._worker(),), (NodePlacement("B", PlacementKind.WORKER, "worker-1"),))
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {})
+
+        self.assertIs(raised.exception.code, ErrorCode.CONFIG_ERROR)
+        self.assertEqual(raised.exception.details["issue_code"], "REMOTE_RUNTIME_FACTORY_UNAVAILABLE")
+        self.assertEqual(importer.loaded, ["A.fmu"])
+
+    def test_remote_engine_error_preserves_fields_and_adds_creation_context(self):
+        remote = _RemoteProvisioner(failure_by_node={"A": EngineError(ErrorCode.TIMEOUT, "remote timeout", {"foo": "bar"})})
+        factory = self._factory({})
+        graph = _graph((ModelNode("A", "coordinator/A.fmu"),))
+        plan = ExecutionPlan((self._worker(),), (NodePlacement("A", PlacementKind.WORKER, "worker-1"),))
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertIs(raised.exception.code, ErrorCode.TIMEOUT)
+        self.assertEqual(raised.exception.message, "remote timeout")
+        self.assertEqual(raised.exception.details["foo"], "bar")
+        self.assertEqual(
+            (raised.exception.details["node_id"], raised.exception.details["model_path"],
+             raised.exception.details["worker_id"], raised.exception.details["phase"]),
+            ("A", "coordinator/A.fmu", "worker-1", "runtime_creation"),
+        )
+
+    def test_mixed_partial_creation_closes_prior_local_and_remote_runtimes(self):
+        local_a = _Runtime("A"); remote_b = _Runtime("B")
+        cs = _NodeFactory(runtime_by_model={"A": local_a})
+        remote = _RemoteProvisioner(
+            runtime_by_node={"B": remote_b},
+            failure_by_node={"C": EngineError(ErrorCode.STEP_ERROR, "C failed")},
+        )
+        factory = self._factory({"A.fmu": _metadata("A")}, cs=cs)
+        graph = _graph((ModelNode("A", "A.fmu"), ModelNode("B", "B.fmu"), ModelNode("C", "C.fmu")))
+        plan = ExecutionPlan(
+            (self._worker(),),
+            (NodePlacement("B", PlacementKind.WORKER, "worker-1"), NodePlacement("C", PlacementKind.WORKER, "worker-1")),
+        )
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertIs(raised.exception.code, ErrorCode.STEP_ERROR)
+        self.assertEqual(local_a.close_calls, 1)
+        self.assertEqual(remote_b.close_calls, 1)
+
+    def test_remote_cleanup_failure_is_attached_without_replacing_primary_error(self):
+        remote_a = _Runtime("A", close_error=EngineError(ErrorCode.CLEANUP_ERROR, "close A"))
+        remote = _RemoteProvisioner(
+            runtime_by_node={"A": remote_a},
+            failure_by_node={"B": EngineError(ErrorCode.TIMEOUT, "B failed")},
+        )
+        factory = self._factory({})
+        graph = _graph((ModelNode("A", "A.fmu"), ModelNode("B", "B.fmu")))
+        plan = ExecutionPlan((self._worker(),), (
+            NodePlacement("A", PlacementKind.WORKER, "worker-1"),
+            NodePlacement("B", PlacementKind.WORKER, "worker-1"),
+        ))
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertIs(raised.exception.code, ErrorCode.TIMEOUT)
+        self.assertEqual(raised.exception.details["cleanup_failures"][0]["node_id"], "A")
+
+    def test_ordinary_remote_exception_is_wrapped_with_creation_context(self):
+        remote = _RemoteProvisioner(failure_by_node={"A": RuntimeError("boom")})
+        factory = self._factory({})
+        graph = _graph((ModelNode("A", "A.fmu"),))
+        plan = ExecutionPlan((self._worker(),), (NodePlacement("A", PlacementKind.WORKER, "worker-1"),))
+
+        with self.assertRaises(EngineError) as raised:
+            factory.create_with_plan(graph, GraphSimulationConfig(), plan, {"worker-1": remote})
+
+        self.assertIs(raised.exception.code, ErrorCode.INTERNAL_ERROR)
+        self.assertEqual(raised.exception.details["worker_id"], "worker-1")
+        self.assertEqual(raised.exception.details["phase"], "runtime_creation")
+        self.assertIn("boom", raised.exception.details["diagnostic"])
