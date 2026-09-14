@@ -561,3 +561,19 @@ exactly-one-checkpoint delay，初始化阶段没有提前 coupling，也没有 
 self-loop。未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner` 或 Worker protocol。
 尚未验证真实 wall-clock completion-order inversion 或 Worker crash before checkpoint commit，public
 Engine/Backend API 仍未变化。
+
+## Phase 7.4F 实现状态
+
+已新增 application-internal `NodeAdvanceExecutor` seam。`SimulationOrchestrator` 仍拥有 previous
+immutable snapshot、routing、all-set barrier、all-read barrier 与 checkpoint commit；executor 只负责一个
+checkpoint 的 advance-all execution policy。默认 `SequentialNodeAdvanceExecutor` 按 node declaration order
+调用 advance，因此既有 local/remote graph execution 行为保持不变。
+
+`GraphSimulationRunner` 仅提供 application-internal optional injection，并将 executor 交给
+`SimulationOrchestrator`；public Engine/Backend API 未变化。本阶段没有实现 production thread pool、
+Worker-aware concurrency，也没有改变 TCP 或 Worker protocol。executor 的普通异常会稳定转换为
+`INTERNAL_ERROR`，而通过 orchestrator callback 产生的 runtime advance error 继续保留 node 与 advance
+phase context。
+
+本阶段尚未声称已验证 wall-clock completion-order inversion。下一阶段将通过两个真实 Worker 与注入的
+受控 concurrent executor 强制完成顺序反转；Worker crash before checkpoint commit 仍未验证。

@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from farcel.application.data_router import DataRouter
+from farcel.application.node_advance_executor import NodeAdvanceExecutor
 from farcel.application.node_runtime import ModelNodeRuntime
 from farcel.application.simulation_orchestrator import SimulationOrchestrator
 from farcel.contracts.errors import EngineError, ErrorCode
@@ -18,8 +19,14 @@ RuntimeBindingsFactory = Callable[[], tuple[tuple[str, ModelNodeRuntime], ...]]
 class GraphSimulationRunner:
     """Application-internal graph whole-run lifecycle over prebuilt runtimes."""
 
-    def __init__(self, runtime_bindings_factory: RuntimeBindingsFactory) -> None:
+    def __init__(
+        self,
+        runtime_bindings_factory: RuntimeBindingsFactory,
+        *,
+        advance_executor: NodeAdvanceExecutor | None = None,
+    ) -> None:
         self._runtime_bindings_factory = runtime_bindings_factory
+        self._advance_executor = advance_executor
 
     def run(self, graph: SimulationGraph, config: GraphSimulationConfig, *, control: RunControl | None = None, on_progress: Callable[[RunProgress], None] | None = None) -> GraphSimulationResult:
         if control is not None and control.stop_requested:
@@ -38,7 +45,12 @@ class GraphSimulationRunner:
             actual = tuple(node_id for node_id, _ in bindings)
             if actual != expected:
                 raise EngineError(ErrorCode.INTERNAL_ERROR, "Graph runtime binding 与 node inventory 不一致", {"phase": "runtime_binding", "expected_node_ids": expected, "actual_node_ids": actual})
-            orchestrator = SimulationOrchestrator(bindings, config, DataRouter(graph).route)
+            orchestrator = SimulationOrchestrator(
+                bindings,
+                config,
+                DataRouter(graph).route,
+                advance_executor=self._advance_executor,
+            )
             accumulator = _GraphResultAccumulator(graph, config)
             snapshot = orchestrator.initialize()
             accumulator.record(config.start_time, snapshot)

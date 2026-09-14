@@ -65,6 +65,16 @@ class _Runtime:
             raise failure
 
 
+class _RecordingAdvanceExecutor:
+    def __init__(self):
+        self.calls = []
+
+    def advance_all(self, nodes, target_time, advance_one):
+        self.calls.append((tuple(node_id for node_id, _ in nodes), target_time))
+        for node_id, runtime in nodes:
+            advance_one(node_id, runtime, target_time)
+
+
 class GraphRunnerTests(unittest.TestCase):
     def _graph(self, *, selected=None, connections=(), ids=("A", "B", "C")):
         selected = selected or {}
@@ -140,6 +150,24 @@ class GraphRunnerTests(unittest.TestCase):
         self.assertEqual((result.completion_state, result.completed_steps, result.final_time),
                          (SimulationState.STOPPED, 1, .01))
         self.assertEqual(operations[-6:], self._cleanup_tail())
+
+    def test_advance_executor_is_forwarded_to_orchestrator(self):
+        operations = []
+        bindings = tuple((node_id, _Runtime(node_id, operations)) for node_id in ("A", "B"))
+        executor = _RecordingAdvanceExecutor()
+        result = GraphSimulationRunner(
+            self._factory(operations, bindings),
+            advance_executor=executor,
+        ).run(self._graph(ids=("A", "B")), self._config(stop=.02))
+
+        self.assertEqual(
+            executor.calls,
+            [(("A", "B"), .01), (("A", "B"), .02)],
+        )
+        self.assertEqual(
+            (result.completion_state, result.completed_steps, result.timestamps),
+            (SimulationState.COMPLETED, 2, (0, .01, .02)),
+        )
 
     def test_normal_progress_is_global_and_terminal_sample_count_matches_result(self):
         operations = []; progress = []
