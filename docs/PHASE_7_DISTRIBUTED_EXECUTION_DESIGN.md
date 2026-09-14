@@ -487,3 +487,19 @@ completion-order inversion。
 
 本阶段尚未测试 WORKER→LOCAL、two Workers、feedback/self-loop 或 Worker crash before checkpoint commit；
 未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner`，Engine/Backend public API 不变。
+
+## Phase 7.4B 实现状态
+
+已运行真实 WORKER A → LOCAL B `Feedthrough-fmi2.fmu` mixed graph：A 在独立 Worker subprocess，B 在
+Coordinator 的真实 FMPy runtime。A 的 routing output 经 TCP `READ_OUTPUTS` 返回 Coordinator，
+`DataRouter` 从 A 的 previous snapshot 路由到 local B；B 在两个 checkpoint 收到的 routed input 都是 `2.0`。
+
+mixed 与 all-local 在 completion state、timestamps、steps 与 samples 上一致，B output 为 `(0, 2, 2)` 的
+浮点等价值；remote A 的 routing-only output 不进入最终 result。将 B 声明在 A 之前仍保持 parity，证明
+declaration / sequential invocation order 不影响该 WORKER→LOCAL forward-coupling 数值，且不宣称已验证
+真实 wall-clock completion-order inversion。
+
+结合 Phase 7.4A，本阶段已覆盖 mixed coupling 的 LOCAL→WORKER 与 WORKER→LOCAL 两个跨边界方向。尚未
+测试 WORKER→WORKER two-worker coupling、feedback/self-loop、真实 wall-clock completion-order inversion 或
+Worker crash before checkpoint commit；未修改 `SimulationOrchestrator`、`DataRouter`、
+`GraphSimulationRunner`，public Engine/Backend API 不变。
