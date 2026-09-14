@@ -472,3 +472,18 @@ connection ownership 继续位于外层 composition。`RunControl` 仍只属于 
 本阶段未实现 mixed local/remote coupling、two Workers、feedback/Jacobi distributed parity、parallel
 advance 或 Worker crash before checkpoint commit；未修改 `GraphSimulationRunner`、
 `SimulationOrchestrator`、`DataRouter`，Engine/Backend public API 仍未变化。Phase 7.3 至此完成。
+
+## Phase 7.4A 实现状态
+
+已使用真实 `Feedthrough-fmi2.fmu` 运行 LOCAL A → WORKER B mixed graph：A 在 Coordinator 的 FMPy
+runtime 中执行，B 在独立 Worker subprocess 中执行。A→B 的 routed value 会通过
+`RemoteNodeRuntime.set_inputs()` 和 TCP `SET_INPUTS` 真实进入 Worker。mixed 与 all-local 在 completion
+state、timestamps、completed steps 与 samples 上保持一致，B output 为 `(0, 2, 2)` 的浮点等价值。
+
+该序列表明初始化阶段没有提前 coupling，checkpoint routing 使用 previous immutable snapshot；A 的
+routing-only output 不会泄漏到最终 result。将 B 声明在 A 之前仍保持同样数值，证明本阶段的 graph
+declaration / sequential invocation order 不会污染该 forward-coupling 结果；这不等同于已验证 wall-clock
+completion-order inversion。
+
+本阶段尚未测试 WORKER→LOCAL、two Workers、feedback/self-loop 或 Worker crash before checkpoint commit；
+未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner`，Engine/Backend public API 不变。
