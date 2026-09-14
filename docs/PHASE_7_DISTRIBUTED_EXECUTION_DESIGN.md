@@ -542,3 +542,22 @@ Workers 之间没有 direct communication；Coordinator 继续拥有 global logi
 barrier。未修改 `SimulationOrchestrator`、`DataRouter` 或 `GraphSimulationRunner`，public
 Engine/Backend API 仍未变化。尚未验证 remote self-loop、真实 wall-clock completion-order inversion 或
 Worker crash before checkpoint commit。
+
+## Phase 7.4E 实现状态
+
+已用一个真实独立 Worker subprocess 运行单 node remote self-loop graph，使用一个真实
+`Feedthrough-fmi2.fmu` runtime。self-loop 是两条 intra-node cross-coupled edge：
+continuous output → discrete input，以及 discrete output → continuous input。初始 continuous input 为
+1、discrete input 为 2；预期轨迹为 continuous output = `(1, 2, 1, 2)`、discrete output =
+`(2, 1, 2, 1)`，all-local 与 remote 保持 numerical parity。
+
+每个 checkpoint 的两个 `SET_INPUTS` value 都来自同一 previous immutable snapshot：continuous input
+依次为 `2, 1, 2`，discrete input 依次为 `1, 2, 1`。这直接证明 remote self-loop 保持
+exactly-one-checkpoint delay，初始化阶段没有提前 coupling，也没有 same-step algebraic feed-through。
+反转 connection declaration order 后轨迹不变。
+
+即使 source 与 target 属于同一 remote runtime，routing 仍经过 Coordinator 的 global logical time、
+`DataRouter` 和 checkpoint barrier；不存在 Worker-local self-loop shortcut，Worker 也不知道 graph 或
+self-loop。未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner` 或 Worker protocol。
+尚未验证真实 wall-clock completion-order inversion 或 Worker crash before checkpoint commit，public
+Engine/Backend API 仍未变化。
