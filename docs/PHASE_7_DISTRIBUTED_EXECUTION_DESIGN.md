@@ -503,3 +503,25 @@ declaration / sequential invocation order 不影响该 WORKER→LOCAL forward-co
 测试 WORKER→WORKER two-worker coupling、feedback/self-loop、真实 wall-clock completion-order inversion 或
 Worker crash before checkpoint commit；未修改 `SimulationOrchestrator`、`DataRouter`、
 `GraphSimulationRunner`，public Engine/Backend API 不变。
+
+## Phase 7.4C 实现状态
+
+已使用两个真实、相互独立的 Worker subprocess 运行 WORKER A → WORKER B
+`Feedthrough-fmi2.fmu` graph：A 与 B 分别位于不同 PID、不同 worker ID 和不同 TCP session，
+Coordinator 不创建任何 local FMU runtime。A 的 routing source 通过 TCP `READ_OUTPUTS` 返回
+Coordinator；Coordinator `DataRouter` 使用 previous immutable snapshot，再经 Worker B 的 TCP
+`SET_INPUTS` 写入 target runtime。Worker A 不直接连接 Worker B，Workers 互相不知道对方存在。
+
+两个 Worker 分别拥有 content-addressed asset cache。two-worker 与 all-local 在 completion state、
+timestamps、completed steps 与 samples 上保持一致，B output 为 `(0, 2, 2)` 的浮点等价值；A 的
+routing-only output 不会进入 `GraphSimulationResult`。将 B 声明在 A 之前仍保持 numerical parity，
+证明该 two-worker forward coupling 不受 graph declaration / sequential invocation order 影响；这不等同于
+已验证真实 wall-clock completion-order inversion。
+
+graph run 后两个 Worker connection 都仍可 PING；关闭 Worker A 后 Worker B 仍可继续 PING，证明 node
+runtime lifecycle 不拥有任一 connection 的生命周期。结合 Phase 7.4A/B/C，LOCAL→WORKER、
+WORKER→LOCAL 与 WORKER→WORKER 三种跨 placement coupling 均已覆盖。
+
+尚未验证 feedback/self-loop、真实 wall-clock completion-order inversion 或 Worker crash before checkpoint
+commit；未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner`，public Engine/Backend API
+仍未变化。
