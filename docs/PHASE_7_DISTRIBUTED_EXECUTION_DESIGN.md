@@ -525,3 +525,20 @@ WORKER→LOCAL 与 WORKER→WORKER 三种跨 placement coupling 均已覆盖。
 尚未验证 feedback/self-loop、真实 wall-clock completion-order inversion 或 Worker crash before checkpoint
 commit；未修改 `SimulationOrchestrator`、`DataRouter`、`GraphSimulationRunner`，public Engine/Backend API
 仍未变化。
+
+## Phase 7.4D 实现状态
+
+已用两个真实独立 Worker subprocess 执行 A↔B feedback graph，两个 node 均使用真实
+`Feedthrough-fmi2.fmu`：A initial input 为 1，B initial input 为 2。all-local 与 two-worker
+数值保持 parity，预期轨迹分别为 A=`(1, 2, 1, 2)`、B=`(2, 1, 2, 1)`。
+
+每个 checkpoint 中，A 的 input 都来自 B 的 previous immutable snapshot，B 的 input 都来自 A 的
+previous immutable snapshot。wire-level `SET_INPUTS` 序列直接证明 one-checkpoint delay：A 依次收到
+`2, 1, 2`，B 依次收到 `1, 2, 1`。因此初始化阶段没有提前 feedback coupling，也没有
+same-checkpoint algebraic feed-through。两个 Worker 都真实返回 initial 加三个 checkpoint 的
+`READ_OUTPUTS`；反转 graph declaration order 后仍保持 parity。
+
+Workers 之间没有 direct communication；Coordinator 继续拥有 global logical time、routing 和 checkpoint
+barrier。未修改 `SimulationOrchestrator`、`DataRouter` 或 `GraphSimulationRunner`，public
+Engine/Backend API 仍未变化。尚未验证 remote self-loop、真实 wall-clock completion-order inversion 或
+Worker crash before checkpoint commit。
