@@ -597,3 +597,24 @@ exactly-one-checkpoint delay。Worker A/B 之间没有 direct communication，�
 
 本阶段未新增 production thread pool 或 Worker-aware concurrency，未修改 Worker protocol，public
 Engine/Backend API 不变。Worker crash before checkpoint commit 仍未验证。
+
+## Phase 7.4H 实现状态
+
+已使用两个真实独立 Worker subprocess 与真实 `Feedthrough-fmi2.fmu` A↔B graph，使用
+`os.kill(pid, signal.SIGTERM)` 触发真实 abrupt process termination；没有使用 `launcher.close()`、mock
+transport error 或 fake `EngineError` 模拟 crash。
+
+第一个 proof 中，A/B 都已经成功 `ADVANCE_TO(0.01)`，但 A 在 checkpoint output read 前崩溃。尽管两个
+remote FMU 都已有 target-time side effect，read-all 未完成，因此 global checkpoint 不会 commit：
+`GraphSimulationRunner` 抛出 primary `EngineError` 而不返回 `GraphSimulationResult`，只发布 initial
+`RUNNING` progress，B 的 checkpoint `READ_OUTPUTS` 不会发生。存活的 B runtime 仍被 best-effort
+terminate/close，且 runtime cleanup 后 B connection 仍可 PING；A 的 cleanup failure 如发生只附加为
+`cleanup_failures`，不会覆盖 primary error。
+
+第二个 proof 中，A 在首个 stateful `ADVANCE_TO` 前崩溃。该 advance 只尝试一次且无成功 response；没有
+retry、replay、reconnect、Worker restart 或 checkpoint recovery。B 已收到本 checkpoint routed input，但因 A
+advance failure 不会执行 `ADVANCE_TO`；同样不会发布 `.01` sample。RunControl/STOPPED 不参与 crash failure。
+
+未修改 `SimulationOrchestrator`、`GraphSimulationRunner`、`RemoteNodeRuntime`、`TcpWorkerClient` 或 Worker
+protocol，public Engine/Backend API 未变化。Phase 7.4 的正常拓扑、completion-order 与 crash failure semantics
+至此均已有真实 proof。
