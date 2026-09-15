@@ -633,3 +633,22 @@ executor 会稳定报 `NOT_IMPLEMENTED`，绝不 silent fallback 到 local。预
 本阶段没有把 `create_backend()` 连接到 TCP Worker，也没有新增 Worker/TCP/protocol 代码或改变默认 local
 execution。后续 concrete distributed composition 可实现该 seam；真实 public localhost distributed execution
 留待 Phase 7.5B。
+
+## Phase 7.5B 实现状态
+
+`create_backend()` 现在在 top-level composition root 配置 concrete `TcpDistributedGraphExecutor`，但创建
+backend 本身不产生网络 I/O。未传计划、空计划、显式 LOCAL placement，以及仅声明但未被 node 使用的 Worker
+均继续使用原有 local graph path；只有实际 WORKER placement 才会从 `WorkerDescriptor` endpoint 建立 TCP
+composition。backend 不会自动 spawn Worker，endpoint 描述的 Worker 必须已存在。
+
+executor 仅为实际使用的每个 Worker 建立一条 `TcpWorkerClient`/`WorkerRpcClient` session，并复用现有
+HELLO、connect 后 PING preflight、`WorkerAssetStager`、`RemoteNodeRuntimeFactory`、
+`GraphRuntimeBindingsFactory.create_with_plan()` 与 `GraphSimulationRunner`。graph runtime cleanup 完成后，
+executor 才关闭本次拥有的 TCP connections；失败与 partial connect 也会 best-effort 清理，且不 retry、reconnect
+或 restart。
+
+Windows CI 的 public localhost E2E 使用真实 subprocess Worker 验证 mixed LOCAL→WORKER 和 two-worker
+WORKER→WORKER graph：public consumer 仅使用 `create_backend()` 与 `farcel.contracts`，Worker/TCP/FMPy
+内部类不进入 consumer path。数值 scheduler、Worker protocol、contracts DTO 与 public `create_backend()`
+signature 未修改。Project distributed integration、LAN bind/manual two-machine，以及 public health/timeout
+configuration 尚未完成。
