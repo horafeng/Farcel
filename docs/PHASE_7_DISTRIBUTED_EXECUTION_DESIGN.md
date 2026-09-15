@@ -577,3 +577,23 @@ phase context。
 
 本阶段尚未声称已验证 wall-clock completion-order inversion。下一阶段将通过两个真实 Worker 与注入的
 受控 concurrent executor 强制完成顺序反转；Worker crash before checkpoint commit 仍未验证。
+
+## Phase 7.4G 实现状态
+
+已使用两个真实独立 Worker subprocess、真实 `Feedthrough-fmi2.fmu` A↔B feedback graph，以及 7.4F
+正式 `NodeAdvanceExecutor` injection seam 完成 Coordinator-observed completion-order proof。concurrent
+executor 仅存在 integration test；两个 remote node advance 在不同线程执行，并使用有限超时的 Event/Barrier
+确定性控制 timing，不使用 sleep。
+
+当 declaration/invocation 为 A→B 时，每个 checkpoint 的 Coordinator-observed `advance_to()` completion
+均为 B→A；对称的 B→A declaration/invocation case 则为 A→B completion。这里的 proof 只描述 Coordinator
+application 层观察到的 `ModelNodeRuntime.advance_to()` return order，不宣称测量 Worker native FMU 的 CPU
+internal finish timestamp。
+
+尽管 completion order 被反转，all-local 与 two-worker concurrent result 仍保持 numerical parity：
+A=`(1, 2, 1, 2)`、B=`(2, 1, 2, 1)`。current checkpoint output 不会提前成为另一个 node 的 routing source；
+read-all 与 checkpoint commit 仍等待 advance-all barrier，因此 feedback 继续保持 previous-snapshot
+exactly-one-checkpoint delay。Worker A/B 之间没有 direct communication，所有 coupling 仍经 Coordinator。
+
+本阶段未新增 production thread pool 或 Worker-aware concurrency，未修改 Worker protocol，public
+Engine/Backend API 不变。Worker crash before checkpoint commit 仍未验证。
