@@ -618,3 +618,18 @@ advance failure 不会执行 `ADVANCE_TO`；同样不会发布 `.01` sample。Ru
 未修改 `SimulationOrchestrator`、`GraphSimulationRunner`、`RemoteNodeRuntime`、`TcpWorkerClient` 或 Worker
 protocol，public Engine/Backend API 未变化。Phase 7.4 的正常拓扑、completion-order 与 crash failure semantics
 至此均已有真实 proof。
+
+## Phase 7.5A 实现状态
+
+已新增纯 application-internal `DistributedGraphExecutor` seam，并将 `ExecutionPlan` 以 additive
+keyword-only `execution_plan` 参数接入 `FarcelEngine.run_graph()` 与公开 `SimulationEngine` contract。
+`FarcelEngine.validate_execution_plan()` 复用纯 `ExecutionPlanValidator`，在不加载 FMU、不创建 runtime、
+不访问 Worker 的前提下返回验证报告，或以统一的 `CONFIG_ERROR` issue schema 报告无效计划。
+
+未传 `execution_plan`、空计划、显式 LOCAL placement，以及仅声明但未被任何 node 使用的 Worker，均继续走原有
+local `GraphSimulationRunner` 路径。只有解析后确有 WORKER placement 时才会选择 distributed seam；未注入
+executor 会稳定报 `NOT_IMPLEMENTED`，绝不 silent fallback 到 local。预启动取消仍先于 graph 和计划验证。
+
+本阶段没有把 `create_backend()` 连接到 TCP Worker，也没有新增 Worker/TCP/protocol 代码或改变默认 local
+execution。后续 concrete distributed composition 可实现该 seam；真实 public localhost distributed execution
+留待 Phase 7.5B。

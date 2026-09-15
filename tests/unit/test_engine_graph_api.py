@@ -5,10 +5,13 @@ import unittest
 
 from farcel.application.engine import FarcelEngine
 from farcel.contracts import (
-    Connection, EngineError, ErrorCode, GraphSimulationConfig, InterfaceCapability,
-    InterfaceType, ModelMetadata, ModelNode, ModelNodeConfig, PortReference,
-    RunControl, SimulationGraph, SimulationState, StepResult,
+    Connection, EngineError, ErrorCode, ExecutionPlan, GraphSimulationConfig,
+    GraphSimulationResult, InterfaceCapability, InterfaceType, ModelMetadata,
+    ModelNode, ModelNodeConfig, NodePlacement, PlacementKind, PortReference,
+    RunControl, SimulationGraph, SimulationState, StepResult, WorkerDescriptor,
+    WorkerEndpoint,
 )
+from farcel.contracts.ports import SimulationEngine
 
 
 class _Importer:
@@ -41,6 +44,19 @@ class _SolverFactory:
     def create(self): self.creates += 1; raise AssertionError("unexpected solver create")
 
 
+class _DistributedExecutor:
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    def run(self, graph, config, execution_plan, *, control=None, on_progress=None):
+        self.calls.append((graph, config, execution_plan, control, on_progress))
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
 def _metadata():
     from farcel.contracts import VariableMetadata
     return ModelMetadata(
@@ -70,6 +86,20 @@ class EngineGraphApiTests(unittest.TestCase):
 
     @staticmethod
     def _config(stop=.02): return GraphSimulationConfig(stop_time=stop, communication_step=.01)
+
+    @staticmethod
+    def _worker_plan():
+        return ExecutionPlan(
+            workers=(WorkerDescriptor("worker-a", WorkerEndpoint("localhost", 9000)),),
+            placements=(NodePlacement("B", PlacementKind.WORKER, "worker-a"),),
+        )
+
+    @staticmethod
+    def _distributed_result():
+        return GraphSimulationResult(
+            0.0, 0.02, 0.01, 2, 0.02, SimulationState.COMPLETED,
+            (0.0, 0.01, 0.02), {"A": {}, "B": {"y": (0.0, 2.0, 2.0)}},
+        )
 
     def test_validate_graph_returns_valid_report_and_invalid_keeps_issue_schema(self):
         report = self.engine.validate_graph(self._graph(), self._config())
@@ -107,9 +137,141 @@ class EngineGraphApiTests(unittest.TestCase):
 
     def test_run_graph_signature_is_additive_and_run_fmu_keywords_are_unchanged(self):
         graph_parameters = inspect.signature(self.engine.run_graph).parameters
-        self.assertEqual(tuple(graph_parameters), ("graph", "config", "control", "on_progress"))
-        self.assertTrue(all(graph_parameters[name].kind is inspect.Parameter.KEYWORD_ONLY for name in ("control", "on_progress")))
+        self.assertEqual(tuple(graph_parameters), ("graph", "config", "control", "on_progress", "execution_plan"))
+        self.assertTrue(all(graph_parameters[name].kind is inspect.Parameter.KEYWORD_ONLY for name in ("control", "on_progress", "execution_plan")))
         self.assertFalse({"on_result_chunk", "result_chunk_size"} & set(graph_parameters))
         fmu_parameters = inspect.signature(self.engine.run_fmu).parameters
         self.assertEqual(tuple(name for name, parameter in fmu_parameters.items() if parameter.kind is inspect.Parameter.KEYWORD_ONLY),
             ("control", "on_progress", "on_result_chunk", "result_chunk_size"))
+
+    def test_local_only_execution_plans_keep_existing_local_runner_path(self):
+        executor = _DistributedExecutor(self._distributed_result())
+        engine = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=executor,
+        )
+        local_plans = (
+            ExecutionPlan(),
+            ExecutionPlan(placements=(NodePlacement("A"), NodePlacement("B"))),
+            ExecutionPlan(workers=(WorkerDescriptor("unused", WorkerEndpoint("localhost", 9001)),)),
+        )
+
+        for plan in local_plans:
+            with self.subTest(plan=plan):
+                result = engine.run_graph(self._graph(), self._config(), execution_plan=plan)
+                self.assertEqual(result.node_outputs, {"A": {}, "B": {"y": (0.0, 2.0, 2.0)}})
+
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(self.cs.creates, 6)
+
+    def test_worker_plan_without_executor_fails_without_local_runtime_creation(self):
+        with self.assertRaises(EngineError) as raised:
+            self.engine.run_graph(
+                self._graph(), self._config(), execution_plan=self._worker_plan()
+            )
+
+        error = raised.exception
+        self.assertIs(error.code, ErrorCode.NOT_IMPLEMENTED)
+        self.assertEqual(error.details, {
+            "phase": "distributed_graph_execution",
+            "issue_code": "DISTRIBUTED_GRAPH_EXECUTOR_UNAVAILABLE",
+        })
+        self.assertEqual((self.cs.creates, self.me.creates, self.solver.creates), (0, 0, 0))
+
+    def test_worker_plan_delegates_exact_values_to_injected_executor(self):
+        result = self._distributed_result()
+        executor = _DistributedExecutor(result)
+        engine = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=executor,
+        )
+        graph, config, plan = self._graph(), self._config(), self._worker_plan()
+        control = RunControl()
+        progress = []
+
+        self.assertIs(
+            engine.run_graph(graph, config, execution_plan=plan, control=control, on_progress=progress.append),
+            result,
+        )
+        self.assertEqual(executor.calls, [(graph, config, plan, control, progress.append)])
+        self.assertEqual((self.cs.creates, self.me.creates, self.solver.creates), (0, 0, 0))
+
+    def test_prestart_cancellation_precedes_plan_validation_and_executor(self):
+        executor = _DistributedExecutor(self._distributed_result())
+        engine = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=executor,
+        )
+        control = RunControl(); control.request_stop()
+
+        with self.assertRaises(EngineError) as raised:
+            engine.run_graph(
+                self._graph(), self._config(), control=control,
+                execution_plan=ExecutionPlan(placements=(NodePlacement("B", PlacementKind.WORKER, "missing"),)),
+            )
+
+        self.assertIs(raised.exception.code, ErrorCode.CANCELLED)
+        self.assertEqual(self.importer.loads, [])
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(self.cs.creates, 0)
+
+    def test_invalid_plan_uses_public_issue_schema_before_runtime_or_executor(self):
+        executor = _DistributedExecutor(self._distributed_result())
+        engine = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=executor,
+        )
+        invalid = ExecutionPlan(placements=(NodePlacement("B", PlacementKind.WORKER, "missing"),))
+
+        with self.assertRaises(EngineError) as raised:
+            engine.run_graph(self._graph(), self._config(), execution_plan=invalid)
+
+        error = raised.exception
+        self.assertIs(error.code, ErrorCode.CONFIG_ERROR)
+        self.assertEqual(error.details["issues"][0], {
+            "field": "placements[0].worker_id",
+            "code": "UNKNOWN_PLACEMENT_WORKER",
+            "message": "WORKER placement 引用了未声明的 worker_id",
+        })
+        self.assertEqual(executor.calls, [])
+        self.assertEqual((self.cs.creates, self.me.creates, self.solver.creates), (0, 0, 0))
+
+    def test_validate_execution_plan_is_pure_and_uses_public_validation_errors(self):
+        self.assertTrue(self.engine.validate_execution_plan(self._graph(), ExecutionPlan()).is_valid)
+        invalid = ExecutionPlan(placements=(NodePlacement("B", PlacementKind.WORKER, "missing"),))
+
+        with self.assertRaises(EngineError) as raised:
+            self.engine.validate_execution_plan(self._graph(), invalid)
+
+        self.assertIs(raised.exception.code, ErrorCode.CONFIG_ERROR)
+        self.assertEqual(set(raised.exception.details["issues"][0]), {"field", "code", "message"})
+        self.assertEqual(self.importer.loads, [])
+        self.assertEqual(self.cs.creates, 0)
+
+    def test_worker_executor_engine_error_is_preserved_and_other_error_is_normalized(self):
+        original = EngineError(ErrorCode.TIMEOUT, "remote timeout", {"worker": "a"})
+        engine = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=_DistributedExecutor(error=original),
+        )
+        with self.assertRaises(EngineError) as preserved:
+            engine.run_graph(self._graph(), self._config(), execution_plan=self._worker_plan())
+        self.assertIs(preserved.exception, original)
+
+        ordinary = FarcelEngine(
+            self.importer, self.cs, model_exchange_session_factory=self.me,
+            solver_factory=self.solver, distributed_graph_executor=_DistributedExecutor(error=RuntimeError("boom")),
+        )
+        with self.assertRaises(EngineError) as normalized:
+            ordinary.run_graph(self._graph(), self._config(), execution_plan=self._worker_plan())
+        self.assertIs(normalized.exception.code, ErrorCode.INTERNAL_ERROR)
+        self.assertEqual(normalized.exception.details, {
+            "phase": "distributed_graph_execution", "diagnostic": "boom",
+        })
+
+    def test_simulation_engine_protocol_declares_graph_api_surface(self):
+        self.assertTrue(hasattr(SimulationEngine, "validate_graph"))
+        self.assertTrue(hasattr(SimulationEngine, "validate_execution_plan"))
+        parameters = inspect.signature(SimulationEngine.run_graph).parameters
+        self.assertEqual(tuple(parameters), ("self", "graph", "config", "control", "on_progress", "execution_plan"))
+        self.assertTrue(all(parameters[name].kind is inspect.Parameter.KEYWORD_ONLY for name in ("control", "on_progress", "execution_plan")))

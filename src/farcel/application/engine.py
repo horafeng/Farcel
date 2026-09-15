@@ -16,6 +16,8 @@ from farcel.application.runners import (
 from farcel.application.graph_runner import GraphSimulationRunner
 from farcel.application.graph_runtime_factory import GraphRuntimeBindingsFactory
 from farcel.application.graph_validation import GraphValidator
+from farcel.application.distributed_execution import DistributedGraphExecutor
+from farcel.application.execution_plan import ExecutionPlanValidator, resolve_node_placement
 from farcel.application.node_runtime import (
     CoSimulationNodeRuntimeFactory,
     ModelExchangeNodeRuntimeFactory,
@@ -46,6 +48,7 @@ from farcel.contracts.graph import (
     GraphSimulationResult,
     SimulationGraph,
 )
+from farcel.contracts.distributed import ExecutionPlan, PlacementKind
 from farcel.contracts.project import ProjectRunRecord, SimulationProject
 from farcel.contracts.project_batch import ProjectBatchProgress, ProjectBatchRunResult
 from farcel.contracts.project_comparison import ProjectRunComparison
@@ -89,6 +92,7 @@ class FarcelEngine:
         project_repository: ProjectRepository | None = None,
         project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
         graph_result_exporter: GraphResultExporter | None = None,
+        distributed_graph_executor: DistributedGraphExecutor | None = None,
     ) -> None:
         self._importer = importer
         self._project_repository = project_repository
@@ -97,6 +101,7 @@ class FarcelEngine:
         self._session_factory = session_factory
         self._result_exporter = result_exporter
         self._graph_result_exporter = graph_result_exporter
+        self._distributed_graph_executor = distributed_graph_executor
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
@@ -139,6 +144,20 @@ class FarcelEngine:
             raise EngineError(
                 ErrorCode.CONFIG_ERROR,
                 "Graph 仿真配置验证失败",
+                self._validation_report_details(report),
+            )
+        return report
+
+    def validate_execution_plan(
+        self,
+        graph: SimulationGraph,
+        execution_plan: ExecutionPlan,
+    ) -> ValidationReport:
+        report = ExecutionPlanValidator().validate(graph, execution_plan)
+        if not report.is_valid:
+            raise EngineError(
+                ErrorCode.CONFIG_ERROR,
+                "ExecutionPlan 验证失败",
                 self._validation_report_details(report),
             )
         return report
@@ -386,10 +405,47 @@ class FarcelEngine:
         *,
         control: RunControl | None = None,
         on_progress: Callable[[RunProgress], None] | None = None,
+        execution_plan: ExecutionPlan | None = None,
     ) -> GraphSimulationResult:
         if control is not None and control.stop_requested:
             raise EngineError(ErrorCode.CANCELLED, "Graph 仿真开始前已请求停止")
         self.validate_graph(graph, config)
+        if execution_plan is not None:
+            self.validate_execution_plan(graph, execution_plan)
+            if any(
+                resolve_node_placement(node.node_id, execution_plan).kind
+                is PlacementKind.WORKER
+                for node in graph.nodes
+            ):
+                executor = self._distributed_graph_executor
+                if executor is None:
+                    raise EngineError(
+                        ErrorCode.NOT_IMPLEMENTED,
+                        "未配置分布式 Graph 执行器",
+                        {
+                            "phase": "distributed_graph_execution",
+                            "issue_code": "DISTRIBUTED_GRAPH_EXECUTOR_UNAVAILABLE",
+                        },
+                    )
+                try:
+                    return executor.run(
+                        graph,
+                        config,
+                        execution_plan,
+                        control=control,
+                        on_progress=on_progress,
+                    )
+                except EngineError:
+                    raise
+                except Exception as exc:
+                    raise EngineError(
+                        ErrorCode.INTERNAL_ERROR,
+                        "分布式 Graph 执行失败",
+                        {
+                            "phase": "distributed_graph_execution",
+                            "diagnostic": str(exc),
+                        },
+                    ) from None
         runner = GraphSimulationRunner(
             lambda: self._graph_runtime_factory.create(graph, config)
         )

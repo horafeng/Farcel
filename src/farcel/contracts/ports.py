@@ -4,7 +4,12 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
-from farcel.contracts.graph import GraphSimulationResult
+from farcel.contracts.distributed import ExecutionPlan
+from farcel.contracts.graph import (
+    GraphSimulationConfig,
+    GraphSimulationResult,
+    SimulationGraph,
+)
 from farcel.contracts.models import (
     DiscreteStateUpdate,
     ExportReport,
@@ -237,6 +242,28 @@ class SimulationEngine(Protocol):
         on_result_chunk: Callable[[ResultChunk], None] | None = None,
         result_chunk_size: int = 256,
     ) -> SimulationResult: ...
+
+    def validate_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+    ) -> ValidationReport: ...
+
+    def validate_execution_plan(
+        self,
+        graph: SimulationGraph,
+        execution_plan: ExecutionPlan,
+    ) -> ValidationReport: ...
+
+    def run_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+        execution_plan: ExecutionPlan | None = None,
+    ) -> GraphSimulationResult: ...
 
     def export_result(
         self, result: SimulationResult, destination: str | Path
