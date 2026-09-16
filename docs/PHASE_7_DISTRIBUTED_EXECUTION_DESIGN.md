@@ -652,3 +652,21 @@ WORKER→WORKER graph：public consumer 仅使用 `create_backend()` 与 `farcel
 内部类不进入 consumer path。数值 scheduler、Worker protocol、contracts DTO 与 public `create_backend()`
 signature 未修改。Project distributed integration、LAN bind/manual two-machine，以及 public health/timeout
 configuration 尚未完成。
+
+## Phase 7.5B 工程化收尾
+
+Phase 7.5B 为既有 public localhost distributed graph execution 增加了直接的 executor lifecycle
+回归测试，覆盖正常 run 后 runtime/client 清理顺序、connection failure、partial worker startup
+failure、execution failure 的 reverse client cleanup、连续 run 的 run-owned client cleanup，以及
+cleanup failure 不覆盖 primary `EngineError`。这些测试不改变 graph 数值语义、Worker protocol 或 TCP
+protocol。
+
+public API 继续冻结为 `create_backend()`、`farcel.contracts`、
+`FarcelEngine.validate_execution_plan()` 和 keyword-only
+`FarcelEngine.run_graph(..., execution_plan=...)`。新增用户指南与只使用 public modules 的 example；
+Worker endpoint 必须由调用方预先提供，backend 不自动创建、重启、重连、retry 或 replay Worker。
+
+Project schema 保持 `1.0`：不把 endpoint-bearing `ExecutionPlan` 直接持久化进
+`SimulationProject`/`project.json`，以避免将机器部署和未来凭据绑定到可移植的项目模型。后续若需要
+project distributed execution，应当持久化 logical worker reference，并由 runtime-supplied registry
+解析 endpoint；这不是本阶段的 schema change。
