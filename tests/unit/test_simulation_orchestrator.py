@@ -23,6 +23,21 @@ class _Runtime:
         if phase == "initialize": self.operations.append(("initialize", self.node_id))
 
 
+class _RecordingAdvanceExecutor:
+    def __init__(self, *, reverse=False, failure=None):
+        self.reverse = reverse
+        self.failure = failure
+        self.calls = []
+
+    def advance_all(self, nodes, target_time, advance_one):
+        self.calls.append((tuple(node_id for node_id, _ in nodes), target_time))
+        if self.failure is not None:
+            raise self.failure
+        ordered = tuple(reversed(nodes)) if self.reverse else nodes
+        for node_id, runtime in ordered:
+            advance_one(node_id, runtime, target_time)
+
+
 class SimulationOrchestratorTests(unittest.TestCase):
     def test_initialize_has_all_init_then_all_read_barrier_and_is_idempotent(self):
         operations = []; nodes = self._nodes(operations, {"A": 1, "B": 2, "C": 3})
@@ -47,6 +62,98 @@ class SimulationOrchestratorTests(unittest.TestCase):
         self.assertEqual(calls[0]["A"]["y"], 1)
         self.assertEqual([entry[0] for entry in operations], ["route", "set", "set", "set", "advance", "advance", "advance", "read", "read", "read"])
         self.assertEqual(nodes[1][1].inputs, [{"u": 1}])
+
+    def test_injected_executor_controls_only_advance_order_and_preserves_barriers(self):
+        operations = []; nodes = self._nodes(operations, {"A": 1, "B": 2, "C": 3})
+        executor = _RecordingAdvanceExecutor(reverse=True)
+        orchestrator = SimulationOrchestrator(
+            nodes,
+            GraphSimulationConfig(stop_time=.01, communication_step=.01),
+            lambda _: operations.append(("route",)) or {},
+            advance_executor=executor,
+        )
+        orchestrator.initialize(); operations.clear()
+
+        orchestrator.advance_next_checkpoint()
+
+        self.assertEqual(executor.calls, [(("A", "B", "C"), .01)])
+        self.assertEqual(operations, [
+            ("route",),
+            ("set", "A", {}), ("set", "B", {}), ("set", "C", {}),
+            ("advance", "C", .01), ("advance", "B", .01), ("advance", "A", .01),
+            ("read", "A"), ("read", "B"), ("read", "C"),
+        ])
+
+    def test_advance_one_preserves_runtime_engine_error_context(self):
+        operations = []
+        a = _Runtime("A", {"y": 1}, operations)
+        b = _Runtime(
+            "B",
+            {"y": 2},
+            operations,
+            failure={"advance": EngineError(ErrorCode.STEP_ERROR, "boom", {"custom": 1})},
+        )
+        executor = _RecordingAdvanceExecutor()
+        orchestrator = SimulationOrchestrator(
+            (("A", a), ("B", b)),
+            GraphSimulationConfig(stop_time=.01, communication_step=.01),
+            lambda _: {},
+            advance_executor=executor,
+        )
+        orchestrator.initialize()
+
+        with self.assertRaises(EngineError) as raised:
+            orchestrator.advance_next_checkpoint()
+
+        error = raised.exception
+        self.assertIs(error.code, ErrorCode.STEP_ERROR)
+        self.assertEqual(error.message, "boom")
+        self.assertEqual(
+            error.details,
+            {"custom": 1, "node_id": "B", "phase": "advance", "current_time": 0.0, "target_time": .01},
+        )
+
+    def test_executor_failure_is_internal_error_without_read_or_commit(self):
+        operations = []; nodes = self._nodes(operations, {"A": 1, "B": 2})
+        executor = _RecordingAdvanceExecutor(failure=RuntimeError("executor boom"))
+        orchestrator = SimulationOrchestrator(
+            nodes,
+            GraphSimulationConfig(stop_time=.01, communication_step=.01),
+            lambda _: operations.append(("route",)) or {},
+            advance_executor=executor,
+        )
+        orchestrator.initialize()
+        initial_reads = len([entry for entry in operations if entry[0] == "read"])
+
+        with self.assertRaises(EngineError) as raised:
+            orchestrator.advance_next_checkpoint()
+
+        error = raised.exception
+        self.assertIs(error.code, ErrorCode.INTERNAL_ERROR)
+        self.assertEqual(error.details["phase"], "advance_executor")
+        self.assertEqual(error.details["current_time"], 0.0)
+        self.assertEqual(error.details["target_time"], .01)
+        self.assertIn("executor boom", error.details["diagnostic"])
+        self.assertEqual(len([entry for entry in operations if entry[0] == "read"]), initial_reads)
+        self.assertEqual((orchestrator.completed_steps, orchestrator.current_time, orchestrator.is_failed), (0, 0.0, True))
+
+    def test_executor_is_called_once_per_checkpoint_with_declaration_order_inventory(self):
+        operations = []; nodes = self._nodes(operations, {"A": 1, "B": 2, "C": 3})
+        executor = _RecordingAdvanceExecutor()
+        orchestrator = SimulationOrchestrator(
+            nodes,
+            GraphSimulationConfig(stop_time=.03, communication_step=.01),
+            lambda _: {},
+            advance_executor=executor,
+        )
+        orchestrator.initialize()
+        for _ in range(3):
+            orchestrator.advance_next_checkpoint()
+
+        self.assertEqual(
+            executor.calls,
+            [(("A", "B", "C"), .01), (("A", "B", "C"), .02), (("A", "B", "C"), .03)],
+        )
 
     def test_a_to_b_to_c_is_explicit_jacobi_with_one_checkpoint_delay(self):
         operations = []

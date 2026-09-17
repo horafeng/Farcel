@@ -4,6 +4,10 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
+from farcel.application.node_advance_executor import (
+    NodeAdvanceExecutor,
+    SequentialNodeAdvanceExecutor,
+)
 from farcel.application.node_runtime import ModelNodeRuntime
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.graph import GraphSimulationConfig
@@ -25,11 +29,18 @@ class SimulationOrchestrator:
         nodes: tuple[tuple[str, ModelNodeRuntime], ...],
         config: GraphSimulationConfig,
         route_snapshot: RouteSnapshot,
+        *,
+        advance_executor: NodeAdvanceExecutor | None = None,
     ) -> None:
         self._nodes = nodes
         self._nodes_by_id = dict(nodes)
         self._config = config
         self._route_snapshot = route_snapshot
+        self._advance_executor = (
+            SequentialNodeAdvanceExecutor()
+            if advance_executor is None
+            else advance_executor
+        )
         self._total_steps = round(
             (config.stop_time - config.start_time) / config.communication_step
         )
@@ -87,8 +98,7 @@ class SimulationOrchestrator:
                 raise self._with_details(exc, phase="routing", current_time=self._current_time) from None
             for node_id, runtime in self._nodes:
                 self._call(node_id, "input", self._current_time, runtime.set_inputs, routed_inputs.get(node_id, {}))
-            for node_id, runtime in self._nodes:
-                self._call(node_id, "advance", self._current_time, runtime.advance_to, target, target_time=target)
+            self._advance_all(target)
             snapshot = self._read_snapshot("checkpoint_output_read", target)
         except Exception:
             self._failed = True
@@ -121,6 +131,42 @@ class SimulationOrchestrator:
                     {"node_id": node_id, "phase": "routing"},
                 )
         return materialized
+
+    def _advance_one(
+        self,
+        node_id: str,
+        runtime: ModelNodeRuntime,
+        target_time: float,
+    ) -> None:
+        self._call(
+            node_id,
+            "advance",
+            self._current_time,
+            runtime.advance_to,
+            target_time,
+            target_time=target_time,
+        )
+
+    def _advance_all(self, target_time: float) -> None:
+        try:
+            self._advance_executor.advance_all(
+                self._nodes,
+                target_time,
+                self._advance_one,
+            )
+        except EngineError:
+            raise
+        except Exception as exc:
+            raise EngineError(
+                ErrorCode.INTERNAL_ERROR,
+                "Graph advance executor 未预期错误",
+                {
+                    "phase": "advance_executor",
+                    "current_time": self._current_time,
+                    "target_time": target_time,
+                    "diagnostic": str(exc),
+                },
+            ) from None
 
     def _read_snapshot(self, phase: str, current_time: float) -> Snapshot:
         return MappingProxyType(

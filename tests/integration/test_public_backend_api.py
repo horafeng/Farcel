@@ -53,10 +53,13 @@ class PublicBackendApiTests(unittest.TestCase):
             self.assertIs(parameters[name].kind, inspect.Parameter.KEYWORD_ONLY)
         self.assertTrue(callable(backend.validate_graph))
         graph_parameters = inspect.signature(backend.run_graph).parameters
-        self.assertEqual(tuple(graph_parameters), ("graph", "config", "control", "on_progress"))
+        self.assertEqual(
+            tuple(graph_parameters),
+            ("graph", "config", "control", "on_progress", "execution_plan"),
+        )
         self.assertTrue(all(
             graph_parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
-            for name in ("control", "on_progress")
+            for name in ("control", "on_progress", "execution_plan")
         ))
         self.assertNotIn("on_result_chunk", graph_parameters)
         self.assertNotIn("result_chunk_size", graph_parameters)

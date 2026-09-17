@@ -1,6 +1,13 @@
 """Public, implementation-independent engine contracts."""
 
 from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.distributed import (
+    ExecutionPlan,
+    NodePlacement,
+    PlacementKind,
+    WorkerDescriptor,
+    WorkerEndpoint,
+)
 from farcel.contracts.graph import (
     Connection,
     GraphSimulationResult,
@@ -86,6 +93,7 @@ __all__ = [
     "DiscreteStateUpdate",
     "EngineError",
     "ErrorCode",
+    "ExecutionPlan",
     "ExportReport",
     "GraphSimulationConfig",
     "GraphSimulationResult",
@@ -103,6 +111,8 @@ __all__ = [
     "ModelMetadata",
     "ModelNode",
     "ModelNodeConfig",
+    "NodePlacement",
+    "PlacementKind",
     "PortReference",
     "PROJECT_SCHEMA_VERSION",
     "PROJECT_RUN_ARTIFACT_SCHEMA_VERSION",
@@ -145,4 +155,6 @@ __all__ = [
     "ValidationIssue",
     "ValidationReport",
     "VariableMetadata",
+    "WorkerDescriptor",
+    "WorkerEndpoint",
 ]

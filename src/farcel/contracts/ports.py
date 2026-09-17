@@ -4,7 +4,12 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
-from farcel.contracts.graph import GraphSimulationResult
+from farcel.contracts.distributed import ExecutionPlan
+from farcel.contracts.graph import (
+    GraphSimulationConfig,
+    GraphSimulationResult,
+    SimulationGraph,
+)
 from farcel.contracts.models import (
     DiscreteStateUpdate,
     ExportReport,
@@ -26,6 +31,7 @@ from farcel.contracts.models import (
 from farcel.contracts.project import SimulationProject
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
+from farcel.contracts.worker_protocol import WorkerRequest, WorkerResponse
 
 
 class ModelImporter(Protocol):
@@ -33,6 +39,57 @@ class ModelImporter(Protocol):
 
     def load(self, path: Path) -> ModelMetadata:
         """Parse and normalise an FMU without exposing adapter-native types."""
+
+
+class WorkerProtocolSemanticValidator(Protocol):
+    """验证 Worker 协议 DTO 的语义，不依赖具体传输或编码实现。"""
+
+    def validate_request(self, request: WorkerRequest) -> ValidationReport: ...
+
+    def validate_response(
+        self,
+        response: WorkerResponse,
+        *,
+        request: WorkerRequest | None = None,
+    ) -> ValidationReport: ...
+
+
+class WorkerAssetStore(Protocol):
+    """Worker 本地 content-addressed asset cache 的实现无关边界。"""
+
+    def has_asset(self, sha256: str) -> bool: ...
+
+    def put_asset(self, sha256: str, content: bytes) -> None: ...
+
+    def resolve_asset(self, sha256: str) -> Path: ...
+
+
+class WorkerRequestHandler(Protocol):
+    """处理已解码 Worker DTO 的传输无关 application boundary。"""
+
+    def handle_request(
+        self,
+        request: WorkerRequest,
+        *,
+        binary_payload: bytes | None = None,
+    ) -> WorkerResponse: ...
+
+    def shutdown(self) -> None: ...
+
+
+class WorkerTransportClient(Protocol):
+    """Coordinator 侧 Worker request/response transport boundary。"""
+
+    def connect(self) -> None: ...
+
+    def request(
+        self,
+        request: WorkerRequest,
+        *,
+        binary_payload: bytes | None = None,
+    ) -> WorkerResponse: ...
+
+    def close(self) -> None: ...
 
 
 class SimulationSession(Protocol):
@@ -185,6 +242,28 @@ class SimulationEngine(Protocol):
         on_result_chunk: Callable[[ResultChunk], None] | None = None,
         result_chunk_size: int = 256,
     ) -> SimulationResult: ...
+
+    def validate_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+    ) -> ValidationReport: ...
+
+    def validate_execution_plan(
+        self,
+        graph: SimulationGraph,
+        execution_plan: ExecutionPlan,
+    ) -> ValidationReport: ...
+
+    def run_graph(
+        self,
+        graph: SimulationGraph,
+        config: GraphSimulationConfig,
+        *,
+        control: RunControl | None = None,
+        on_progress: Callable[[RunProgress], None] | None = None,
+        execution_plan: ExecutionPlan | None = None,
+    ) -> GraphSimulationResult: ...
 
     def export_result(
         self, result: SimulationResult, destination: str | Path
