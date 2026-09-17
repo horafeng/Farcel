@@ -1,6 +1,6 @@
 # Farcel
 
-Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平台原型**。当前以单 FMU 与本机同步 `SimulationGraph`、Python 编排和 FMPy adapter 为可靠基础；它不是多工具、分布式或实时仿真平台。
+Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平台原型**。当前以单 FMU、本机同步 `SimulationGraph`、localhost distributed graph execution、Python 编排和 FMPy adapter 为可靠基础；它不是多工具、云端或实时仿真平台。
 
 ## Current（当前已实现）
 
@@ -10,17 +10,28 @@ Farcel 是一个**面向异构数字模型集成仿真的本地优先仿真平�
 - 本机同步 multi-FMU `SimulationGraph`：public `validate_graph()` / `run_graph()`、FMI2/FMI3 Co-Simulation 混合连接、FMI2 CS/ME coupling、explicit Jacobi previous-checkpoint routing、global `RunControl` / `RunProgress` 和 nested `GraphSimulationResult` 已完成。图的全局时间属于 `GraphSimulationConfig`，节点配置属于 `ModelNodeConfig`。
 - Phase 5 backend project layer：`SimulationProject`、`ModelAsset`、`SimulationCase`、portable `project.json`、SHA-256 asset validation、project-relative graph persistence、relocation、RunHistory 与 `results/<run_id>.json` 已完成。默认 backend 提供 public `save_project()`、`open_project()`、`validate_project()`、`run_project_case()` 和 `load_project_run()`。
 - Phase 6 backend workflow：`export_graph_result()` 可导出 canonical `GraphSimulationResult` 与已加载 historical artifact；`run_project_cases()` 按 caller order 串行运行并独立持久化每个 case；`compare_project_runs()` 只比较 immutable `ProjectRunArtifact`，保留每条 series 的 native timestamps，并为 numeric scalar 提供 min/max/mean/final。missing signal 有明确状态，STOPPED history 只保留已记录 samples。
+- Phase 7 distributed execution：公开 `ExecutionPlan`、`validate_execution_plan()` 和 keyword-only `run_graph(..., execution_plan=...)` 已支持预先启动的 localhost Worker、LOCAL/WORKER mixed graph、two-worker coupling、feedback delay 和 crash-before-commit 语义；Coordinator 继续拥有全局逻辑时间与 Jacobi checkpoint barrier。
 - GUI 在独立分支开发，仍应通过公共 `create_backend()` API 调用后端；现有 GUI/CLI → application → contracts ← infrastructure 边界不变。
 
 当前桌面技术路线为 PySide6 GUI、Python application orchestration、FMPy adapter 与 native FMU；结果呈现可使用 PySide6 + matplotlib。未来可在不改变公共 contracts 的前提下加入 solver adapter，并按性能或 HIL 需求使用 native worker / C++ 实现。
 
+## Distributed Simulation
+
+Farcel 的分布式图执行保持与本机 graph 相同的 explicit-Jacobi、previous-checkpoint 语义。调用方使用 `create_backend()` 和 `farcel.contracts` 创建 `ExecutionPlan`；没有 plan 或只有 LOCAL placement 时，既有 local graph path 保持不变。
+
+- **Local graph execution**：`backend.run_graph(graph, config)`。
+- **Worker execution**：将 node placement 设为 `WORKER`，并提供已经运行的 localhost `WorkerDescriptor` endpoint。
+- **Mixed graph execution**：在同一个 graph 中结合 LOCAL 与 WORKER nodes；Coordinator 统一拥有 routing、progress、results 与 checkpoint commit。
+
+完整运行说明见 [Distributed Execution User Guide](docs/DISTRIBUTED_EXECUTION_USER_GUIDE.md)，PySide6 对接说明见 [Frontend Distributed Execution Guide](docs/FRONTEND_DISTRIBUTED_EXECUTION_GUIDE.md)，公开代码示例见 [examples/frontend_backend_distributed_example.py](examples/frontend_backend_distributed_example.py)。当前不支持 cloud Worker、自动发现、自动重连或 cluster scheduler。
+
 ## Planned（规划中，尚未实现）
 
-Phase 5 backend project engineering-management layer 已实现；PySide6 Project/Graph editor、canvas、scope 与 project UI 仍是独立 frontend 工作。Simulink / AMESim / ANSYS direct adapter 仍没有实现。现有 graph 只支持经已验证 FMU runtime 的本机同步组合。Phase 7 已进入 **7.0 distributed logical-time architecture design freeze**：未来可用 Worker-backed node runtime 替换本地 node runtime，同时保持既有 Jacobi checkpoint 语义；目前仍**没有实现** Worker、RPC、socket runtime、RemoteNodeRuntime 或 distributed execution。详见 [docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)。
+Phase 5 backend project engineering-management layer 已实现；PySide6 Project/Graph editor、canvas、scope 与 project UI 仍是独立 frontend 工作。Simulink / AMESim / ANSYS direct adapter 仍没有实现。Project schema `1.0` 仍不持久化 deployment endpoint；project case execution 保持本机路径。详见 [docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)。
 
 ## Long-term（远期方向，尚未实现）
 
-异构模型集成将优先经 FMU 接入，必要时再研究直接工具 adapter。Phase 7 的分布式逻辑时间设计已冻结，但 Worker/RPC/runtime 尚未实现；实时/HIL、ROM、云或实体环境连接仍不属于当前实现范围。完整阶段边界见 [docs/PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md)。
+异构模型集成将优先经 FMU 接入，必要时再研究直接工具 adapter。localhost Worker-backed graph execution 已实现；实时/HIL、ROM、云 Worker、cluster orchestration 或实体环境连接仍不属于当前实现范围。完整阶段边界见 [docs/PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md)。
 
 `communication_step` 是 FMU Co-Simulation 的通信点推进步长；`output_interval` 是保存到 `SimulationResult` 的结果采样间隔。未设置 `output_interval` 时它等于 `communication_step`，保持原有“每通信点一个样本”的行为。显式设置的采样间隔必须是通信步长的整数倍；Farcel 不插值，并会在正常完成时补记尚未采集的最终状态。
 
@@ -30,7 +41,7 @@ FMI 3 Co-Simulation 的数组可用于参数覆盖、initial input、scheduled i
 
 当前后端的公开执行范围为 FMI 2 Co-Simulation、FMI 2 Model Exchange 与 FMI 3 Co-Simulation。`execution_interface=None` 时按当前可执行能力选择，双接口 FMU 始终优先 Co-Simulation；显式接口绝不静默回退。FMI 3 已通过官方 Reference FMU 验证 Event Mode、Early Return、默认与动态数组、标量 Structural Parameter、运行前 Configuration Mode、Float32/Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String、Enumeration、initial/scheduled input、输出采样、Stop/Progress、ResultChunk、CSV 和 `resources/` 访问。当前 GitHub Actions CI 以 Windows runner 为主要覆盖环境。
 
-仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、distributed simulation runtime、HIL/real-time、checkpoint/restart、database/server project store 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。Phase 6 不包含 parallel/distributed batch、interpolation、resampling、common time grid 或 advanced DSP/statistics。
+仍不支持 FMI 1 runtime、FMI 3 Model Exchange、Scheduled Execution runtime、Binary runtime、Clock runtime、Reconfiguration Mode、运行期间结构参数修改、Intermediate Update public callback、SSP、strong/algebraic-loop iteration、fixed-point/Newton coupling、cloud/cluster distributed runtime、HIL/real-time、checkpoint/restart、database/server project store 和 `GraphResultChunk`；Farcel 不声称完整支持所有 FMI 3。Phase 6 不包含 parallel/distributed batch、interpolation、resampling、common time grid 或 advanced DSP/statistics。
 
 官方 Reference FMU v0.0.41 已真实验证的 FMI 3 Co-Simulation scalar runtime 类型包括 Float32、Float64、Int8/UInt8、Int16/UInt16、Int32/UInt32、Int64/UInt64、Boolean、String 和 Enumeration。Binary 与 Clock 仍可在 metadata 中 inspect；Binary input 或 selected output 在 validation 阶段稳定拒绝，Clock 所在的 Scheduled Execution FMU 保持 inspect-only。Resource FMU 的 `resources/y.txt` 访问也已完成真实运行与 cleanup 回归。
 

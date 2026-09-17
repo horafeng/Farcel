@@ -637,3 +637,42 @@ native timestamp axes, and display the backend-provided scalar statistics. It
 must not parse `project.json` or result artifact JSON directly, invent batch
 persistence, import infrastructure/FMPy, or interpolate frontend curves and
 present them as canonical comparison results.
+
+## 18. Phase 7 distributed execution additions
+
+Phase 7 adds deployment selection without changing the public composition
+boundary. GUI code continues to obtain `backend = create_backend()` and imports
+`ExecutionPlan`, `WorkerDescriptor`, `WorkerEndpoint`, `NodePlacement`, and
+`PlacementKind` only from `farcel.contracts`.
+
+```python
+backend.validate_graph(graph, graph_config)
+backend.validate_execution_plan(graph, execution_plan)
+result = backend.run_graph(
+    graph,
+    graph_config,
+    execution_plan=execution_plan,
+    on_progress=on_progress,
+)
+```
+
+`execution_plan` is keyword-only. It answers where a graph node executes:
+LOCAL keeps the existing local runtime path; WORKER names a declared
+`worker_id` whose endpoint identifies an already-running localhost Worker.
+Absent placement defaults logically to LOCAL. Frontends must validate both the
+graph and the execution plan before starting a placed run, and display the
+stable `EngineError` details if either validation or execution fails.
+
+The GUI still owns its own worker thread and UI-thread signal marshaling.
+`RunProgress` remains Coordinator-owned committed logical-time progress, and
+`GraphSimulationResult` remains the only result source for plots. The GUI must
+not access `WorkerRpcClient`, `TcpWorkerClient`, `RemoteNodeRuntime`, FMPy,
+sockets, subprocesses, or any infrastructure module; it must not route signals
+or connect Workers directly. The Coordinator preserves the normal explicit
+Jacobi previous-checkpoint semantics for local, mixed, and multi-Worker graphs.
+
+The supported deployment is pre-existing localhost Workers. Cloud Workers,
+automatic discovery/start/restart/reconnect, cluster scheduling, and TLS/auth
+are not frontend capabilities in this release. See
+`FRONTEND_DISTRIBUTED_EXECUTION_GUIDE.md` for the focused handoff and
+`DISTRIBUTED_EXECUTION_USER_GUIDE.md` for Worker operational setup.
