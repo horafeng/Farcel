@@ -4,7 +4,7 @@
 
 Farcel 的目标是提供本地优先的桌面 GUI 与 CLI，并让两者复用同一套 FMU 业务语义。当前已打通单 FMU 的 FMI 2.0 / FMI 3.0 Co-Simulation 与 FMI 2.0 Model Exchange；FMI 3 Model Exchange 与 Scheduled Execution 只识别元数据，不执行。
 
-后端是可信业务核心，负责导入与元数据规范化、能力检测、配置验证、会话生命周期、结果分块、CSV 导出、诊断和 CLI。GUI 只消费 Farcel DTO 和引擎接口，不解析 FMU、不调用 FMPy、不维护另一套默认值或状态机。
+后端是可信业务核心，负责导入与元数据规范化、能力检测、配置验证、会话生命周期、graph/project workflow、结果分块、CSV 导出、localhost Worker 分布式图执行、诊断和 CLI。GUI 只消费 Farcel DTO 和引擎接口，不解析 FMU、不调用 FMPy、不维护另一套默认值或状态机。
 
 必须区分两个判断：FMU 能否被解析，以及它能否在当前平台执行。解析成功不等于存在兼容二进制，也不等于 Farcel 支持其接口类型。
 
@@ -13,10 +13,16 @@ Farcel 的目标是提供本地优先的桌面 GUI 与 CLI，并让两者复用�
 ```text
 src/farcel/
   contracts/          # 稳定、可序列化、与实现无关的 DTO、枚举、错误、端口
-  application/        # 用例编排：导入、验证，后续加入 session facade
+  application/        # 用例编排：session、graph/project 与 distributed execution
   infrastructure/
     fmpy/             # 唯一允许依赖/import FMPy 的位置
-    export/           # CSV 等外部格式适配器（MVP 后续补齐）
+    export/           # CSV 等外部格式适配器
+    project/          # project.json 与 result artifact persistence
+    worker_protocol/  # localhost Worker TCP framing/codec/transport
+    worker_process.py # 可选 localhost Worker bootstrap（tests/development）
+  backend.py          # 默认 public composition root
+  distributed_backend.py # distributed graph executor composition
+  worker.py           # localhost Worker process entry point
   cli.py              # 薄入口，只调用 application
 tests/
   unit/               # 不依赖真实 FMU/FMPy
@@ -24,8 +30,10 @@ tests/
 docs/
 ```
 
-暂不拆成多个可发布包，不引入依赖注入框架、消息总线、数据库或 worker 进程。Phase 7.0
-只冻结未来 trusted-localhost/LAN Worker 的设计；目前没有 worker、RPC 或网络 runtime。
+暂不拆成多个可发布包，不引入依赖注入框架、消息总线或数据库。Phase 7 已交付
+预先启动的 localhost Worker、RPC/TCP runtime、asset staging/cache 与
+`RemoteNodeRuntime`；它不宣称 LAN/cloud deployment、自动 Worker lifecycle、
+TLS/authentication 或 cluster scheduling。
 
 ## 3. 模块边界
 
@@ -65,12 +73,12 @@ docs/
 ## 6. 应推迟的设计
 
 - Scheduled Execution scheduler、FMI3 Model Exchange solver、database persistence and checkpoint/restart。
-- 独立 worker 进程、远程 RPC、插件系统、数据库和复杂缓存；它们仅在
-  [Phase 7 frozen design](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md) 明确授权的后续子阶段
-  才能逐项实现。
+- localhost Worker process、远程 RPC 和 run-scoped asset cache 已在 Phase 7
+  完成。自动 Worker lifecycle、LAN/cloud deployment、TLS/authentication、
+  cluster scheduling、插件系统、数据库和复杂缓存仍应在有明确需求时单独设计。
 - FMI 3 全量数组绘图策略、Binary/Clock 可视化、超大结果的持久化格式。
 - C/C++ 重写细节；当前只保证语言无关契约可映射。
-- 高级事件总线、可恢复运行、分布式执行和性能预优化。
+- 高级事件总线、可恢复运行、超出现有 localhost Worker 范围的分布式部署和性能预优化。
 
 这些能力出现真实需求或测试证据后再设计，避免当前骨架预设错误抽象。
 
@@ -94,7 +102,7 @@ Phase 2.1 的 FMI 3 adapter 仅在 Co-Simulation capability 声明支持时，�
 
 Phase 2.2A 为 FMI 3 Co-Simulation 的 metadata 已解析、默认尺寸数组提供完整数据链路：validation 对 public nested sequence 严格匹配 `VariableMetadata.shape`，adapter 在 Initialization Mode 内 flatten 写入并按 getter 的 `nValues=product(shape)` reshape 为 nested tuple。数组参数、initial/scheduled input、selected output、canonical `SimulationResult`、`ResultChunk` 和 CSV 都使用同一数组语义；CSV 仅在导出边界展开为零基 indexed columns。此能力不引入新 DTO、NumPy 或 FMPy 对象到 public contracts，也不改变标量路径。
 
-Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution、worker 和 FMI3 ME solver 尚未实现。
+Phase 2.2B 支持 FMI 3 Co-Simulation 的标量整型/枚举型 `structuralParameter` 覆盖：validator 先以覆盖后的结构参数解析 dimension value reference，adapter 仅在存在这类覆盖时进入并退出 Configuration Mode，随后在 Initialization Mode 写入普通参数和输入。有效 shape 只保存在单次 validation/session 运行内；导入元数据的默认 `shape` 不会被修改。数组结构参数、Reconfiguration Mode、运行中结构参数改变、Binary/Clock、Intermediate Update 数据回调、Scheduled Execution 与 FMI3 ME solver 尚未实现；Phase 7 Worker-backed execution 是 graph runtime 能力，不扩展单 FMU FMI3 execution scope。
 
 Phase 2.3 使用官方 Reference FMU 扩展真实兼容性回归，而不增加运行能力：Feedthrough 覆盖当前 FMI 3 scalar setter/getter 与 ResultChunk/CSV 路径，Resource 覆盖已解压 FMU 的 `resources/` 访问和关闭清理，Clocks 则验证 Scheduled Execution/Clock 能被 inspect 且在 session 创建前由执行策略拒绝。FMI 3 Binary 与 Clock 不进入 adapter runtime；validation 对 Binary/Clock selected output 返回稳定的 `UNSUPPORTED_OUTPUT_TYPE`，对 Binary input 保持 `UNSUPPORTED_INPUT_TYPE`。
 
@@ -115,7 +123,7 @@ GUI
 
 `GraphValidator` remains metadata-only and precedes runtime composition. `GraphRuntimeBindingsFactory` injects existing CS/ME node factories; `GraphSimulationRunner` owns global result, progress, stop and cleanup semantics. The graph is explicit Jacobi / previous-checkpoint only, so no per-node order becomes numerical semantics.
 
-The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, SSP, real-time/HIL, FMI3 ME, Scheduled Execution and strong coupling remain deferred. Phase 7.0 has frozen, but not implemented, the future Worker/RPC substitution design: it keeps `SimulationOrchestrator` on the Farcel-owned `ModelNodeRuntime` lifecycle boundary and keeps all graph semantics on the Coordinator.
+The dependency direction remains `GUI / CLI → application → contracts ← infrastructure`: GUI uses only `create_backend()` and contracts; application does not import FMPy; adapters and native lifecycle remain in infrastructure. Direct Simulink/AMESim/ANSYS adapters, SSP, real-time/HIL, FMI3 ME, Scheduled Execution and strong coupling remain deferred. Phase 7 implements the Worker/RPC substitution at the Farcel-owned `ModelNodeRuntime` lifecycle boundary: `SimulationOrchestrator` and the Coordinator retain all graph semantics, while a `RemoteNodeRuntime` delegates a WORKER-placed node lifecycle through the run-scoped TCP Worker client. The supported deployment is a pre-existing localhost Worker; automatic lifecycle, LAN/cloud, TLS/authentication and recovery remain deferred.
 
 ## 9. Phase 5: Simulation Project / Engineering Management
 

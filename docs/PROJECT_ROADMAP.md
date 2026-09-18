@@ -31,15 +31,24 @@ Phase 6 不引入新的 project runner、solver、graph scheduler、parallel/dis
 
 Simulink、AMESim、ANSYS 等 direct adapter 仍是远期候选。异构模型当前优先通过 FMU 接入；只有在具备明确的可行性、验证和维护能力时，才单独规划这些 proprietary direct-tool adapters。它们没有被取消，但不再占用紧接 Phase 5 的 Phase 6 编号。
 
-## 其他远期方向
+## 已完成：localhost 分布式图执行
 
-**Phase 7 — Distributed Execution Foundation — Phase 7.0 design frozen。** 已从
-Phase 6 后的 main baseline 正式进入分布式逻辑时间执行的设计冻结与分阶段实施准备。
-目标是在不改变 explicit-Jacobi、previous-checkpoint ZOH、全局 checkpoint barrier
-或反馈一拍延迟语义的前提下，未来让 `ModelNodeRuntime` 可由本机或 trusted-LAN
-Worker 支持。当前仍**没有** Worker、RPC、socket runtime、RemoteNodeRuntime、asset
-cache 或 distributed runtime 实现；完整冻结设计见
-[PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)。
+**Phase 7 — Distributed Execution Foundation — Completed（localhost scope）。**
+`ExecutionPlan`、`validate_execution_plan()` 和 keyword-only
+`run_graph(..., execution_plan=...)` 已支持预先启动的 localhost Worker。默认和
+LOCAL-only plan 仍走既有本机 graph path；WORKER placement 会通过 TCP 组合
+`RemoteNodeRuntime`。已验证 LOCAL/WORKER mixed graph、two-Worker coupling、feedback
+一拍延迟、completion-order independence 与 crash-before-checkpoint-commit 语义。
+Coordinator 始终拥有 topology、routing、全局逻辑时间、progress、结果与
+explicit-Jacobi checkpoint barrier；Worker 只持有被放置节点的生命周期与 asset cache。
+
+当前发布不包含 LAN/cloud Worker、自动 Worker 启动或发现、restart/reconnect/retry/replay、
+TLS/authentication、cluster scheduler、checkpoint recovery 或 project 中持久化 endpoint。
+Phase 7.0 的冻结设计及后续实现记录见
+[PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)；
+其中明确标为 Phase 7.0 的“尚未实现”描述是历史快照，不代表当前状态。
+
+## 其他远期方向
 
 **Phase 8 — Long-term optional。** 实时/HIL、ROM 和性能导向的 native worker/C++ 加速仅在相应需求与本地基线成熟后单独设计。它们目前不存在，也不由当前 Python orchestration 伪装实现。
 
@@ -48,7 +57,8 @@ cache 或 distributed runtime 实现；完整冻结设计见
 ```text
 GUI / CLI → FarcelEngine.run_graph → GraphValidator → GraphSimulationRunner
     → GraphRuntimeBindingsFactory → DataRouter / SimulationOrchestrator
-    → FMU CS / FMI2 ME node runtimes
+    → LOCAL: FMU CS / FMI2 ME node runtimes
+    → WORKER: RemoteNodeRuntime → Worker RPC / TCP → pre-existing localhost Worker
 ```
 
 Phase 5 已在不改变上述 Graph runtime 的前提下增加一层：

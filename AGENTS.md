@@ -16,6 +16,8 @@ The current released backend scope includes:
 - CSV export
 - FMI 2.0 Model Exchange with CVode/BDF
 - local synchronous multi-FMU `SimulationGraph` execution
+- Phase 7 localhost Worker-backed distributed graph execution, including mixed
+  LOCAL/WORKER and two-Worker graphs
 
 The current backend implementation uses Python and FMPy.
 
@@ -120,13 +122,13 @@ Do not implement the following unless explicitly requested:
 
 - Scheduled Execution runtime
 - Co-simulation master algorithms
-- Distributed simulation, Worker processes, and RPC **except** for the
-  explicit, separately authorized Phase 7 scope. Phase 7.0 is design/docs/CI
-  only; do not implement a Worker, RPC, socket runtime, or RemoteNodeRuntime
-  until a later Phase 7 substage explicitly authorizes it.
-- Database persistence
+- Distributed capabilities beyond the completed Phase 7 localhost scope:
+  automatic Worker lifecycle, discovery, restart/reconnect/retry/replay, LAN or
+  cloud deployment, TLS/authentication, cluster scheduling, or changes to the
+  established Worker protocol. These require separately authorized scope.
+- Database persistence beyond the existing local project/result JSON stores
 - Plugin systems
-- Network services
+- Internet-facing network services
 - Cloud execution
 - Automatic FMU source compilation
 - Complex task schedulers
@@ -311,10 +313,18 @@ Current capabilities include:
 
 ### Phase 7 — Distributed Execution Foundation
 
-- Phase 7.0 design is frozen in `docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md`.
-- It preserves the Phase 4 logical checkpoint barrier and keeps Coordinator
-  graph semantics separate from future Worker node lifecycle work.
-- No Worker/RPC/RemoteNodeRuntime/distributed runtime is implemented yet.
+- Phase 7 is implemented for pre-existing localhost Workers. Public callers use
+  `ExecutionPlan`, `validate_execution_plan()`, and keyword-only
+  `run_graph(..., execution_plan=...)` through `create_backend()`.
+- The Coordinator retains graph topology, routing, logical time, results, and
+  the Phase 4 checkpoint barrier; `RemoteNodeRuntime` delegates only a placed
+  node lifecycle to a Worker.
+- The supported scope is LOCAL/WORKER mixed graphs and two-Worker coupling.
+  It does not include automatic Worker lifecycle, LAN/cloud deployment,
+  TLS/authentication, retry/replay/reconnect, or cluster scheduling.
+- `docs/PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md` preserves the Phase 7.0 design
+  freeze and subsequent implementation record; its Phase 7.0 statements are
+  historical, not a description of the current release.
 
 ---
 

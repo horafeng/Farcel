@@ -2,16 +2,21 @@
 
 ## Status and baseline
 
-**Phase 7.0 — architecture design freeze.** This is the canonical design
-record for Phase 7. It was frozen from the verified `origin/main` baseline
-`74c8a21cf93f3c4a033e4b678a758af10b22a720`.
+**Phase 7.0 — historical architecture design freeze.** This is the canonical
+design record for the Phase 7.0 baseline, frozen from verified `origin/main`
+commit `74c8a21cf93f3c4a033e4b678a758af10b22a720`. Phase 7 implementation was
+subsequently delivered through Phase 7.5B: public `ExecutionPlan`-based graph
+execution now supports pre-existing localhost Workers, mixed LOCAL/WORKER
+graphs, and two-Worker coupling. The Phase 7.0 statements below describe that
+earlier freeze, not the current release status.
 
-Phase 7.0 changes documentation and the `phase-7-work` push-CI trigger only.
-It does **not** implement a Worker, RPC, socket runtime, protocol codec,
-asset cache, `RemoteNodeRuntime`, `NodePlacement`, or `ExecutionPlan` Python
-contract. The default `create_backend()` remains a local backend.
+At the Phase 7.0 freeze, the change covered documentation and the
+`phase-7-work` push-CI trigger only. It did **not** then implement a Worker,
+RPC, socket runtime, protocol codec, asset cache, `RemoteNodeRuntime`,
+`NodePlacement`, or `ExecutionPlan` Python contract. Later implementation
+status is recorded in the Phase 7.4–7.5B sections below.
 
-## 1. Current architecture audit
+## 1. Phase 7.0 architecture audit (historical)
 
 The existing, verified graph path is:
 
