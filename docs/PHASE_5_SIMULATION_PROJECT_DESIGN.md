@@ -9,12 +9,14 @@
 > 5.5A public project lifecycle API, Phase 5.5B public historical run loading
 > API, Phase 5.5C public persistent project-case execution API, and Phase 5.6
 > public example/documentation/CI finalization completed. Phase 5 backend scope
-> is complete.**
+> is complete.** The original Phase 5.0 future-tense wording below is retained
+> as a frozen design record; the delivered APIs and persistence behavior are
+> described in the completed-status summary above.
 
 ## 1. Goals and non-goals
 
 Phase 5 is Farcel's backend **Simulation Project / Engineering Management**
-layer. It will eventually support creating/opening/saving a local project,
+layer. It supports creating/opening/saving a local project,
 managing FMU model assets, maintaining independent simulation cases, validating
 a project, running a case, and retaining run history and canonical graph
 results.
@@ -39,7 +41,7 @@ The frozen dependency direction remains:
 GUI / CLI → application → contracts ← infrastructure
 ```
 
-The future project flow is:
+The delivered project flow is:
 
 ```text
 GUI / CLI
@@ -58,9 +60,9 @@ registry, project root, or history. The existing `GraphValidator`, `DataRouter`,
 `SimulationOrchestrator`, `GraphSimulationRunner`, `CoSimulationNodeRuntime`,
 and `ModelExchangeNodeRuntime` retain their Phase 4 behavior unchanged.
 
-The planned ownership is:
+The delivered ownership is:
 
-| Layer | Planned responsibility | Must not own |
+| Layer | Responsibility | Must not own |
 |---|---|---|
 | `contracts` | Farcel-owned project DTOs and `ProjectRepository` port | paths resolved from CWD, FMPy/native objects |
 | `application` | `ProjectService`, semantic validation, safe path resolution, case orchestration | a second FMI/graph validator or scheduler |

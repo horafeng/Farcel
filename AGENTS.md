@@ -89,6 +89,17 @@ Farcel currently targets:
 - FMI 2.0 Model Exchange through Farcel-owned CVode/BDF orchestration
 - Local synchronous multi-FMU `SimulationGraph` execution
 
+### Graph deployment scope
+
+Current graph execution supports both local synchronous `SimulationGraph`
+execution and Phase 7 pre-existing localhost Worker-backed execution through
+`ExecutionPlan`. A graph with no plan, an empty plan, or only LOCAL placements
+uses the local path; a WORKER placement uses its declared already-running
+localhost endpoint and never silently falls back to LOCAL. Mixed LOCAL/WORKER
+and two-Worker graphs preserve the Coordinator-owned explicit-Jacobi barrier.
+LAN/cloud deployment, automatic Worker lifecycle, TLS/authentication, recovery,
+and cluster scheduling remain out of scope.
+
 "Basic FMI 3.0 Co-Simulation" does not imply complete support for every FMI 3.0 advanced capability.
 
 Advanced FMI 3 features may be added incrementally.
@@ -328,7 +339,7 @@ Current capabilities include:
 
 ---
 
-## 13. Current Execution Policy
+## 13. Current FMU Execution Policy
 
 An FMU is currently considered executable by the Farcel MVP only when the current implementation supports its execution requirements.
 
@@ -339,7 +350,8 @@ At minimum, current execution policy considers:
 - compatible current-platform binary
 - external execution-tool requirements
 
-This is a Farcel MVP capability policy, not a statement that other FMUs are inherently invalid according to FMI.
+This is a Farcel FMU capability policy, not a statement about graph deployment
+scope or that other FMUs are inherently invalid according to FMI.
 
 FMUs outside the current execution policy may still be successfully parsed and inspected.
 

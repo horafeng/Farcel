@@ -2,7 +2,11 @@
 
 ## Release baseline
 
-This document records the Phase 7.6 release-readiness audit of phase-7-work after Phase 7.5B. It is documentation only; no runtime, protocol, scheduling, routing, or public API behavior is changed.
+This document records the Phase 7.6 release-readiness audit originally made on
+`phase-7-work` after Phase 7.5B. Phase 7 was subsequently merged into `main`,
+which now includes the delivered localhost distributed-graph architecture. The
+review itself is documentation only; no runtime, protocol, scheduling, routing,
+or public API behavior is changed.
 
 ## Overall architecture
 

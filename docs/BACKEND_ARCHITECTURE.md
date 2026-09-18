@@ -26,7 +26,7 @@ src/farcel/
   cli.py              # 薄入口，只调用 application
 tests/
   unit/               # 不依赖真实 FMU/FMPy
-  integration/        # 后续放 Reference FMU 回归
+  integration/        # real/reference FMU integration regressions
 docs/
 ```
 
@@ -45,7 +45,7 @@ TLS/authentication 或 cluster scheduling。
 
 依赖方向固定为：`CLI/GUI -> application -> contracts <- infrastructure`。组合根负责把具体 adapter 注入 application。
 
-公开组合根为 `farcel.create_backend()`。CLI 与未来 GUI 均通过它获得完整配置的 application facade；消费者不自行导入或组装 infrastructure adapter。具体前端集成契约见 `docs/FRONTEND_BACKEND_INTEGRATION.md`。
+公开组合根为 `farcel.create_backend()`。CLI 与 GUI consumers 均通过它获得完整配置的 application facade；消费者不自行导入或组装 infrastructure adapter。GUI 是独立 frontend 工作，但其集成路线已冻结为该公共边界。具体前端集成契约见 `docs/FRONTEND_BACKEND_INTEGRATION.md`。
 
 ## 4. 第一阶段 MVP 开发顺序
 
@@ -83,6 +83,9 @@ TLS/authentication 或 cluster scheduling。
 这些能力出现真实需求或测试证据后再设计，避免当前骨架预设错误抽象。
 
 ## 7. 当前实现范围
+
+本章节按阶段顺序保留实现演进说明；当前完整能力清单以 `README.md`、后续 Phase 3–7
+章节和 `PROJECT_ROADMAP.md` 为准，不应将以下早期 inspect/validate 条目理解为全部当前范围。
 
 当前已打通真实 FMU → FMPy → Farcel `ModelMetadata` → CLI `inspect` 链路。元数据导入支持 FMI 2.0 / 3.0，并识别 Co-Simulation、Model Exchange 和 Scheduled Execution；`InterfaceCapability.can_execute` 以各接口自身的当前平台二进制和 external-tool requirement 判定。FMI2 双接口默认按 CS、ME、None 顺序选择；FMI3 ME 与 SE 仍只识别。
 

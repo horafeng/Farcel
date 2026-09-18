@@ -2,7 +2,17 @@
 
 ## Status and scope
 
-This review freezes the design against commit `a4432cedb54e0290412f49335ae392a4beab88b6` on `phase-7-work`.  It is an audit and roadmap, not an implementation change.
+> **Historical planning/design-review snapshot.** This review froze against
+> commit `a4432cedb54e0290412f49335ae392a4beab88b6` on `phase-7-work`. Phase 7
+> was subsequently completed and merged into `main`: localhost distributed
+> graph execution, including `ExecutionPlan`, mixed LOCAL/WORKER and
+> two-Worker graphs, is a delivered capability. The roadmap below is not a
+> current task list. In particular, its project-placement/schema 1.1 proposal
+> was not delivered: `PROJECT_SCHEMA_VERSION` remains `"1.0"`,
+> `run_project_case` remains local-only, and runtime distribution uses the
+> direct public graph API with an `ExecutionPlan`.
+
+This review freezes the design against commit `a4432cedb54e0290412f49335ae392a4beab88b6` on `phase-7-work`. It is an audit and roadmap snapshot, not an implementation change.
 
 The codebase is more complete than the Phase 7.5A label alone suggests: the default public composition root already installs `TcpDistributedGraphExecutor`, and public localhost end-to-end tests exercise both mixed and two-worker graphs.  Phase 7.5B must therefore **stabilize and integrate** that implementation; it must not reimplement the Worker protocol, TCP transport, graph scheduler, or a second distributed executor.
 
@@ -67,15 +77,15 @@ No plan, an empty plan, explicit LOCAL placements, and unused Worker descriptors
 
 **Complete.** `SimulationEngine` contains both `validate_execution_plan(graph, plan)` and the additive `run_graph(..., execution_plan=None)` signature. The default backend composition installs the concrete executor without opening a connection until a WORKER placement is actually used.
 
-## 3. Missing capabilities and scope decisions
+## 3. Historical gap list and scope decisions
 
-### Must complete before declaring Phase 7.5B integrated
+### Historical work proposed before declaring Phase 7.5B integrated
 
 1. **Freeze the executor lifecycle contract in focused tests.** Add direct tests for used-worker selection, PING/connect failure, partial multi-worker connection cleanup, reverse close order, cleanup-failure aggregation, and the invariant that the primary run failure remains primary. The behavior exists, but it currently relies heavily on end-to-end coverage.
 2. **Document the public operating contract.** State that endpoint Workers must already be running, that the supported transport is localhost TCP, that no automatic spawn/restart/retry/replay occurs, and that a Worker crash prevents checkpoint commit rather than causing recovery.
 3. **Keep ownership boundaries explicit.** A graph runner owns node terminate/close; the distributed executor owns only the TCP clients it opened; a local launcher owns only its child process. No Phase 7.5B change may blur these responsibilities.
 
-### Should complete after lifecycle stabilization
+### Historical follow-on proposals after lifecycle stabilization
 
 1. **Project-aware distributed execution design and implementation.** Today `SimulationCase` contains only graph and graph config; `ProjectService.run_case` calls `run_graph` without an execution plan. A project case therefore cannot replay a distributed placement even though the public graph API can.
 2. **A public example and operational documentation.** Provide one portable local graph example plus one explicitly local-machine, pre-started Worker example. Examples must use only `create_backend()` and `farcel.contracts`.
@@ -110,7 +120,7 @@ If that later scope is approved, the schema becomes `1.1`:
 
 This is a forward design decision, not a schema change made by this review.
 
-## 5. Phase 7.5B roadmap
+## 5. Historical Phase 7.5B roadmap (not current work)
 
 ### Phase 7.5B.1 — Executor lifecycle contract hardening
 
@@ -155,6 +165,6 @@ This is a forward design decision, not a schema change made by this review.
 | A future feature bypasses Coordinator scheduling | Graph runner/orchestrator are placement-agnostic and Workers receive only runtime commands. | Do not put routing, graph state, or checkpoint ownership in Worker code. |
 | Security scope is misrepresented | Worker subprocess binds loopback; no TLS/auth/LAN support is claimed. | Keep all remote/LAN/cloud work explicitly out of this phase. |
 
-## Frozen recommendation
+## Historical frozen recommendation
 
 Begin with **Phase 7.5B.1: executor lifecycle contract hardening**. It is the smallest slice that converts the existing concrete public implementation from primarily end-to-end proven to directly contract-proven, without changing production behavior or prematurely committing Project schema and deployment semantics.

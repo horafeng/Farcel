@@ -1,9 +1,10 @@
 # Phase 4：多模型架构与全局时间语义（4.0A）
 
-> 状态：**4.0A architecture/time semantics freeze；4.0B graph contracts
-> completed。** 4.0B 的声明性 DTO 位于 `farcel.contracts.graph`；它不实现
-> `ModelNodeRuntime`、scheduler、`DataRouter`、`validate_graph()` 或
-> `run_graph()`。当前公开的单 FMU API 和运行时行为不变。
+> 最终状态：**Phase 4 已通过 4.6B 完成。** 已交付 public
+> `validate_graph()` / `run_graph()`、真实 multi-FMU runtime composition、
+> `SimulationOrchestrator` / `DataRouter`、scheduler，以及稳定的 public API。
+> 下方 4.0A / 4.0B 的“尚未实现”文字是当时的 frozen design record，不是当前
+> release capability 描述。
 
 ## 1. 目标、范围和明确非目标
 

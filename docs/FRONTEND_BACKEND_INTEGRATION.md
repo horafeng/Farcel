@@ -16,8 +16,12 @@
 ### SimulationGraph workflow
 
 - `validate_graph`：验证 public `SimulationGraph` 与 `GraphSimulationConfig`；
-- `run_graph`：同步执行本机 multi-FMU graph，返回 nested
-  `GraphSimulationResult`，并复用全局 `RunControl` / `RunProgress`。
+- `run_graph`：统一的同步 multi-FMU graph public API。没有
+  `execution_plan`、使用 empty plan 或 LOCAL-only plan 时走既有本机路径；包含
+  WORKER placement 时通过预先启动的 localhost Worker 执行。local、mixed 与
+  two-Worker graph 都返回同一个 nested `GraphSimulationResult`，并复用全局
+  `RunControl` / `RunProgress`。Coordinator 保有 routing、逻辑时间、progress、
+  result 与 checkpoint commit。
 - `export_graph_result`：将既有 canonical `GraphSimulationResult` 导出为稳定 CSV，
   不重新执行 graph 或读取 FMU。
 
@@ -26,7 +30,8 @@
 - `save_project` / `open_project`：结构化 `project.json` persistence；
 - `validate_project`：显式 project semantic validation；
 - `run_project_case`：执行一个 `SimulationCase`、保存 artifact，并返回更新后的
-  project history；
+  project history；当前仅走 local graph path，不持久化或接受 distributed
+  `ExecutionPlan`；
 - `run_project_cases`：按 caller-specified order 严格串行执行多个 case，并为每项
   复用既有 persistent one-case workflow；
 - `load_project_run`：按 `run_id` 恢复 immutable historical provenance/result。
@@ -46,6 +51,7 @@ from farcel.contracts import (
     ErrorCode,
     ExportReport,
     Connection,
+    ExecutionPlan,
     GraphSimulationConfig,
     GraphSimulationResult,
     InputUpdate,
@@ -53,6 +59,8 @@ from farcel.contracts import (
     ModelMetadata,
     ModelNode,
     ModelNodeConfig,
+    NodePlacement,
+    PlacementKind,
     PortReference,
     ResultChunk,
     RunControl,
@@ -72,6 +80,8 @@ from farcel.contracts import (
     SimulationGraph,
     SimulationResult,
     ValidationReport,
+    WorkerDescriptor,
+    WorkerEndpoint,
 )
 ```
 
@@ -85,13 +95,15 @@ GUI 不得导入或依赖：
 - `fmpy`、FMPy model description、FMU instance、native handle 或 value reference；
 - `farcel.cli`、CLI 参数解析器、CLI 输出文本；
 - application 的内部 validator 或 session registry；
+- `WorkerRpcClient`、`TcpWorkerClient`、`RemoteNodeRuntime`、socket 或 subprocess
+  handle；
 - NumPy 专有对象作为公共数据模型。
 
 CLI 是另一个消费者，不是 GUI API。GUI 不得启动 CLI 子进程或解析其 stdout。
 
 ## 4. Composition Entry Point
 
-默认本地后端由唯一公开装配函数创建：
+支持本机与 pre-existing localhost Worker graph execution 的默认后端由唯一公开装配函数创建：
 
 ```python
 from farcel import create_backend
@@ -99,8 +111,9 @@ from farcel import create_backend
 backend = create_backend()
 ```
 
-该函数封装当前 importer、session factory、CSV exporter 和 local Project
-repositories 的选择。未来替换 FMPy backend 时，GUI 工作流无需了解具体实现。
+该函数封装当前 importer、session factory、CSV exporter、local Project
+repositories 与 run-scoped distributed graph executor 的选择。未来替换 FMPy
+backend 时，GUI 工作流无需了解具体实现。
 
 ## 5. Inspect Workflow
 
