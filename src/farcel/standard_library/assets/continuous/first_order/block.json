@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.continuous.first_order",
+  "block_version": "1.0.0",
+  "display_name": "一阶惯性环节",
+  "description": "描述具有增益、时间常数和初始状态的一阶连续动态系统。",
+  "category_id": "continuous",
+  "category_display_name": "连续系统",
+  "fmu_asset": "continuous/first_order/FirstOrder.fmu",
+  "fmu_sha256": "75837b15ea5272afcb742462c0c508f1db4bc86318e625a5c643611762cd0d30",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "gain",
+      "display_name": "增益",
+      "description": "输入信号到稳态输出的增益。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    },
+    {
+      "variable_name": "time_constant",
+      "display_name": "时间常数",
+      "description": "一阶动态响应的时间常数。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": "s",
+      "minimum": 1E-12,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 1
+    },
+    {
+      "variable_name": "initial_value",
+      "display_name": "初始值",
+      "description": "初始化完成时输出状态的初始值。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 2
+    }
+  ],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "输入",
+      "description": "一阶系统的输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "一阶系统的输出状态。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

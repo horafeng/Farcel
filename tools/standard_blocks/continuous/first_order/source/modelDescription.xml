@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel First Order" guid="{79342556-3EDB-450A-A3DC-593C10C7FC7C}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelFirstOrder" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="gain" valueReference="0" description="稳态增益。" causality="parameter" variability="fixed"><Real start="1.0"/></ScalarVariable>
+    <ScalarVariable name="time_constant" valueReference="1" description="一阶动态的时间常数。" causality="parameter" variability="fixed"><Real start="1.0" min="0.000000000001"/></ScalarVariable>
+    <ScalarVariable name="initial_value" valueReference="2" description="初始化时的输出状态。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="u" valueReference="3" description="输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="4" description="一阶系统输出信号。" causality="output" variability="continuous" initial="exact"><Real start="0.0"/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="5" dependencies="1 2 3 4" dependenciesKind="dependent dependent dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>

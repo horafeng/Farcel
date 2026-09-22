@@ -12,6 +12,12 @@
       "display_name": "数学运算",
       "description": "基础数学运算模块。",
       "order": 2
+    },
+    {
+      "category_id": "continuous",
+      "display_name": "连续系统",
+      "description": "描述连续时间动态行为的模块。",
+      "order": 3
     }
   ],
   "block_assets": [
@@ -22,6 +28,7 @@
     "categories/math/sum/block.json",
     "categories/math/product/block.json",
     "categories/math/saturation/block.json",
-    "categories/math/abs/block.json"
+    "categories/math/abs/block.json",
+    "continuous/first_order/block.json"
   ]
 }
