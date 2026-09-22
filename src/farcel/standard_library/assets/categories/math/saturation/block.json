@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.math.saturation",
+  "block_version": "1.0.0",
+  "display_name": "限幅器",
+  "description": "将输入信号限制在指定上下限之间。",
+  "category_id": "math",
+  "category_display_name": "数学运算",
+  "fmu_asset": "math/saturation/Saturation.fmu",
+  "fmu_sha256": "97ce9692fd925482c79d9b80a97faa15116d0fc049594b3035d0c72a66282a85",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "lower_limit",
+      "display_name": "下限",
+      "description": "输出允许的最小值。",
+      "value_type": "real",
+      "default_value": -1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    },
+    {
+      "variable_name": "upper_limit",
+      "display_name": "上限",
+      "description": "输出允许的最大值。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 1
+    }
+  ],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "输入",
+      "description": "待限幅的输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "限幅后的输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

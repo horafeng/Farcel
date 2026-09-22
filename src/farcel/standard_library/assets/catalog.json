@@ -20,6 +20,8 @@
     "categories/sources/sine/block.json",
     "categories/math/gain/block.json",
     "categories/math/sum/block.json",
-    "categories/math/product/block.json"
+    "categories/math/product/block.json",
+    "categories/math/saturation/block.json",
+    "categories/math/abs/block.json"
   ]
 }

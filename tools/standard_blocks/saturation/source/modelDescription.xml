@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Saturation" guid="{53562513-474B-447A-B655-1DB398C11F33}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelSaturation" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="lower_limit" valueReference="0" description="输出允许的下限。" causality="parameter" variability="fixed"><Real start="-1.0"/></ScalarVariable>
+    <ScalarVariable name="upper_limit" valueReference="1" description="输出允许的上限。" causality="parameter" variability="fixed"><Real start="1.0"/></ScalarVariable>
+    <ScalarVariable name="u" valueReference="2" description="待限幅的输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="3" description="限幅后的输出信号。" causality="output" variability="continuous"><Real/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="4" dependencies="1 2 3" dependenciesKind="dependent dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>
