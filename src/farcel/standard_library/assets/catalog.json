@@ -18,6 +18,12 @@
       "display_name": "连续系统",
       "description": "描述连续时间动态行为的模块。",
       "order": 3
+    },
+    {
+      "category_id": "control",
+      "display_name": "控制系统",
+      "description": "实现基础控制算法的模块。",
+      "order": 4
     }
   ],
   "block_assets": [
@@ -30,6 +36,7 @@
     "categories/math/saturation/block.json",
     "categories/math/abs/block.json",
     "continuous/first_order/block.json",
-    "continuous/integrator/block.json"
+    "continuous/integrator/block.json",
+    "control/pid/block.json"
   ]
 }

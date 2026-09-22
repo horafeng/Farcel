@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.control.pid",
+  "block_version": "1.0.0",
+  "display_name": "PID控制器",
+  "description": "连续时间比例积分微分控制模块。",
+  "category_id": "control",
+  "category_display_name": "控制系统",
+  "fmu_asset": "control/pid/PID.fmu",
+  "fmu_sha256": "9098e82cd4fb3c44ab584a922b09b527c4e39feb8fd37decd481fc4dcaa6dc8a",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "Kp",
+      "display_name": "比例增益",
+      "description": "比例控制项的增益。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    },
+    {
+      "variable_name": "Ki",
+      "display_name": "积分增益",
+      "description": "积分控制项的增益。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 1
+    },
+    {
+      "variable_name": "Kd",
+      "display_name": "微分增益",
+      "description": "微分控制项的增益。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 2
+    },
+    {
+      "variable_name": "initial_integral",
+      "display_name": "初始积分",
+      "description": "初始化时积分状态的初始值。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 3
+    },
+    {
+      "variable_name": "initial_error",
+      "display_name": "初始误差",
+      "description": "初始化时上一误差的初始值。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 4
+    }
+  ],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "误差输入",
+      "description": "PID 控制器的控制误差输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "控制输出",
+      "description": "PID 控制器的控制输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

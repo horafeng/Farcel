@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel PID" guid="{7D5D51E7-F5A6-4B7A-83DA-267B1719C7AB}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelPid" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="Kp" valueReference="0" description="比例增益。" causality="parameter" variability="fixed"><Real start="1.0"/></ScalarVariable>
+    <ScalarVariable name="Ki" valueReference="1" description="积分增益。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="Kd" valueReference="2" description="微分增益。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="initial_integral" valueReference="3" description="初始化时的积分状态。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="initial_error" valueReference="4" description="初始化时的上一误差。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="u" valueReference="5" description="控制误差输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="6" description="PID 控制输出信号。" causality="output" variability="continuous" initial="exact"><Real start="0.0"/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="7" dependencies="1 2 3 4 5 6" dependenciesKind="dependent dependent dependent dependent dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>
