@@ -29,6 +29,7 @@
     "categories/math/product/block.json",
     "categories/math/saturation/block.json",
     "categories/math/abs/block.json",
-    "continuous/first_order/block.json"
+    "continuous/first_order/block.json",
+    "continuous/integrator/block.json"
   ]
 }

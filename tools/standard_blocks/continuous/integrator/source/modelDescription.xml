@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Integrator" guid="{4829EA1F-4960-4D17-8DA6-D1EACAE39E82}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelIntegrator" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="initial_value" valueReference="0" description="初始化时的积分状态。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="u" valueReference="1" description="积分器输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="2" description="积分器输出状态。" causality="output" variability="continuous" initial="exact"><Real start="0.0"/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="3" dependencies="1 2" dependenciesKind="dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>
