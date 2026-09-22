@@ -14,3 +14,4 @@ farcel = "farcel.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/farcel"]
+include = ["src/farcel/standard_library/assets/**/*.json"]

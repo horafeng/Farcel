@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "categories": [
+    {
+      "category_id": "math",
+      "display_name": "数学运算",
+      "description": "基础数学运算模块。",
+      "order": 2
+    }
+  ],
+  "block_assets": [
+    "categories/math/gain/block.json"
+  ]
+}

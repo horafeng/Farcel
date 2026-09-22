@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.math.gain",
+  "block_version": "1.0.0",
+  "display_name": "增益",
+  "description": "将输入信号乘以指定系数。",
+  "category_id": "math",
+  "category_display_name": "数学运算",
+  "fmu_asset": "categories/math/gain/Gain.fmu",
+  "fmu_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "gain",
+      "display_name": "增益",
+      "description": "输入信号的乘法系数。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    }
+  ],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "输入",
+      "description": "待放大的输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "增益计算后的输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}
