@@ -6,8 +6,8 @@
   "description": "将输入信号乘以指定系数。",
   "category_id": "math",
   "category_display_name": "数学运算",
-  "fmu_asset": "categories/math/gain/Gain.fmu",
-  "fmu_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "fmu_asset": "math/gain/Gain.fmu",
+  "fmu_sha256": "476116d84dde94e582c29ae88bfa9fd577e3305b99bce1368f484a110b814c2f",
   "execution_interface": "co_simulation",
   "parameters": [
     {

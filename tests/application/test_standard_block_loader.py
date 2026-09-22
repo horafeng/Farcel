@@ -78,7 +78,8 @@ class StandardBlockCatalogLoaderTests(unittest.TestCase):
     def test_reads_packaged_block_json_into_catalog(self) -> None:
         catalog = StandardBlockCatalogLoader().load()
 
-        self.assertEqual(catalog.list_categories()[0].display_name, "数学运算")
+        categories = {category.category_id: category for category in catalog.list_categories()}
+        self.assertEqual(categories["math"].display_name, "数学运算")
         block = catalog.get_block("farcel.math.gain")
         self.assertEqual(block.display_name, "增益")
         self.assertIs(block.execution_interface, InterfaceType.CO_SIMULATION)
@@ -88,8 +89,14 @@ class StandardBlockCatalogLoaderTests(unittest.TestCase):
     def test_catalog_json_registers_category_before_block(self) -> None:
         catalog = StandardBlockCatalogLoader().load()
 
-        self.assertEqual(catalog.list_categories()[0].category_id, "math")
-        self.assertEqual(catalog.list_blocks()[0].category_id, "math")
+        self.assertEqual(
+            tuple(category.category_id for category in catalog.list_categories()),
+            ("sources", "math"),
+        )
+        self.assertEqual(
+            tuple(block.category_id for block in catalog.list_blocks()),
+            ("sources", "math"),
+        )
 
     def test_rejects_unsupported_schema_version(self) -> None:
         catalog = _catalog_data()

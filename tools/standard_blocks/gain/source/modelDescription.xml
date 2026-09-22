@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Gain" guid="{96716AF0-6CD5-4D51-A52A-50CE5E1FCE4B}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelGain" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="gain" valueReference="0" description="输入信号的乘法系数。" causality="parameter" variability="fixed">
+      <Real start="1.0"/>
+    </ScalarVariable>
+    <ScalarVariable name="u" valueReference="1" description="待放大的输入信号。" causality="input" variability="continuous">
+      <Real start="0.0"/>
+    </ScalarVariable>
+    <ScalarVariable name="y" valueReference="2" description="增益计算后的输出信号。" causality="output" variability="continuous">
+      <Real/>
+    </ScalarVariable>
+  </ModelVariables>
+  <ModelStructure>
+    <Outputs>
+      <Unknown index="3" dependencies="1 2" dependenciesKind="dependent dependent"/>
+    </Outputs>
+  </ModelStructure>
+</fmiModelDescription>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Constant" guid="{C9AF4BE4-8C64-48EA-BE9C-884C0772B3A6}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelConstant" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="value" valueReference="0" description="常量输出值。" causality="parameter" variability="fixed">
+      <Real start="1.0"/>
+    </ScalarVariable>
+    <ScalarVariable name="y" valueReference="1" description="常量输出信号。" causality="output" variability="continuous">
+      <Real/>
+    </ScalarVariable>
+  </ModelVariables>
+  <ModelStructure>
+    <Outputs>
+      <Unknown index="2"/>
+    </Outputs>
+  </ModelStructure>
+</fmiModelDescription>

@@ -2,6 +2,12 @@
   "schema_version": "1.0",
   "categories": [
     {
+      "category_id": "sources",
+      "display_name": "信号源",
+      "description": "生成基础仿真输入信号的模块。",
+      "order": 1
+    },
+    {
       "category_id": "math",
       "display_name": "数学运算",
       "description": "基础数学运算模块。",
@@ -9,6 +15,7 @@
     }
   ],
   "block_assets": [
+    "categories/sources/constant/block.json",
     "categories/math/gain/block.json"
   ]
 }
