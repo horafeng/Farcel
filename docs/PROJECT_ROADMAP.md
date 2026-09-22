@@ -48,9 +48,24 @@ Phase 7.0 的冻结设计及后续实现记录见
 [PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)；
 其中明确标为 Phase 7.0 的“尚未实现”描述是历史快照，不代表当前状态。
 
-## 其他远期方向
+## 进行中：Farcel 标准仿真模块库
 
-**Phase 8 — Long-term optional。** 实时/HIL、ROM 和性能导向的 native worker/C++ 加速仅在相应需求与本地基线成熟后单独设计。它们目前不存在，也不由当前 Python orchestration 伪装实现。
+**Phase 8 — Farcel Standard Block Library — In Progress — Phase 8.0 Design Freeze。**
+目标是在不创建第二套 Graph runtime 的前提下，为 Farcel 提供由可执行 FMI 2.0
+Co-Simulation FMU 组成的基础标准模块库。Phase 8.0 冻结 architecture/design；8.1
+定义 contracts；8.2 建立 catalog；8.3 交付 source/math FMUs；8.4 交付
+dynamic/control FMUs；8.5 完成 Block → ModelNode integration；8.6 完成 Project
+integration；8.7 验证 distributed compatibility；8.8 交付 closed-loop demo；8.9
+执行 release gate。完整冻结设计见
+[PHASE_8_STANDARD_BLOCK_LIBRARY_DESIGN.md](PHASE_8_STANDARD_BLOCK_LIBRARY_DESIGN.md)。
+
+## Phase 9+ / Long-term candidates
+
+实时/HIL、ROM 和性能导向的 native worker/C++ acceleration 是 future / Phase 9+
+candidate，仅在相应需求与本地基线成熟后单独设计。它们目前不存在，也不由当前
+Python orchestration 伪装实现。Simulink、AMESim、ANSYS 等 direct adapter 也仍为
+long-term candidate；异构模型当前优先通过 FMU 接入，只有在具备明确的可行性、
+验证和维护能力时才单独规划这些 proprietary direct-tool adapters。
 
 ## 目标架构
 
