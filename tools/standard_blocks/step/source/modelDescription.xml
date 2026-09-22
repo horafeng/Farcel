@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Step" guid="{03C97A33-D1D6-4D9B-916C-98D4965CF0FA}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelStep" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="initial_value" valueReference="0" description="阶跃前的输出值。" causality="parameter" variability="fixed"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="final_value" valueReference="1" description="阶跃后的输出值。" causality="parameter" variability="fixed"><Real start="1.0"/></ScalarVariable>
+    <ScalarVariable name="step_time" valueReference="2" description="输出切换到终值的仿真时间。" causality="parameter" variability="fixed"><Real start="1.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="3" description="阶跃输出信号。" causality="output" variability="continuous"><Real/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="4" dependencies="1 2 3" dependenciesKind="dependent dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>

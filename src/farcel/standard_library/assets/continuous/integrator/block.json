@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.continuous.integrator",
+  "block_version": "1.0.0",
+  "display_name": "积分器",
+  "description": "连续时间积分模块。",
+  "category_id": "continuous",
+  "category_display_name": "连续系统",
+  "fmu_asset": "continuous/integrator/Integrator.fmu",
+  "fmu_sha256": "d4919f5f73a6cae22652a461f5b582245025da74872c24b7001722823597024e",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "initial_value",
+      "display_name": "初始值",
+      "description": "初始化完成时积分状态的初始值。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    }
+  ],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "输入",
+      "description": "积分器输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "积分器输出状态。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Product" guid="{A6A8ED5B-5C80-4449-B26C-3A478B3EC576}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelProduct" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="u1" valueReference="0" description="第一个乘数输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="u2" valueReference="1" description="第二个乘数输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="2" description="两个输入信号的积。" causality="output" variability="continuous"><Real/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="3" dependencies="1 2" dependenciesKind="dependent dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>

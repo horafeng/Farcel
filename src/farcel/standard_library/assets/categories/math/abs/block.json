@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.math.abs",
+  "block_version": "1.0.0",
+  "display_name": "绝对值",
+  "description": "计算输入信号的绝对值。",
+  "category_id": "math",
+  "category_display_name": "数学运算",
+  "fmu_asset": "math/abs/Abs.fmu",
+  "fmu_sha256": "7845d742ffb4ef07d06864c937881ad186390455108650ce40f7cdf96d0b913e",
+  "execution_interface": "co_simulation",
+  "parameters": [],
+  "input_ports": [
+    {
+      "variable_name": "u",
+      "display_name": "输入",
+      "description": "待取绝对值的输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "输入信号的绝对值。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.sources.constant",
+  "block_version": "1.0.0",
+  "display_name": "常量",
+  "description": "输出固定的实数常量。",
+  "category_id": "sources",
+  "category_display_name": "信号源",
+  "fmu_asset": "sources/constant/Constant.fmu",
+  "fmu_sha256": "fc2aa8302cdb814c6d943068ba5244a75f660c81313bbc09f0238c0123b88727",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "value",
+      "display_name": "常量值",
+      "description": "输出信号的固定实数值。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    }
+  ],
+  "input_ports": [],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "常量输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

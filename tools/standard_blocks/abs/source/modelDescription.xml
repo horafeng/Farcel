@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription fmiVersion="2.0" modelName="Farcel Abs" guid="{98D919DD-36D6-4F3F-BDAE-85F0F3AB50D0}" variableNamingConvention="flat" generationTool="Farcel standard block build">
+  <CoSimulation modelIdentifier="FarcelAbs" canHandleVariableCommunicationStepSize="true"/>
+  <ModelVariables>
+    <ScalarVariable name="u" valueReference="0" description="待取绝对值的输入信号。" causality="input" variability="continuous"><Real start="0.0"/></ScalarVariable>
+    <ScalarVariable name="y" valueReference="1" description="输入信号的绝对值。" causality="output" variability="continuous"><Real/></ScalarVariable>
+  </ModelVariables>
+  <ModelStructure><Outputs><Unknown index="2" dependencies="1" dependenciesKind="dependent"/></Outputs></ModelStructure>
+</fmiModelDescription>
