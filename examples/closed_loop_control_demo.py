@@ -83,6 +83,10 @@ def main() -> None:
     print(f"完成状态: {result.completion_state.name}")
     print(f"时间轴: {result.timestamps}")
     print(f"一阶环节输出: {result.node_outputs[PLANT][OUTPUT]}")
+    final_output = result.node_outputs[PLANT][OUTPUT][-1]
+    print("目标值: 1.0")
+    print(f"最终输出: {final_output}")
+    print(f"最终跟踪误差: {abs(1.0 - final_output)}")
     print("说明: explicit-Jacobi 使用上一个 checkpoint 的 source snapshot")
 
 

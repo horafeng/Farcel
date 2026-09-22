@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import runpy
 import unittest
@@ -51,7 +52,27 @@ class ClosedLoopControlDemoTests(unittest.TestCase):
         self.assertTrue(result.timestamps)
         self.assertIn("first_order", result.node_outputs)
         self.assertIn("y", result.node_outputs["first_order"])
-        self.assertEqual(len(result.timestamps), len(result.node_outputs["first_order"]["y"]))
+        output = result.node_outputs["first_order"]["y"]
+        self.assertEqual(len(result.timestamps), len(output))
+
+        # explicit-Jacobi routes prior-checkpoint snapshots, so this verifies
+        # control response properties rather than an exact checkpoint curve.
+        self.assertTrue(all(math.isfinite(value) for value in output))
+        self.assertAlmostEqual(0.0, output[0], places=6)
+        self.assertGreater(output[-1], output[0] + 0.1)
+
+        initial_error = abs(1.0 - output[0])
+        final_error = abs(1.0 - output[-1])
+        self.assertLess(final_error, initial_error)
+        self.assertGreater(output[-1], 0.7)
+        self.assertLess(output[-1], 1.3)
+
+        self.assertTrue(
+            all(
+                current > previous
+                for previous, current in zip(result.timestamps, result.timestamps[1:])
+            )
+        )
 
 
 if __name__ == "__main__":
