@@ -12,6 +12,11 @@ Phase 8 的目标是让 Farcel 从“必须导入用户外部 FMU 后才能构�
 模块库”。第一版标准模块最终仍以 FMU 执行，并进入既有图执行体系；它不是
 Python 原生模块运行时，也不是第二套 graph runtime。
 
+**历史阅读说明。** 本文中 8.0 的分类、候选 block ID、目录草图和“未来阶段”描述
+保留设计冻结时的规划语境，不是当前交付库存或当前 public API。当前标准模块的唯一
+真实来源是 package 内 `standard_library/assets/catalog.json` 及其声明的
+`block.json`；后续 Phase 8 实现已经以该 manifest 为准完成并通过 integration gate。
+
 本 8.0 阶段只冻结设计、路线图和 `phase-8-work` 的 CI 触发。它不创建 Python
 contract、catalog、`block.json`、FMU、资源加载器或模块运行代码。尤其不实现
 PID、Gain、Step 或任何其他模块的数值执行。

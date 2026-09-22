@@ -48,15 +48,15 @@ Phase 7.0 的冻结设计及后续实现记录见
 [PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md](PHASE_7_DISTRIBUTED_EXECUTION_DESIGN.md)；
 其中明确标为 Phase 7.0 的“尚未实现”描述是历史快照，不代表当前状态。
 
-## 进行中：Farcel 标准仿真模块库
+## 已完成：Farcel 标准仿真模块库
 
-**Phase 8 — Farcel Standard Block Library — In Progress — Phase 8.0 Design Freeze。**
-目标是在不创建第二套 Graph runtime 的前提下，为 Farcel 提供由可执行 FMI 2.0
-Co-Simulation FMU 组成的基础标准模块库。Phase 8.0 冻结 architecture/design；8.1
-定义 contracts；8.2 建立 catalog；8.3 交付 source/math FMUs；8.4 交付
-dynamic/control FMUs；8.5 完成 Block → ModelNode integration；8.6 完成 Project
-integration；8.7 验证 distributed compatibility；8.8 交付 closed-loop demo；8.9
-执行 release gate。完整冻结设计见
+**Phase 8 — Farcel Standard Block Library — Completed。** 已交付由 FMI 2.0
+Co-Simulation FMU 组成的标准模块库：Farcel-owned contracts、catalog、packaged
+JSON metadata loader、11 个标准模块 asset、`StandardBlockFactory`、既有
+`ModelNode`/`SimulationGraph` 集成示例、负反馈闭环示例与全库存 integration gate。
+模块库存以 package 内的 `standard_library/assets/catalog.json` 及其声明的
+`block.json` 为唯一真实来源；它们继续复用既有 Graph runtime，而不创建第二套
+simulator。完整冻结设计及后续实现记录见
 [PHASE_8_STANDARD_BLOCK_LIBRARY_DESIGN.md](PHASE_8_STANDARD_BLOCK_LIBRARY_DESIGN.md)。
 
 ## Phase 9+ / Long-term candidates

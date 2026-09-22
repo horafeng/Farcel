@@ -1,5 +1,10 @@
 # Phase 8.3 — 标准模块 Asset 与 Resource Layer
 
+**历史阅读说明。** 本文记录 Phase 8.3 当时的最小 metadata resource 基线；其中
+“未来阶段”及“尚未创建 FMU”的表述只描述该阶段，不代表当前标准模块库状态。当前
+asset 库存以 package 内 `standard_library/assets/catalog.json` 及其声明的
+`block.json` 为准。
+
 ## 资源布局
 
 Phase 8.3 将少量标准模块 metadata 放入 Farcel package：
