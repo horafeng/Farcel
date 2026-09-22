@@ -1,4 +1,5 @@
 import json
+from importlib import resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -88,14 +89,27 @@ class StandardBlockCatalogLoaderTests(unittest.TestCase):
 
     def test_catalog_json_registers_category_before_block(self) -> None:
         catalog = StandardBlockCatalogLoader().load()
+        assets = resources.files("farcel.standard_library").joinpath("assets")
+        manifest = json.loads(
+            assets.joinpath("catalog.json").read_text(encoding="utf-8")
+        )
+        expected_category_ids = tuple(
+            category["category_id"] for category in manifest["categories"]
+        )
+        expected_block_ids = tuple(
+            json.loads(
+                assets.joinpath(asset_path).read_text(encoding="utf-8")
+            )["block_id"]
+            for asset_path in manifest["block_assets"]
+        )
 
         self.assertEqual(
             tuple(category.category_id for category in catalog.list_categories()),
-            ("sources", "math"),
+            expected_category_ids,
         )
         self.assertEqual(
-            tuple(block.category_id for block in catalog.list_blocks()),
-            ("sources", "sources", "sources", "math", "math", "math", "math", "math"),
+            tuple(block.block_id for block in catalog.list_blocks()),
+            expected_block_ids,
         )
 
     def test_rejects_unsupported_schema_version(self) -> None:
