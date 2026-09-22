@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.sources.step",
+  "block_version": "1.0.0",
+  "display_name": "阶跃",
+  "description": "在指定仿真时间从初始值切换到终值。",
+  "category_id": "sources",
+  "category_display_name": "信号源",
+  "fmu_asset": "sources/step/Step.fmu",
+  "fmu_sha256": "460cfe9b84637f58e93913de98db20425490d5446f861fa3c90430e5be668878",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "initial_value",
+      "display_name": "初始值",
+      "description": "阶跃时间之前的输出值。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    },
+    {
+      "variable_name": "final_value",
+      "display_name": "终值",
+      "description": "阶跃时间之后的输出值。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 1
+    },
+    {
+      "variable_name": "step_time",
+      "display_name": "阶跃时间",
+      "description": "输出从初始值切换到终值的仿真时间。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": "s",
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 2
+    }
+  ],
+  "input_ports": [],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "阶跃输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

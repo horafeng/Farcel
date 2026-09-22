@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.sources.sine",
+  "block_version": "1.0.0",
+  "display_name": "正弦信号",
+  "description": "生成可配置幅值、频率、相位和偏置的正弦信号。",
+  "category_id": "sources",
+  "category_display_name": "信号源",
+  "fmu_asset": "sources/sine/Sine.fmu",
+  "fmu_sha256": "a85ba0f1fc984d86c906aa127ae22d207f4a96477f0dc0c67d24cbe19cdb8ce5",
+  "execution_interface": "co_simulation",
+  "parameters": [
+    {
+      "variable_name": "amplitude",
+      "display_name": "幅值",
+      "description": "正弦信号相对偏置的最大变化量。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 0
+    },
+    {
+      "variable_name": "frequency_hz",
+      "display_name": "频率",
+      "description": "正弦信号的频率，单位为赫兹。",
+      "value_type": "real",
+      "default_value": 1.0,
+      "unit": "Hz",
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 1
+    },
+    {
+      "variable_name": "phase_rad",
+      "display_name": "相位",
+      "description": "正弦信号的初始相位，单位为弧度。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": "rad",
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 2
+    },
+    {
+      "variable_name": "offset",
+      "display_name": "偏置",
+      "description": "叠加在正弦信号上的直流偏置。",
+      "value_type": "real",
+      "default_value": 0.0,
+      "unit": null,
+      "minimum": null,
+      "maximum": null,
+      "display_on_block": true,
+      "display_order": 3
+    }
+  ],
+  "input_ports": [],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "正弦输出信号。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}
