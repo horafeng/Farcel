@@ -392,6 +392,44 @@ Farcel 处理 capability-enabled FMI 3 Event Mode 与 Early Return，并支持�
 
 ## 16. Graph Workflow
 
+### Standard Block Library 对接
+
+前端通过 application 层的 `StandardBlockCatalogLoader` 获取标准模块目录，不能维护
+第二份模块库存或按照 `block_id` 硬编码模块参数：
+
+```python
+from farcel.application import StandardBlockCatalogLoader, StandardBlockFactory
+
+catalog = StandardBlockCatalogLoader().load()
+categories = catalog.list_categories()
+blocks = catalog.list_blocks()
+descriptor = catalog.get_block("farcel.math.gain")
+```
+
+前端以 descriptor metadata 构建模块库与属性编辑器，读取 `block_id`、
+`category_id`/`category_display_name`、`display_name`、`description`、输入/输出 ports、parameters 与
+`display_on_block`。`display_on_block=True` 表示该参数可显示在模块方框上；其余
+布局、坐标和控件选择仍是前端自己的表现层职责。
+
+FMU 对前端始终是黑盒。前端不得直接解析 FMU、调用 FMPy，或从 FMU 推导另一套模块
+metadata。用户修改参数时，前端使用既有 `parameter_overrides` 创建对应的现有
+`ModelNode`：
+
+```python
+factory = StandardBlockFactory(catalog)
+node = factory.create_model_node(
+    descriptor.block_id,
+    "gain-1",
+    parameter_overrides={"gain": 2.0},
+)
+```
+
+随后前端按正常图工作流组合 `ModelNode` 与 `Connection`，构建
+`SimulationGraph`，并调用 `backend.validate_graph()` 后再调用
+`backend.run_graph()`。标准模块不拥有独立的 Graph 或 simulator 路径。现有 runtime
+的 explicit-Jacobi checkpoint routing 仍适用：连接使用上一个 checkpoint 的源输出，
+前端不得尝试自行改变或消除该传播延迟。
+
 GUI may inspect each FMU with `backend.load_fmu(path)` to build its port and
 parameter UI, then construct public `ModelNode`, `SimulationGraph` and
 `GraphSimulationConfig` values. It must call `backend.validate_graph(graph,
