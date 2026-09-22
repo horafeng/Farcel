@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import distributed, graph, models, project, project_batch, project_comparison
+from farcel.contracts import blocks, distributed, graph, models, project, project_batch, project_comparison
 from farcel.contracts import worker_protocol
 
 
@@ -30,6 +30,10 @@ class ContractBoundaryTests(unittest.TestCase):
             models.ExportReport,
             models.RunSummary,
             models.SimulationResult,
+            blocks.BlockCategoryDescriptor,
+            blocks.BlockParameterDescriptor,
+            blocks.BlockPortDescriptor,
+            blocks.BlockDescriptor,
             distributed.WorkerEndpoint,
             distributed.WorkerDescriptor,
             distributed.NodePlacement,

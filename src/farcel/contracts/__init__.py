@@ -1,6 +1,14 @@
 """Public, implementation-independent engine contracts."""
 
 from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.blocks import (
+    BlockCategoryDescriptor,
+    BlockDescriptor,
+    BlockParameterDescriptor,
+    BlockPortDescriptor,
+    BlockPortDirection,
+    BlockValueType,
+)
 from farcel.contracts.distributed import (
     ExecutionPlan,
     NodePlacement,
@@ -87,6 +95,12 @@ from farcel.contracts.ports import (
 )
 
 __all__ = [
+    "BlockCategoryDescriptor",
+    "BlockDescriptor",
+    "BlockParameterDescriptor",
+    "BlockPortDescriptor",
+    "BlockPortDirection",
+    "BlockValueType",
     "CapabilitySet",
     "Connection",
     "DefaultExperiment",
