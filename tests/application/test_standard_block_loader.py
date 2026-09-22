@@ -95,7 +95,7 @@ class StandardBlockCatalogLoaderTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(block.category_id for block in catalog.list_blocks()),
-            ("sources", "sources", "sources", "math"),
+            ("sources", "sources", "sources", "math", "math", "math"),
         )
 
     def test_rejects_unsupported_schema_version(self) -> None:

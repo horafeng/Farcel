@@ -18,6 +18,8 @@
     "categories/sources/constant/block.json",
     "categories/sources/step/block.json",
     "categories/sources/sine/block.json",
-    "categories/math/gain/block.json"
+    "categories/math/gain/block.json",
+    "categories/math/sum/block.json",
+    "categories/math/product/block.json"
   ]
 }

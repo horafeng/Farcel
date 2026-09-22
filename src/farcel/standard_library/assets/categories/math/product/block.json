@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.math.product",
+  "block_version": "1.0.0",
+  "display_name": "乘法器",
+  "description": "计算两个输入信号的积。",
+  "category_id": "math",
+  "category_display_name": "数学运算",
+  "fmu_asset": "math/product/Product.fmu",
+  "fmu_sha256": "921773cce68ef79f31820c1f88e84fc2b49867e34eddff8c72c1153dbb13b6a6",
+  "execution_interface": "co_simulation",
+  "parameters": [],
+  "input_ports": [
+    {
+      "variable_name": "u1",
+      "display_name": "输入一",
+      "description": "第一个乘数输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    },
+    {
+      "variable_name": "u2",
+      "display_name": "输入二",
+      "description": "第二个乘数输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 1
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "两个输入信号的积。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}

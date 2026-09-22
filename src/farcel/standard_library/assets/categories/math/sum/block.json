@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "block_id": "farcel.math.sum",
+  "block_version": "1.0.0",
+  "display_name": "加法器",
+  "description": "计算两个输入信号的和。",
+  "category_id": "math",
+  "category_display_name": "数学运算",
+  "fmu_asset": "math/sum/Sum.fmu",
+  "fmu_sha256": "5e619d54efca8709cc1d0669079565b1b11bd05de311c89fcc14549d27539fbf",
+  "execution_interface": "co_simulation",
+  "parameters": [],
+  "input_ports": [
+    {
+      "variable_name": "u1",
+      "display_name": "输入一",
+      "description": "第一个加数输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    },
+    {
+      "variable_name": "u2",
+      "display_name": "输入二",
+      "description": "第二个加数输入信号。",
+      "direction": "input",
+      "value_type": "real",
+      "unit": null,
+      "order": 1
+    }
+  ],
+  "output_ports": [
+    {
+      "variable_name": "y",
+      "display_name": "输出",
+      "description": "两个输入信号的和。",
+      "direction": "output",
+      "value_type": "real",
+      "unit": null,
+      "order": 0
+    }
+  ]
+}
