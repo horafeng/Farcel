@@ -7,6 +7,10 @@ from farcel.application.node_runtime import (
 )
 from farcel.application.engine import FarcelEngine
 from farcel.application.modelica_service import ModelicaService
+from farcel.application.modelica_asset_staging import ModelicaAssetStagingService
+from farcel.application.project_modelica_service import ProjectModelicaService
+from farcel.application.project_schema_migration import ProjectSchemaMigrationService
+from farcel.application.project_validation import ProjectValidator
 from farcel.distributed_backend import TcpDistributedGraphExecutor
 from farcel.infrastructure.export import CsvGraphResultExporter, CsvResultExporter
 from farcel.infrastructure.fmpy import (
@@ -18,6 +22,7 @@ from farcel.infrastructure.fmpy import (
 from farcel.infrastructure.project import (
     LocalJsonProjectRepository,
     LocalJsonProjectRunArtifactRepository,
+    LocalModelicaAssetStore,
 )
 from farcel.infrastructure.openmodelica import (
     OpenModelicaCompiler,
@@ -29,6 +34,9 @@ def create_backend() -> FarcelEngine:
     """Create the default backend; Worker I/O remains run-time placement driven."""
 
     importer = FmpyImporter()
+    project_repository = LocalJsonProjectRepository()
+    compiler = OpenModelicaCompiler()
+    project_validator = ProjectValidator(importer)
     session_factory = FmpySessionFactory()
     model_exchange_session_factory = FmpyFmi2ModelExchangeSessionFactory()
     solver_factory = FmpyCvodeSolverFactory()
@@ -48,12 +56,21 @@ def create_backend() -> FarcelEngine:
         result_exporter=CsvResultExporter(),
         model_exchange_session_factory=model_exchange_session_factory,
         solver_factory=solver_factory,
-        project_repository=LocalJsonProjectRepository(),
+        project_repository=project_repository,
         project_run_artifact_repository=LocalJsonProjectRunArtifactRepository(),
         graph_result_exporter=CsvGraphResultExporter(),
         distributed_graph_executor=distributed_graph_executor,
         modelica_service=ModelicaService(
             OpenModelicaEnvironmentDetector(),
-            OpenModelicaCompiler(),
+            compiler,
+        ),
+        project_modelica_service=ProjectModelicaService(
+            ModelicaAssetStagingService(compiler, LocalModelicaAssetStore()),
+            project_repository,
+            project_validator,
+        ),
+        project_schema_migration_service=ProjectSchemaMigrationService(
+            project_repository,
+            project_validator,
         ),
     )

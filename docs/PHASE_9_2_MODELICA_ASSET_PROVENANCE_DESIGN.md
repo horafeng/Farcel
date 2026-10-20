@@ -2,7 +2,7 @@
 
 ## 目标与阶段边界
 
-Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目资产模型。9.2A/9.2B 的合同和受控暂存仍不自动写入 Project；9.2C 已实现明确选择的 schema 1.0 到 1.1 来源持久化与迁移。
+Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目资产模型。9.2A–9.2C 已提供合同、受控暂存、schema 1.1 来源持久化和显式迁移；9.2D 已将这些能力接入受控的 Project 编译登记公共 API。
 
 阶段建议划分如下：
 
@@ -11,9 +11,9 @@ Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目�
 | 9.2A（已实现） | 不可变 provenance DTO、纯验证和 schema 演进设计。 |
 | 9.2B（已实现） | 受控源快照、既有编译器复用、已验证 FMU 构建包暂存；不登记到 Project JSON。 |
 | 9.2C（已实现） | 严格 Project schema 1.1 编解码、来源持久化、验证和显式迁移。 |
-| 9.2D（后续） | 在上述能力稳定后，考虑面向 Project 的编译与来源查询编排 API。 |
+| 9.2D（已实现） | schema 1.1 Project 编译、已验证资产/来源登记、条件保存冲突保护和只读来源查询。 |
 
-这些后续阶段均不是当前提供的功能。
+9.2D 不会自动迁移旧 Project、扫描未知构建目录或删除未登记构建包。
 
 ## 已实现的合同
 
@@ -119,7 +119,18 @@ project-root/
 
 ## 安全性、一致性与故障边界
 
-后续实施必须至少满足以下边界：
+### 9.2D Project 编译登记实现记录
+
+默认 backend 现在装配 `ProjectModelicaService`。它在编译前读取 Project 与内容 SHA-256，
+拒绝 Project 1.0、陈旧调用者对象和无效 Project；只将 9.2B 已验证构建包中的 `ModelAsset`
+及 `ModelicaBuildProvenance` 一起追加到 schema 1.1 Project。保存通过
+`ProjectRevisionRepository.save_if_unchanged()` 进行最终散列比较，冲突返回 `PROJECT_CONFLICT`。
+
+构建包已经发布但登记失败时会保留，不会自动删除；错误 details 给出 build ID 和 FMU 相对路径。
+最终检查与 `os.replace()` 之间仍是有限的 TOCTOU 窗口，不能视为跨进程事务。完整 API、前端边界、
+测试与限制见 `PHASE_9_2D_MODELICA_PROJECT_PUBLIC_API.md`。
+
+9.2D 实现持续遵守以下边界：
 
 1. 拒绝路径穿越、绝对路径和非规范分隔符；解析时继续确认候选路径位于 project root 内。
 2. 在文件操作阶段防止符号链接解析后越出 project root。
@@ -132,10 +143,10 @@ project-root/
 9. 中途崩溃后的临时文件恢复和清理必须只作用于本次操作可识别的临时资源，不能删除用户资产。
 10. 既有项目和运行历史在新增来源功能时不得被无意改写。
 
-## 测试与 9.2B 前置条件
+## 测试与阶段记录
 
 本阶段测试覆盖 DTO 的不可变性和字段集合、合法记录、路径安全、源散列、模型与编译形状、资产关联的未知/歧义情况、多错误收集、`CONFIG_ERROR` 映射以及无文件写入副作用。同时回归现有 Project 资产、Project 持久化和 Modelica 公共 API 测试。
 
 2026-10-20 的验证记录：新增 contracts/application 测试与 Project 边界回归共 56 项成功（1 项符号链接权限条件跳过）；本机还执行了真实 OpenModelica 1.26.3 的既有公共 API 编译、加载、运行和 CSV 导出回归。GitHub Actions run 118 在 Windows Python 3.10 的完整套件中报告 796 项成功、4 项明确跳过；Python 3.13 的对应 job 亦成功。
 
-9.2B 开始前必须先验收这些合同、确定新 schema 版本的精确编码及显式迁移策略，并定义资产文件写入和 `project.json` 持久化之间可恢复的一致性流程。
+9.2A 的前置条件已在后续阶段完成；9.2D 不代表 Phase 9 全部完成，也不自动进入后续阶段。

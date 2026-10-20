@@ -74,6 +74,23 @@ class ProjectSchema11Tests(unittest.TestCase):
         self.assertEqual([_BUILD_ID], [item["build_id"] for item in document["modelica_build_provenance"]])
         self.assertEqual(project, self.repository.load(self.root))
 
+    def test_conditional_save_rejects_stale_revision_without_overwriting(self) -> None:
+        original = SimulationProject("p", "初始", schema_version="1.1")
+        self.repository.save(self.root, original)
+        revision = self.repository.load_with_revision(self.root)
+        newer = replace(original, name="最新")
+        self.repository.save(self.root, newer)
+
+        with self.assertRaises(EngineError) as raised:
+            self.repository.save_if_unchanged(
+                self.root,
+                replace(original, name="陈旧写入"),
+                revision.document_sha256,
+            )
+
+        self.assertIs(ErrorCode.PROJECT_CONFLICT, raised.exception.code)
+        self.assertEqual(newer, self.repository.load(self.root))
+
     def test_strict_schema_and_fields_are_rejected(self) -> None:
         self.repository.save(self.root, SimulationProject("p", "Demo", schema_version="1.1"))
         document = _read_document(self.root)

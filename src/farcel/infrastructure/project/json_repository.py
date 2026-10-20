@@ -27,6 +27,7 @@ from farcel.contracts.project import (
     PROJECT_SCHEMA_VERSION,
     SUPPORTED_PROJECT_SCHEMA_VERSIONS,
     ModelAsset,
+    ProjectRevision,
     ProjectSchemaMigrationCandidate,
     ProjectSchemaMigrationResult,
     ProjectRunRecord,
@@ -52,6 +53,11 @@ class LocalJsonProjectRepository:
     def load(self, project_root: Path) -> SimulationProject:
         project_path = Path(project_root) / _PROJECT_FILENAME
         return _read_project(project_path)
+
+    def load_with_revision(self, project_root: Path) -> ProjectRevision:
+        project_path = Path(project_root) / _PROJECT_FILENAME
+        project, document_bytes = _read_project_with_bytes(project_path)
+        return ProjectRevision(project, _sha256_bytes(document_bytes))
 
     def load_1_0_migration_candidate(
         self, project_root: Path
@@ -100,22 +106,34 @@ class LocalJsonProjectRepository:
 
     def save(self, project_root: Path, project: SimulationProject) -> None:
         project_path = Path(project_root) / _PROJECT_FILENAME
-        try:
-            document = _encode_project(project)
-            text = json.dumps(
-                document,
-                ensure_ascii=False,
-                indent=2,
-                allow_nan=False,
-            ) + "\n"
-        except (AttributeError, TypeError, ValueError, _ProjectFormatError) as exc:
-            raise _format_error("SimulationProject 无法编码为 project.json", project_path, exc) from None
+        _replace_project_text(project_path, _encode_project_text(project, project_path))
 
-        _replace_project_text(project_path, text)
+    def save_if_unchanged(
+        self,
+        project_root: Path,
+        project: SimulationProject,
+        expected_document_sha256: str,
+    ) -> None:
+        project_path = Path(project_root) / _PROJECT_FILENAME
+        if not _is_sha256(expected_document_sha256):
+            raise _format_error("Project revision 标识无效", project_path, ValueError("revision"))
+        _replace_project_text_if_unchanged(
+            project_path,
+            _encode_project_text(project, project_path),
+            expected_document_sha256,
+        )
 
 
 def _read_project(project_path: Path) -> SimulationProject:
     return _read_project_with_bytes(project_path)[0]
+
+
+def _encode_project_text(project: SimulationProject, project_path: Path) -> str:
+    try:
+        document = _encode_project(project)
+        return json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    except (AttributeError, TypeError, ValueError, _ProjectFormatError) as exc:
+        raise _format_error("SimulationProject 无法编码为 project.json", project_path, exc) from None
 
 
 def _read_project_with_bytes(project_path: Path) -> tuple[SimulationProject, bytes]:
@@ -159,6 +177,48 @@ def _replace_project_text(project_path: Path, text: str) -> None:
         temporary_path = None
     except OSError as exc:
         raise _io_error("无法原子保存 project.json", project_path, exc) from None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _replace_project_text_if_unchanged(
+    project_path: Path,
+    text: str,
+    expected_sha256: str,
+) -> None:
+    """Conditionally replace a Project document after a final digest check.
+
+    The check immediately precedes ``os.replace``. It is an optimistic guard,
+    not a claim of cross-process transactional I/O.
+    """
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=project_path.parent,
+            prefix=".project-conditional-",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if _sha256_bytes(project_path.read_bytes()) != expected_sha256:
+            raise _project_conflict_error(project_path)
+        os.replace(temporary_path, project_path)
+        temporary_path = None
+    except EngineError:
+        raise
+    except OSError as exc:
+        raise _io_error("无法条件保存 project.json", project_path, exc) from None
     finally:
         if temporary_path is not None:
             try:
@@ -222,6 +282,14 @@ def _replace_if_unchanged(project_path: Path, text: str, expected_sha256: str) -
 
 def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _encode_project(project: SimulationProject) -> dict[str, Any]:
@@ -751,4 +819,12 @@ def _io_error(message: str, project_path: Path, cause: Exception) -> EngineError
         ErrorCode.PROJECT_IO_ERROR,
         message,
         {"path": str(project_path), "diagnostic": str(cause)},
+    )
+
+
+def _project_conflict_error(project_path: Path) -> EngineError:
+    return EngineError(
+        ErrorCode.PROJECT_CONFLICT,
+        "project.json 在登记期间已被修改，拒绝覆盖。",
+        {"path": str(project_path), "stage": "conditional_save"},
     )

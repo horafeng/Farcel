@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from farcel.contracts.project import ModelAsset
+    from farcel.contracts.project import ModelAsset, SimulationProject
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,3 +68,11 @@ class ModelicaStagedBuild:
 
     model_asset: ModelAsset
     provenance: ModelicaBuildProvenance
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectModelicaCompilation:
+    """A verified staged build that has been registered in a Project 1.1."""
+
+    project: SimulationProject
+    staged_build: ModelicaStagedBuild

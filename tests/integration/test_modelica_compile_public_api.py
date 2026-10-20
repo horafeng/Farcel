@@ -4,6 +4,7 @@ import hashlib
 import math
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -13,7 +14,9 @@ from farcel.contracts import (
     ErrorCode,
     ModelicaCompileRequest,
     ModelicaCompileResult,
+    ModelicaAssetStagingRequest,
     SimulationConfig,
+    SimulationProject,
     SimulationState,
 )
 
@@ -65,6 +68,28 @@ class ModelicaCompilePublicApiTests(unittest.TestCase):
         metadata = backend.load_fmu(FMU)
 
         self.assertEqual("2.0", metadata.fmi_version)
+
+    def test_project_schema_migration_is_explicit_and_schema_1_0_is_not_auto_compiled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Project"
+            root.mkdir()
+            backend = create_backend()
+            legacy = SimulationProject("project", "旧项目")
+            backend.save_project(root, legacy)
+            request = ModelicaAssetStagingRequest(
+                project_root=root,
+                source_path=root / "missing.mo",
+                model_name="FarcelFirstOrder",
+            )
+
+            with self.assertRaises(EngineError) as raised:
+                backend.compile_project_modelica(legacy, request)
+            self.assertEqual(ErrorCode.CONFIG_ERROR, raised.exception.code)
+            self.assertEqual("1.0", backend.open_project(root).schema_version)
+
+            migration = backend.migrate_project_schema(root)
+            self.assertEqual("1.1", migration.project.schema_version)
+            self.assertEqual(migration.project, backend.open_project(root))
 
 
 @unittest.skipUnless(
@@ -118,6 +143,57 @@ class ModelicaCompilePublicApiRealIntegrationTests(unittest.TestCase):
             self.assertEqual(ErrorCode.MODELICA_OUTPUT_CONFLICT, raised.exception.code)
             self.assertTrue(compiled.fmu_path.is_file())
             self.assertEqual(original_sha256, _sha256(compiled.fmu_path))
+
+    def test_project_compile_register_reopen_run_and_relocate(self) -> None:
+        compiler_path = Path(os.environ.get("FARCEL_OPENMODELICA_OMC", DEFAULT_OMC))
+        self.assertTrue(compiler_path.is_file(), f"未找到 OMC: {compiler_path}")
+
+        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / "artifacts") as directory:
+            root = Path(directory) / "Project"
+            root.mkdir()
+            backend = create_backend()
+            backend.save_project(root, SimulationProject("project", "真实 Modelica 项目"))
+            migrated = backend.migrate_project_schema(root).project
+            request = ModelicaAssetStagingRequest(
+                project_root=root,
+                source_path=MODEL,
+                model_name="FarcelFirstOrder",
+                compiler_path=compiler_path,
+            )
+
+            registration = backend.compile_project_modelica(migrated, request)
+            updated = registration.project
+            staged = registration.staged_build
+            self.assertEqual(1, len(updated.model_assets))
+            self.assertEqual((staged.provenance,), backend.list_project_modelica_builds(updated))
+            self.assertEqual(staged.model_asset.asset_id, staged.provenance.fmu_asset_id)
+            self.assertEqual(updated, backend.open_project(root))
+
+            source = root / staged.provenance.source_snapshot.relative_path
+            fmu = root / staged.model_asset.relative_path
+            self.assertEqual(_sha256(source), staged.provenance.source_snapshot.sha256)
+            self.assertEqual(_sha256(fmu), staged.model_asset.sha256)
+            metadata = backend.load_fmu(fmu)
+            config = SimulationConfig(
+                start_time=0.0,
+                stop_time=2.0,
+                communication_step=0.01,
+                parameters={"T": 0.5},
+                initial_inputs={"u": 1.0},
+                selected_outputs=("y",),
+            )
+            result = backend.run_fmu(fmu, config)
+            self.assertIs(SimulationState.COMPLETED, result.completion_state)
+            self.assertLessEqual(
+                max(
+                    abs(float(value) - (1.0 - math.exp(-time / 0.5)))
+                    for time, value in zip(result.timestamps, result.outputs["y"])
+                ),
+                0.03,
+            )
+            relocated = Path(directory) / "RelocatedProject"
+            shutil.copytree(root, relocated)
+            self.assertTrue(backend.validate_project(relocated, backend.open_project(relocated)).is_valid)
 
 
 def _sha256(path: Path) -> str:

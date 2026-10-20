@@ -66,3 +66,11 @@ class ProjectSchemaMigrationResult:
 
     project: SimulationProject
     backup_relative_path: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRevision:
+    """One repository-read Project protected by its persisted content digest."""
+
+    project: SimulationProject
+    document_sha256: str

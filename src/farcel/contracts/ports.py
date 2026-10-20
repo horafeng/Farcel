@@ -10,7 +10,12 @@ from farcel.contracts.modelica import (
     ModelicaCompileResult,
     ModelicaEnvironmentInfo,
 )
-from farcel.contracts.modelica_provenance import ModelicaStagingWorkspace
+from farcel.contracts.modelica_provenance import (
+    ModelicaAssetStagingRequest,
+    ModelicaBuildProvenance,
+    ModelicaStagingWorkspace,
+    ProjectModelicaCompilation,
+)
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
@@ -35,6 +40,7 @@ from farcel.contracts.models import (
     ValidationReport,
 )
 from farcel.contracts.project import (
+    ProjectRevision,
     ProjectSchemaMigrationCandidate,
     ProjectSchemaMigrationResult,
     SimulationProject,
@@ -256,6 +262,19 @@ class ProjectRepository(Protocol):
     def save(self, project_root: Path, project: SimulationProject) -> None: ...
 
 
+class ProjectRevisionRepository(Protocol):
+    """Optimistic-concurrency persistence boundary for Project mutations."""
+
+    def load_with_revision(self, project_root: Path) -> ProjectRevision: ...
+
+    def save_if_unchanged(
+        self,
+        project_root: Path,
+        project: SimulationProject,
+        expected_document_sha256: str,
+    ) -> None: ...
+
+
 class ProjectSchemaMigrationRepository(Protocol):
     """Explicit, repository-owned 1.0 to 1.1 JSON migration boundary."""
 
@@ -288,6 +307,20 @@ class SimulationEngine(Protocol):
     def compile_modelica(
         self, request: ModelicaCompileRequest
     ) -> ModelicaCompileResult: ...
+
+    def compile_project_modelica(
+        self,
+        project: SimulationProject,
+        request: ModelicaAssetStagingRequest,
+    ) -> ProjectModelicaCompilation: ...
+
+    def migrate_project_schema(
+        self, project_root: str | Path
+    ) -> ProjectSchemaMigrationResult: ...
+
+    def list_project_modelica_builds(
+        self, project: SimulationProject
+    ) -> tuple[ModelicaBuildProvenance, ...]: ...
 
     def load_fmu(self, path: str | Path) -> ModelMetadata: ...
 
