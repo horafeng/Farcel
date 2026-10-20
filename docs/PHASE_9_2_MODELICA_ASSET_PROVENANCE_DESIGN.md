@@ -9,7 +9,7 @@ Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目�
 | 阶段 | 范围 |
 | --- | --- |
 | 9.2A（当前） | 不可变 provenance DTO、纯验证和 schema 演进设计。 |
-| 9.2B（后续） | 在已冻结合同下设计并实现受控的源快照/已验证 FMU 暂存与资产登记流程。 |
+| 9.2B（已实现） | 受控源快照、既有编译器复用、已验证 FMU 构建包暂存；不登记到 Project JSON。 |
 | 9.2C（后续） | 设计、实现并测试显式的 Project schema 版本读取、保存和迁移。 |
 | 9.2D（后续） | 在上述能力稳定后，考虑面向 Project 的编译与来源查询编排 API。 |
 
@@ -70,20 +70,50 @@ Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目�
 
 ## 候选目录与移动性
 
-将来的项目目录可采用以下项目内相对布局：
+9.2B 最终采用版本化构建包布局：
 
 ```text
 project-root/
   project.json
-  sources/
-    ... .mo source snapshots
-  models/
-    ... .fmu assets
+  modelica-builds/
+    build-<unique-id>/
+      source/model.mo
+      model/model.fmu
   results/
     ... existing run artifacts
 ```
 
 来源记录只保存 `/` 分隔的项目内相对路径。项目整体移动后，解析应以新的 project root 为基准，而不是使用开发者机器的工作目录或 OpenModelica 安装路径。
+
+9.2B 的实际暂存目录为 project root 内受控的 `.farcel-modelica-staging/`，正式构建目录只在源快照与 FMU 均已校验后以同文件系统目录 rename 发布。详见 `PHASE_9_2B_MODELICA_ASSET_STAGING.md`。
+
+## 冻结的 schema 1.1 草案（尚未实现）
+
+9.2C 建议将 `PROJECT_SCHEMA_VERSION` 升级为 `"1.1"`，但 9.2B 不改变当前值或 repository。新增顶层可选集合 `modelica_build_provenance`，编码形状建议为：
+
+```json
+{
+  "schema_version": "1.1",
+  "model_assets": [],
+  "modelica_build_provenance": [
+    {
+      "build_id": "<32 位构建 ID>",
+      "source_snapshot": {
+        "relative_path": "modelica-builds/build-<id>/source/model.mo",
+        "sha256": "<source sha256>"
+      },
+      "model_name": "Example.FirstOrder",
+      "compiler_name": "OpenModelica",
+      "compiler_version": "1.26.3",
+      "fmi_version": "2.0",
+      "fmu_type": "cs",
+      "fmu_asset_id": "modelica-build-<id>"
+    }
+  ]
+}
+```
+
+`ModelAsset.sha256` 继续是 FMU 唯一散列权威。1.0 项目被解释为没有 provenance 的合法项目；不会自动写成 1.1。显式迁移必须先验证现有 Project、复制或备份原始 `project.json`，在临时 JSON 中验证完整 1.1 文档，再以可恢复替换发布。迁移或保存失败时保留原 1.0 文档、运行历史和已暂存构建包；不会删除资产目录或尝试隐式回滚未知文件。
 
 ## 安全性、一致性与故障边界
 

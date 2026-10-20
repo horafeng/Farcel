@@ -14,6 +14,8 @@ from farcel.contracts import (
 
 
 class _Compiler:
+    compiler_name = "TestCompiler"
+
     def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
         return ModelicaCompileResult(
             fmu_path=Path("output") / "Demo.fmu",
@@ -66,3 +68,4 @@ class ModelicaCompileContractTests(unittest.TestCase):
 
         self.assertEqual("Demo.fmu", Path(result.fmu_path).name)
         self.assertEqual("2.0", result.fmi_version)
+        self.assertEqual("TestCompiler", compiler.compiler_name)

@@ -42,6 +42,12 @@ class OpenModelicaCompiler:
     ) -> None:
         self._environment_detector = environment_detector or OpenModelicaEnvironmentDetector()
 
+    @property
+    def compiler_name(self) -> str:
+        """The product name represented by this concrete compiler adapter."""
+
+        return "OpenModelica"
+
     def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
         """Compile, validate and publish one FMU without overwriting outputs."""
 

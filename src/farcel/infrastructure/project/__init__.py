@@ -1,6 +1,7 @@
 """Local persistence adapters for Farcel simulation projects."""
 
 from farcel.infrastructure.project.json_repository import LocalJsonProjectRepository
+from farcel.infrastructure.project.modelica_asset_store import LocalModelicaAssetStore
 from farcel.infrastructure.project.result_codec import JsonProjectRunArtifactCodec
 from farcel.infrastructure.project.result_repository import (
     LocalJsonProjectRunArtifactRepository,
@@ -9,5 +10,6 @@ from farcel.infrastructure.project.result_repository import (
 __all__ = [
     "JsonProjectRunArtifactCodec",
     "LocalJsonProjectRepository",
+    "LocalModelicaAssetStore",
     "LocalJsonProjectRunArtifactRepository",
 ]

@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, fields
 import unittest
 
-from farcel.contracts import ModelicaBuildProvenance, ModelicaSourceSnapshot
+from farcel.contracts import (
+    ModelicaAssetStagingRequest,
+    ModelicaBuildProvenance,
+    ModelicaSourceSnapshot,
+)
 
 
 _SHA256 = "a" * 64
@@ -48,3 +52,14 @@ class ModelicaProvenanceContractTests(unittest.TestCase):
             tuple(field.name for field in fields(ModelicaBuildProvenance)),
         )
         self.assertNotIn("fmu_sha256", {field.name for field in fields(ModelicaBuildProvenance)})
+
+    def test_staging_request_is_immutable_and_keeps_runtime_paths_out_of_provenance(self) -> None:
+        request = ModelicaAssetStagingRequest(
+            project_root="project",
+            source_path="source.mo",
+            model_name="Example.Model",
+        )
+
+        self.assertEqual("project", request.project_root)
+        with self.assertRaises(FrozenInstanceError):
+            request.model_name = "Other"  # type: ignore[misc]

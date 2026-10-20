@@ -10,6 +10,7 @@ from farcel.contracts.modelica import (
     ModelicaCompileResult,
     ModelicaEnvironmentInfo,
 )
+from farcel.contracts.modelica_provenance import ModelicaStagingWorkspace
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
@@ -58,8 +59,41 @@ class ModelicaEnvironmentDetector(Protocol):
 class ModelicaCompiler(Protocol):
     """执行已验证 Modelica 编译请求的实现无关边界。"""
 
+    @property
+    def compiler_name(self) -> str:
+        """Return the adapter's verified compiler product name."""
+
     def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
         """编译一个请求并返回经验证的 FMU 结果。"""
+
+
+class ModelicaAssetStore(Protocol):
+    """Store-owned local workspace and verified build-package lifecycle."""
+
+    def prepare_source_snapshot(
+        self,
+        project_root: Path,
+        source_path: Path,
+        build_id: str,
+    ) -> ModelicaStagingWorkspace:
+        """Create and verify a source snapshot in an unpublished workspace."""
+
+    def verify_source_snapshot(self, workspace: ModelicaStagingWorkspace) -> None:
+        """Reject a workspace whose saved source no longer matches its snapshot."""
+
+    def publish_verified_build(
+        self,
+        workspace: ModelicaStagingWorkspace,
+        fmu_path: Path,
+        fmu_sha256: str,
+    ) -> Path:
+        """Publish one verified package and return its project-root-contained FMU."""
+
+    def discard_workspace(self, workspace: ModelicaStagingWorkspace) -> None:
+        """Best-effort removal limited to the store-owned unpublished workspace."""
+
+    def discard_published_build(self, project_root: Path, build_id: str) -> None:
+        """Remove only a marker-owned build after later validation fails."""
 
 
 class WorkerProtocolSemanticValidator(Protocol):
