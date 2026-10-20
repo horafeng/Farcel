@@ -115,5 +115,6 @@ GitHub Actions run `39374057844` 的 Windows Python 3.10 和 3.13 均出现相�
 长路径。测试现改为在临时文件仍存在时，以 `executable.resolve()` 生成预期规范路径，
 继续断言显式路径与 `shell=False`。该更改不调整生产发现语义。
 
-本修复的本地测试结果与新的 GitHub Actions run 将在完成推送后记录；未读取到远端结果
-前不得把 CI 视为通过。
+本机启用真实 OMC 的完整后端回归发现并执行 777 项测试，零退出。修复提交
+`99d636d` 的 GitHub Actions run `39376391712`（#113）已完成且工作流结论为 success；
+该 workflow 仅包含 `backend` 的 Windows Python 3.10 / 3.13 矩阵，两个 job 均为成功。
