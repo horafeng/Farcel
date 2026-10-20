@@ -34,16 +34,24 @@ class OpenModelicaEnvironmentDetector:
     ) -> ModelicaEnvironmentInfo:
         """Return a validated compiler summary without changing host environment state."""
 
+        candidate = self.resolve_compiler_path(compiler_path)
+        if candidate is None:
+            message = (
+                "未找到指定的 OpenModelica 编译器。"
+                if compiler_path is not None
+                else "未找到 OpenModelica 编译器。"
+            )
+            return self._not_found(message)
+        return self._validate(candidate)
+
+    def resolve_compiler_path(self, compiler_path: str | Path | None = None) -> Path | None:
+        """Resolve a strict explicit path or the normal discovery candidate without running it."""
+
         if compiler_path is not None:
             candidate = Path(compiler_path)
-            if not candidate.is_file():
-                return self._not_found("未找到指定的 OpenModelica 编译器。")
-            return self._validate(candidate)
-
+            return candidate.resolve() if candidate.is_file() else None
         candidate = self._discover_candidate()
-        if candidate is None:
-            return self._not_found("未找到 OpenModelica 编译器。")
-        return self._validate(candidate)
+        return candidate.resolve() if candidate is not None else None
 
     def _discover_candidate(self) -> Path | None:
         home = os.environ.get("OPENMODELICAHOME")
