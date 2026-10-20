@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
 from farcel.contracts.distributed import ExecutionPlan
+from farcel.contracts.modelica import ModelicaEnvironmentInfo
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
@@ -39,6 +40,15 @@ class ModelImporter(Protocol):
 
     def load(self, path: Path) -> ModelMetadata:
         """Parse and normalise an FMU without exposing adapter-native types."""
+
+
+class ModelicaEnvironmentDetector(Protocol):
+    """查询 Modelica 编译器环境的实现无关边界。"""
+
+    def detect(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo:
+        """验证指定编译器，或自动发现一个候选编译器。"""
 
 
 class WorkerProtocolSemanticValidator(Protocol):
@@ -207,6 +217,10 @@ class ProjectRunArtifactRepository(Protocol):
 
 class SimulationEngine(Protocol):
     """Stable interface consumed by CLI and GUI."""
+
+    def get_modelica_environment(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo: ...
 
     def load_fmu(self, path: str | Path) -> ModelMetadata: ...
 

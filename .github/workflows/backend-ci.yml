@@ -11,6 +11,7 @@ on:
       - phase-6-work
       - phase-7-work
       - phase-8-work
+      - phase-9-modelica-integration
   pull_request:
     branches:
       - main

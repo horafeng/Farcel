@@ -16,6 +16,7 @@ from farcel.application.runners import (
 from farcel.application.graph_runner import GraphSimulationRunner
 from farcel.application.graph_runtime_factory import GraphRuntimeBindingsFactory
 from farcel.application.graph_validation import GraphValidator
+from farcel.application.modelica_service import ModelicaService
 from farcel.application.distributed_execution import DistributedGraphExecutor
 from farcel.application.execution_plan import ExecutionPlanValidator, resolve_node_placement
 from farcel.application.node_runtime import (
@@ -42,6 +43,10 @@ from farcel.contracts.models import (
     StepResult,
     StepStatus,
     ValidationReport,
+)
+from farcel.contracts.modelica import (
+    ModelicaEnvironmentInfo,
+    ModelicaEnvironmentStatus,
 )
 from farcel.contracts.graph import (
     GraphSimulationConfig,
@@ -93,6 +98,7 @@ class FarcelEngine:
         project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
         graph_result_exporter: GraphResultExporter | None = None,
         distributed_graph_executor: DistributedGraphExecutor | None = None,
+        modelica_service: ModelicaService | None = None,
     ) -> None:
         self._importer = importer
         self._project_repository = project_repository
@@ -102,6 +108,7 @@ class FarcelEngine:
         self._result_exporter = result_exporter
         self._graph_result_exporter = graph_result_exporter
         self._distributed_graph_executor = distributed_graph_executor
+        self._modelica_service = modelica_service
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
@@ -116,6 +123,20 @@ class FarcelEngine:
                 model_exchange_session_factory, solver_factory
             ),
         )
+
+    def get_modelica_environment(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo:
+        """查询 Modelica 编译器环境，不影响现有 FMU 运行能力。"""
+
+        if self._modelica_service is None:
+            return ModelicaEnvironmentInfo(
+                status=ModelicaEnvironmentStatus.UNUSABLE,
+                compiler_name="OpenModelica",
+                compiler_version=None,
+                diagnostic_message="未配置 Modelica 环境检测服务。",
+            )
+        return self._modelica_service.get_environment(compiler_path)
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))

@@ -53,6 +53,10 @@ from farcel.contracts.models import (
     ValidationReport,
     VariableMetadata,
 )
+from farcel.contracts.modelica import (
+    ModelicaEnvironmentInfo,
+    ModelicaEnvironmentStatus,
+)
 from farcel.contracts.project import (
     PROJECT_SCHEMA_VERSION,
     ModelAsset,
@@ -84,6 +88,7 @@ from farcel.contracts.ports import (
     ModelExchangeProblem,
     ModelExchangeSession,
     ModelExchangeSessionFactory,
+    ModelicaEnvironmentDetector,
     ProjectRepository,
     ProjectRunArtifactRepository,
     ResultExporter,
@@ -117,6 +122,9 @@ __all__ = [
     "InterfaceType",
     "InterfaceCapability",
     "ModelImporter",
+    "ModelicaEnvironmentDetector",
+    "ModelicaEnvironmentInfo",
+    "ModelicaEnvironmentStatus",
     "ModelExchangeInitialization",
     "ModelExchangeProblem",
     "ModelExchangeSession",

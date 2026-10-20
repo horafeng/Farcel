@@ -6,6 +6,7 @@ from farcel.application.node_runtime import (
     ModelExchangeNodeRuntimeFactory,
 )
 from farcel.application.engine import FarcelEngine
+from farcel.application.modelica_service import ModelicaService
 from farcel.distributed_backend import TcpDistributedGraphExecutor
 from farcel.infrastructure.export import CsvGraphResultExporter, CsvResultExporter
 from farcel.infrastructure.fmpy import (
@@ -18,6 +19,7 @@ from farcel.infrastructure.project import (
     LocalJsonProjectRepository,
     LocalJsonProjectRunArtifactRepository,
 )
+from farcel.infrastructure.openmodelica import OpenModelicaEnvironmentDetector
 
 
 def create_backend() -> FarcelEngine:
@@ -47,4 +49,5 @@ def create_backend() -> FarcelEngine:
         project_run_artifact_repository=LocalJsonProjectRunArtifactRepository(),
         graph_result_exporter=CsvGraphResultExporter(),
         distributed_graph_executor=distributed_graph_executor,
+        modelica_service=ModelicaService(OpenModelicaEnvironmentDetector()),
     )

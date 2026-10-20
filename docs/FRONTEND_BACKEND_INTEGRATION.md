@@ -66,6 +66,8 @@ from farcel.contracts import (
     RunControl,
     RunProgress,
     ModelAsset,
+    ModelicaEnvironmentInfo,
+    ModelicaEnvironmentStatus,
     SimulationCase,
     SimulationProject,
     ProjectRunRecord,
@@ -721,3 +723,27 @@ automatic discovery/start/restart/reconnect, cluster scheduling, and TLS/auth
 are not frontend capabilities in this release. See
 `FRONTEND_DISTRIBUTED_EXECUTION_GUIDE.md` for the focused handoff and
 `DISTRIBUTED_EXECUTION_USER_GUIDE.md` for Worker operational setup.
+
+## 19. Modelica 编译器环境查询
+
+GUI 可通过默认 backend 查询 OpenModelica 是否已安装且可实际启动；它只能使用
+Farcel-owned contract，不能扫描安装目录或调用 OMC：
+
+```python
+environment = backend.get_modelica_environment(
+    compiler_path="D:/OpenModelica/bin/omc.exe"
+)
+if environment.is_available:
+    show_compiler_version(environment.compiler_version)
+else:
+    show_environment_diagnostic(environment.diagnostic_message)
+```
+
+`ModelicaEnvironmentInfo.status` 为 `AVAILABLE`、`NOT_FOUND` 或 `UNUSABLE`，并带有
+简体中文 `diagnostic_message`。显式路径是严格选择：无效路径返回 `NOT_FOUND`，不会静默
+回退到其他位置。未传路径时，Farcel 依次检查 `OPENMODELICAHOME`、PATH 和常见 Windows
+目录，并仅以一次 `omc --version` 的成功结果判定可用。
+
+该 API 仅做环境检测，不能编译 Modelica source；它不改变现有 FMU、Graph、Project 或
+Worker 工作流。GUI 不得导入 `farcel.infrastructure.openmodelica`、调用 subprocess，或
+依赖 OMC/FMPy 对象。
