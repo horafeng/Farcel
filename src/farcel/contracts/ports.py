@@ -5,7 +5,11 @@ from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
 from farcel.contracts.distributed import ExecutionPlan
-from farcel.contracts.modelica import ModelicaEnvironmentInfo
+from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
+    ModelicaEnvironmentInfo,
+)
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
@@ -49,6 +53,13 @@ class ModelicaEnvironmentDetector(Protocol):
         self, compiler_path: str | Path | None = None
     ) -> ModelicaEnvironmentInfo:
         """验证指定编译器，或自动发现一个候选编译器。"""
+
+
+class ModelicaCompiler(Protocol):
+    """执行已验证 Modelica 编译请求的实现无关边界。"""
+
+    def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
+        """编译一个请求并返回经验证的 FMU 结果。"""
 
 
 class WorkerProtocolSemanticValidator(Protocol):

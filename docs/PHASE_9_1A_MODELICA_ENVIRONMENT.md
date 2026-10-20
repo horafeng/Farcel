@@ -91,6 +91,9 @@ Windows Python 3.10 / 3.13 矩阵，不安装 OpenModelica，因而真实检测�
 Phase 9.1B 如获单独授权，才可设计 Farcel-owned 的编译请求、稳定诊断和最小 compiler
 port。它仍不能绕过 application/contracts 边界，也不会由本阶段自动开始。
 
+Phase 9.1B 已在获得单独授权后完成其合同与纯请求验证基础；详情见
+`PHASE_9_1B_MODELICA_COMPILATION_CONTRACTS.md`。它仍不实现真实编译。
+
 ## 8. 本机验证记录（2026-10-20）
 
 本机通过显式路径 `D:\OpenModelica\bin\omc.exe` 调用

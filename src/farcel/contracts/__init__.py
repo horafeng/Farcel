@@ -54,6 +54,10 @@ from farcel.contracts.models import (
     VariableMetadata,
 )
 from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
+    ModelicaDiagnostic,
+    ModelicaDiagnosticSeverity,
     ModelicaEnvironmentInfo,
     ModelicaEnvironmentStatus,
 )
@@ -89,6 +93,7 @@ from farcel.contracts.ports import (
     ModelExchangeSession,
     ModelExchangeSessionFactory,
     ModelicaEnvironmentDetector,
+    ModelicaCompiler,
     ProjectRepository,
     ProjectRunArtifactRepository,
     ResultExporter,
@@ -123,6 +128,11 @@ __all__ = [
     "InterfaceCapability",
     "ModelImporter",
     "ModelicaEnvironmentDetector",
+    "ModelicaCompiler",
+    "ModelicaCompileRequest",
+    "ModelicaCompileResult",
+    "ModelicaDiagnostic",
+    "ModelicaDiagnosticSeverity",
     "ModelicaEnvironmentInfo",
     "ModelicaEnvironmentStatus",
     "ModelExchangeInitialization",
