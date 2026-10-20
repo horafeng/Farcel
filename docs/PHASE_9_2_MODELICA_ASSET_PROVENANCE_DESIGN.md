@@ -104,4 +104,6 @@ project-root/
 
 本阶段测试覆盖 DTO 的不可变性和字段集合、合法记录、路径安全、源散列、模型与编译形状、资产关联的未知/歧义情况、多错误收集、`CONFIG_ERROR` 映射以及无文件写入副作用。同时回归现有 Project 资产、Project 持久化和 Modelica 公共 API 测试。
 
+2026-10-20 的验证记录：新增 contracts/application 测试与 Project 边界回归共 56 项成功（1 项符号链接权限条件跳过）；本机还执行了真实 OpenModelica 1.26.3 的既有公共 API 编译、加载、运行和 CSV 导出回归。GitHub Actions run 118 在 Windows Python 3.10 的完整套件中报告 796 项成功、4 项明确跳过；Python 3.13 的对应 job 亦成功。
+
 9.2B 开始前必须先验收这些合同、确定新 schema 版本的精确编码及显式迁移策略，并定义资产文件写入和 `project.json` 持久化之间可恢复的一致性流程。
