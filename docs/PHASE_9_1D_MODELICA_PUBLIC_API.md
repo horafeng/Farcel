@@ -73,4 +73,6 @@ Phase 9.2 才处理已验证 FMU 与 Project 资产关联及持久化规则。
 `MODELICA_OUTPUT_CONFLICT`，且第一次 FMU 的 SHA-256 保持不变。
 
 新增 application 测试 6 个、公共 API 集成测试 4 个；完整后端测试发现并执行 787 项，
-启用真实 OMC 的本机回归以零退出状态完成。GitHub Actions 结果在推送后单独核验。
+启用真实 OMC 的本机回归以零退出状态完成。提交 `2a24d1b` 的 GitHub Actions run
+`39377882861` 已完成且为 success；该 workflow 的 Windows Python 3.10 / 3.13 `backend`
+矩阵均通过。
