@@ -68,6 +68,8 @@ from farcel.contracts import (
     ModelAsset,
     ModelicaEnvironmentInfo,
     ModelicaEnvironmentStatus,
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
     SimulationCase,
     SimulationProject,
     ProjectRunRecord,
@@ -744,6 +746,49 @@ else:
 回退到其他位置。未传路径时，Farcel 依次检查 `OPENMODELICAHOME`、PATH 和常见 Windows
 目录，并仅以一次 `omc --version` 的成功结果判定可用。
 
-该 API 仅做环境检测，不能编译 Modelica source；它不改变现有 FMU、Graph、Project 或
-Worker 工作流。GUI 不得导入 `farcel.infrastructure.openmodelica`、调用 subprocess，或
-依赖 OMC/FMPy 对象。
+GUI 不得导入 `farcel.infrastructure.openmodelica`、调用 subprocess，或依赖 OMC/FMPy
+对象。
+
+## 20. Modelica 公共编译 API
+
+默认 backend 提供同步的 `.mo` → FMI 2.0 Co-Simulation FMU 编译入口。前端先检测环境，
+由用户选择或配置输出目录；目录必须在调用前已经存在：
+
+```python
+from pathlib import Path
+
+from farcel import create_backend
+from farcel.contracts import EngineError, ModelicaCompileRequest
+
+backend = create_backend()
+environment = backend.get_modelica_environment(
+    compiler_path="D:/OpenModelica/bin/omc.exe"
+)
+if not environment.is_available:
+    show_environment_diagnostic(environment.diagnostic_message)
+else:
+    request = ModelicaCompileRequest(
+        source_path=Path("examples/modelica/FarcelFirstOrder.mo"),
+        model_name="FarcelFirstOrder",
+        output_directory=Path("artifacts/modelica-api"),
+        compiler_path=Path("D:/OpenModelica/bin/omc.exe"),
+    )
+    try:
+        compiled = backend.compile_modelica(request)
+    except EngineError as error:
+        show_compile_error(error.code, error.message, error.details)
+    else:
+        metadata = backend.load_fmu(compiled.fmu_path)
+```
+
+`compile_modelica(request)` 返回 `ModelicaCompileResult`，其中 `fmu_path` 是当前运行时
+产物位置，`compiler_version` 是已验证 OMC 版本，`sha256` 是发布后文件的摘要。编译不会
+自动运行 FMU；前端如需仿真，继续使用既有 `load_fmu()`、`validate_config()`、`run_fmu()`
+与 `export_result()` 工作流。
+
+同名 FMU 已存在时，后端返回 `MODELICA_OUTPUT_CONFLICT`，不会覆盖原文件。无效请求返回
+带字段级 issues 的 `CONFIG_ERROR`；其他失败继续使用 Farcel 的稳定 `ErrorCode`。前端不
+需要、也不得直接调用 `omc.exe`、生成 `.mos` 或解析 OMC stdout/stderr。
+
+该调用是同步且可能耗时。PySide6 前端必须从自己的工作线程调用它，不能阻塞 GUI 主线程；
+本后端不创建 Qt 工作线程，也不在本阶段提供异步编译 API。

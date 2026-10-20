@@ -19,7 +19,10 @@ from farcel.infrastructure.project import (
     LocalJsonProjectRepository,
     LocalJsonProjectRunArtifactRepository,
 )
-from farcel.infrastructure.openmodelica import OpenModelicaEnvironmentDetector
+from farcel.infrastructure.openmodelica import (
+    OpenModelicaCompiler,
+    OpenModelicaEnvironmentDetector,
+)
 
 
 def create_backend() -> FarcelEngine:
@@ -49,5 +52,8 @@ def create_backend() -> FarcelEngine:
         project_run_artifact_repository=LocalJsonProjectRunArtifactRepository(),
         graph_result_exporter=CsvGraphResultExporter(),
         distributed_graph_executor=distributed_graph_executor,
-        modelica_service=ModelicaService(OpenModelicaEnvironmentDetector()),
+        modelica_service=ModelicaService(
+            OpenModelicaEnvironmentDetector(),
+            OpenModelicaCompiler(),
+        ),
     )

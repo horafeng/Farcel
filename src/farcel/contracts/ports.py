@@ -233,6 +233,10 @@ class SimulationEngine(Protocol):
         self, compiler_path: str | Path | None = None
     ) -> ModelicaEnvironmentInfo: ...
 
+    def compile_modelica(
+        self, request: ModelicaCompileRequest
+    ) -> ModelicaCompileResult: ...
+
     def load_fmu(self, path: str | Path) -> ModelMetadata: ...
 
     def validate_config(

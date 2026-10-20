@@ -45,6 +45,8 @@ from farcel.contracts.models import (
     ValidationReport,
 )
 from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
     ModelicaEnvironmentInfo,
     ModelicaEnvironmentStatus,
 )
@@ -137,6 +139,15 @@ class FarcelEngine:
                 diagnostic_message="未配置 Modelica 环境检测服务。",
             )
         return self._modelica_service.get_environment(compiler_path)
+
+    def compile_modelica(
+        self, request: ModelicaCompileRequest,
+    ) -> ModelicaCompileResult:
+        """Compile one validated Modelica request through the configured service."""
+
+        if self._modelica_service is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Modelica 编译服务。")
+        return self._modelica_service.compile_modelica(request)
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))
