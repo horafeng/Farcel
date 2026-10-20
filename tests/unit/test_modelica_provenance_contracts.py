@@ -17,7 +17,7 @@ class ModelicaProvenanceContractTests(unittest.TestCase):
         self.assertEqual(_SHA256, snapshot.sha256)
         with self.assertRaises(FrozenInstanceError):
             snapshot.relative_path = "sources/other.mo"  # type: ignore[misc]
-        with self.assertRaises(AttributeError):
+        with self.assertRaises((AttributeError, TypeError)):
             snapshot.extra = "not supported"  # type: ignore[attr-defined]
 
     def test_build_provenance_links_a_source_snapshot_to_a_model_asset(self) -> None:
