@@ -61,6 +61,10 @@ from farcel.contracts.modelica import (
     ModelicaEnvironmentInfo,
     ModelicaEnvironmentStatus,
 )
+from farcel.contracts.modelica_provenance import (
+    ModelicaBuildProvenance,
+    ModelicaSourceSnapshot,
+)
 from farcel.contracts.project import (
     PROJECT_SCHEMA_VERSION,
     ModelAsset,
@@ -131,10 +135,12 @@ __all__ = [
     "ModelicaCompiler",
     "ModelicaCompileRequest",
     "ModelicaCompileResult",
+    "ModelicaBuildProvenance",
     "ModelicaDiagnostic",
     "ModelicaDiagnosticSeverity",
     "ModelicaEnvironmentInfo",
     "ModelicaEnvironmentStatus",
+    "ModelicaSourceSnapshot",
     "ModelExchangeInitialization",
     "ModelExchangeProblem",
     "ModelExchangeSession",

@@ -45,6 +45,16 @@ def modelica_compile_request_issue_details(
     )
 
 
+def is_supported_modelica_model_name(value: object) -> bool:
+    """Return whether a value is in Farcel's first Modelica class-name subset."""
+
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and _MODEL_NAME_PATTERN.fullmatch(value) is not None
+    )
+
+
 def _validate_source_path(value: Any, issues: list[ValidationIssue]) -> None:
     path = _path_value(value, "source_path", issues)
     if path is None:
@@ -73,7 +83,7 @@ def _validate_model_name(value: Any, issues: list[ValidationIssue]) -> None:
         issues.append(
             ValidationIssue("model_name", "EMPTY_MODEL_NAME", "model_name 不能为空")
         )
-    elif _MODEL_NAME_PATTERN.fullmatch(value) is None:
+    elif not is_supported_modelica_model_name(value):
         issues.append(
             ValidationIssue(
                 "model_name",
