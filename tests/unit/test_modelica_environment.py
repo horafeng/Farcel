@@ -29,6 +29,7 @@ class OpenModelicaEnvironmentDetectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "omc.exe"
             executable.touch()
+            expected_path = str(executable.resolve())
             with patch(
                 "farcel.infrastructure.openmodelica.environment.subprocess.run",
                 return_value=subprocess.CompletedProcess(
@@ -39,7 +40,7 @@ class OpenModelicaEnvironmentDetectorTests(unittest.TestCase):
 
         self.assertEqual(ModelicaEnvironmentStatus.AVAILABLE, result.status)
         self.assertEqual("1.26.3", result.compiler_version)
-        self.assertEqual([str(executable), "--version"], run.call_args.args[0])
+        self.assertEqual([expected_path, "--version"], run.call_args.args[0])
         self.assertFalse(run.call_args.kwargs["shell"])
 
     def test_invalid_explicit_path_does_not_fall_back_to_environment(self) -> None:

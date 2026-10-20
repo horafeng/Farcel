@@ -29,7 +29,8 @@ GUI / CLI → application → contracts ← infrastructure
 | `fmu_type` | `str` | `"cs"` | 第一版固定 Co-Simulation。 |
 | `timeout_seconds` | `float` | `120.0` | 本机同步编译的最大时长。 |
 
-DTO 可以表达待验证的无效输入；规则统一由 application validator 执行，不在
+DTO 可以表达待验证的无效输入；规则统一由 `contracts.modelica_validation` 的纯共享
+validator 执行，application 保留公开验证入口和 `CONFIG_ERROR` 映射，不在
 `__post_init__` 再维护一份冲突规则。第一版只接受一个 `.mo`、一个指定模型、FMI 2.0
 和 `cs`。它不接受 FMI 1.0/3.0、Model Exchange、批量编译、package 依赖解析、自定义
 OMC 参数、原始 shell 参数或脚本片段。
@@ -70,7 +71,8 @@ Port 不引用 `omc.exe`、OMPython、subprocess、FMPy 或 Qt。本阶段没有
 
 ## 5. 纯请求验证
 
-`validate_modelica_compile_request()` 返回现有 `ValidationReport`，收集所有字段级
+`validate_modelica_compile_request()` 由 `contracts.modelica_validation` 提供，并经
+application 模块保持原有公开导入；它返回现有 `ValidationReport`，收集所有字段级
 `ValidationIssue`，没有写入副作用：不创建/删除目录，不覆盖文件，也不启动外部进程。
 
 | 字段 | 验证规则 |

@@ -85,6 +85,16 @@ class OpenModelicaCompilerTests(unittest.TestCase):
 
         self.assertEqual([None], detector.requested_paths)
 
+    def test_direct_adapter_rejects_an_unsafe_model_name_before_discovery(self) -> None:
+        with self._request_context(model_name="Safe); system(\"unexpected\")") as (request, _):
+            detector = _Detector()
+            with self.assertRaises(EngineError) as raised:
+                OpenModelicaCompiler(detector).compile(request)
+
+        self.assertEqual(ErrorCode.CONFIG_ERROR, raised.exception.code)
+        self.assertEqual("model_name", raised.exception.details["issues"][0]["field"])
+        self.assertEqual([], detector.requested_paths)
+
     def test_unusable_compiler_and_start_failure_have_stable_errors(self) -> None:
         class _UnusableDetector(_Detector):
             def detect(self, compiler_path=None) -> ModelicaEnvironmentInfo:

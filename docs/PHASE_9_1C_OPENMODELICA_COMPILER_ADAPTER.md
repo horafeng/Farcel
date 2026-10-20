@@ -22,7 +22,9 @@ GUI / CLI -> application -> contracts <- infrastructure/openmodelica
 限定模型名、FMI `2.0`、Co-Simulation `cs`，以及本地同步编译。`output_directory`
 必须已经存在。
 
-适配器先调用 application 层验证；它不会在验证阶段创建或删除文件，也不会把
+适配器与 application 共同调用 `contracts.modelica_validation` 的同一套纯验证规则；
+application 保留原有公开验证函数及 `CONFIG_ERROR` 映射，adapter 也为直接调用方保留
+相同的稳定错误语义。它不会在验证阶段创建或删除文件，也不会把
 原始 shell 参数、OMC 原生命令或脚本片段暴露给调用者。带引号的 Modelica 类名和
 复杂 Modelica 类名语法仍不在支持范围内。模型语义、第三方库依赖和类是否真正存在
 由 OMC 的 `loadFile()` / `checkModel()` 判断。
@@ -61,8 +63,9 @@ FMU 始终先在隔离工作目录中生成。返回成功前，适配器验证�
 - 当前 Windows x64 上包含 `binaries/win64/<modelIdentifier>.dll`。
 
 验证后使用流式 SHA-256 计算散列。发布使用排他创建（`xb`），因此不会覆盖用户或
-并发任务已经存在的同名 FMU；发布后再次计算 SHA-256，并要求两次结果一致。失败时
-仅尝试删除当前任务创建的不完整目标文件，不会删除既有文件或其他任务的文件。
+并发任务已经存在的同名 FMU；该方式不是“从出现起即完整”的原子替换。发布后再次计算
+SHA-256，并要求两次结果一致。失败时仅尝试删除当前任务创建的不完整目标文件，不会删除
+既有文件或其他任务的文件。
 
 ## 稳定错误和诊断
 
@@ -97,3 +100,20 @@ OpenModelica `1.26.3`。未安装 OMC 的 CI 会明确跳过该真实测试。
 
 Phase 9.1C 尚未开放 `FarcelEngine.compile_modelica()`；将 adapter 接入正式应用服务
 与用户界面仍是后续 Phase 9.1D 的前置工作，不能在本阶段提前实现。
+
+## CI 修复记录（Phase 9.1C-FIX）
+
+GitHub Actions run `39374057844` 的 Windows Python 3.10 和 3.13 均出现相同的两个
+失败：`test_infrastructure_does_not_import_application` 与
+`test_explicit_valid_path_runs_version_check`。前者的根因是 adapter 直接导入
+`farcel.application.modelica_validation`，违反 infrastructure 只能依赖 contracts 的
+边界。修复后，纯请求规则位于 `contracts.modelica_validation`；application 仍提供既有
+公开验证入口和 `CONFIG_ERROR` 映射，adapter 直接复用同一规则并为不经 application 的
+调用保持相同的安全检查。公共 API 未改变。
+
+后者是 Windows GitHub Runner 可能将临时路径表示为 8.3 短路径，而 adapter 规范化为
+长路径。测试现改为在临时文件仍存在时，以 `executable.resolve()` 生成预期规范路径，
+继续断言显式路径与 `shell=False`。该更改不调整生产发现语义。
+
+本修复的本地测试结果与新的 GitHub Actions run 将在完成推送后记录；未读取到远端结果
+前不得把 CI 视为通过。

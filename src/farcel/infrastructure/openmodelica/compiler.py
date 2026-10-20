@@ -14,7 +14,6 @@ import tempfile
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
-from farcel.application.modelica_validation import require_valid_modelica_compile_request
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.modelica import (
     ModelicaCompileRequest,
@@ -22,6 +21,10 @@ from farcel.contracts.modelica import (
     ModelicaDiagnostic,
     ModelicaDiagnosticSeverity,
     ModelicaEnvironmentStatus,
+)
+from farcel.contracts.modelica_validation import (
+    modelica_compile_request_issue_details,
+    validate_modelica_compile_request,
 )
 from farcel.infrastructure.openmodelica.environment import OpenModelicaEnvironmentDetector
 
@@ -40,9 +43,9 @@ class OpenModelicaCompiler:
         self._environment_detector = environment_detector or OpenModelicaEnvironmentDetector()
 
     def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
-        """Compile, validate and atomically publish one FMU without overwriting outputs."""
+        """Compile, validate and publish one FMU without overwriting outputs."""
 
-        require_valid_modelica_compile_request(request)
+        _require_valid_modelica_compile_request(request)
         omc_path, compiler_version = self._resolve_compiler(request)
         with tempfile.TemporaryDirectory(prefix="farcel-openmodelica-") as directory:
             workspace = Path(directory)
@@ -294,6 +297,20 @@ def _find_marker(output: str, marker: str) -> str | None:
 
 def _compilation_error(stage: str, message: str) -> EngineError:
     return EngineError(ErrorCode.MODELICA_COMPILATION_ERROR, message, {"stage": stage})
+
+
+def _require_valid_modelica_compile_request(
+    request: ModelicaCompileRequest,
+) -> None:
+    """Preserve CONFIG_ERROR semantics for direct, untrusted adapter callers."""
+
+    report = validate_modelica_compile_request(request)
+    if not report.is_valid:
+        raise EngineError(
+            ErrorCode.CONFIG_ERROR,
+            "Modelica 编译请求验证失败",
+            {"issues": modelica_compile_request_issue_details(report)},
+        )
 
 
 def _sha256(path: Path) -> str:
