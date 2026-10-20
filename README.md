@@ -71,6 +71,9 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m farcel.cli export .\examples\fmus\VanDerPol.fmu --start-time 0 --stop-time 1 --step-size 0.01 --parameter "mu=2.0" --output x0 --csv .\artifacts\VanDerPol.csv
 .\.venv\Scripts\farcel.exe modelica env --omc "D:\OpenModelica\bin\omc.exe" --json
 .\.venv\Scripts\farcel.exe modelica compile .\examples\modelica\FarcelFirstOrder.mo --model FarcelFirstOrder --output-dir .\artifacts\modelica-cli --omc "D:\OpenModelica\bin\omc.exe" --json
+.\.venv\Scripts\farcel.exe modelica project migrate --project-root .\artifacts\my-project --json
+.\.venv\Scripts\farcel.exe modelica project compile --project-root .\artifacts\my-project --source .\examples\modelica\FarcelFirstOrder.mo --model FarcelFirstOrder --omc "D:\OpenModelica\bin\omc.exe" --json
+.\.venv\Scripts\farcel.exe modelica project list --project-root .\artifacts\my-project --json
 .\.venv\Scripts\python.exe -m farcel.cli run .\examples\fmus\VanDerPol-fmi3.fmu --start-time 0 --stop-time 0.05 --step-size 0.01 --parameter "mu=2.0" --output x0
 .\.venv\Scripts\python.exe .\examples\backend_api_example.py
 ```
