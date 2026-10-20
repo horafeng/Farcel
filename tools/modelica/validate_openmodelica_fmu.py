@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from farcel import create_backend
-from farcel.contracts import InterfaceType, SimulationConfig
+from farcel.contracts import InterfaceType, SimulationConfig, SimulationState
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -36,10 +37,11 @@ class CompilationResult:
 def discover_omc(explicit_path: str | None = None) -> Path | None:
     """Find OMC without embedding a developer-specific installation path."""
 
-    candidates: list[Path] = []
-    if explicit_path:
-        candidates.append(Path(explicit_path))
+    if explicit_path is not None:
+        candidate = Path(explicit_path)
+        return candidate.resolve() if candidate.is_file() else None
 
+    candidates: list[Path] = []
     openmodelica_home = os.environ.get("OPENMODELICAHOME")
     if openmodelica_home:
         candidates.append(Path(openmodelica_home) / "bin" / _omc_name())
@@ -96,6 +98,15 @@ def _find_marker(output: str, name: str) -> str | None:
     return None
 
 
+def _check_model_succeeded(output: str) -> bool:
+    """Accept the exact first-line success result produced by OMC 1.26.3."""
+
+    return (
+        _find_marker(output, "FARCEL_CHECK_MODEL")
+        == "Check of FarcelFirstOrder completed successfully."
+    )
+
+
 def compile_fmu(
     omc_path: Path,
     model_path: Path,
@@ -125,6 +136,12 @@ def compile_fmu(
         raise RuntimeError(f"OMC 编译失败，退出码 {completed.returncode}")
     if _find_marker(output, "FARCEL_LOAD_FILE") != "true":
         raise RuntimeError("OMC loadFile() 未返回 true")
+    if not _check_model_succeeded(output):
+        check_result = _find_marker(output, "FARCEL_CHECK_MODEL")
+        raise RuntimeError(
+            "OMC checkModel() 未返回预期成功结果: "
+            + (check_result if check_result is not None else "未报告结果")
+        )
     fmu_name = _find_marker(output, "FARCEL_FMU_PATH")
     if not fmu_name:
         raise RuntimeError("OMC buildModelFMU() 未报告 FMU 产物路径")
@@ -136,16 +153,32 @@ def compile_fmu(
     return CompilationResult(fmu_path.resolve(), output)
 
 
-def validate_fmu_structure(fmu_path: Path) -> None:
+def validate_fmu_structure(fmu_path: Path) -> str:
     with zipfile.ZipFile(fmu_path) as archive:
         names = set(archive.namelist())
         if "modelDescription.xml" not in names:
             raise RuntimeError("FMU 压缩包缺少 modelDescription.xml")
         root = ElementTree.fromstring(archive.read("modelDescription.xml"))
+        co_simulation = root.find("{*}CoSimulation")
+        model_identifier = (
+            co_simulation.attrib.get("modelIdentifier")
+            if co_simulation is not None
+            else None
+        )
+        if (
+            os.name == "nt"
+            and platform.machine().lower() in {"amd64", "x86_64"}
+            and (
+                not model_identifier
+                or f"binaries/win64/{model_identifier}.dll" not in names
+            )
+        ):
+            raise RuntimeError("FMU 缺少当前 Windows x64 Co-Simulation 原生 DLL")
     if root.attrib.get("fmiVersion") != "2.0":
         raise RuntimeError("生成的 FMU 不是 FMI 2.0")
-    if root.find("{*}CoSimulation") is None:
+    if co_simulation is None or not model_identifier:
         raise RuntimeError("生成的 FMU 不包含 CoSimulation 接口")
+    return model_identifier
 
 
 def _sample_at(result, target: float) -> float:
@@ -153,6 +186,47 @@ def _sample_at(result, target: float) -> float:
         if math.isclose(timestamp, target, rel_tol=0.0, abs_tol=1e-9):
             return float(value)
     raise RuntimeError(f"仿真结果缺少 t={target:g} 的采样点")
+
+
+def _validate_simulation_result(result, time_constant: float) -> tuple[dict[float, float], float]:
+    if result.completion_state is not SimulationState.COMPLETED:
+        raise RuntimeError(f"Farcel 仿真未正常完成: {result.completion_state.value}")
+    if not result.timestamps:
+        raise RuntimeError("Farcel 结果时间轴为空")
+    if any(not math.isfinite(timestamp) for timestamp in result.timestamps):
+        raise RuntimeError("Farcel 结果时间轴包含非有限数值")
+    if any(left >= right for left, right in zip(result.timestamps, result.timestamps[1:])):
+        raise RuntimeError("Farcel 结果时间轴不是严格递增")
+    if not math.isclose(result.timestamps[0], 0.0, rel_tol=0.0, abs_tol=1e-9):
+        raise RuntimeError("Farcel 返回了错误的起始时间")
+    if not math.isclose(result.final_time, 2.0, rel_tol=0.0, abs_tol=1e-9):
+        raise RuntimeError("Farcel 返回了错误的终止时间")
+    values = result.outputs.get("y")
+    if values is None or len(values) != len(result.timestamps):
+        raise RuntimeError("Farcel y 输出序列与时间轴长度不一致")
+    if any(not math.isfinite(float(value)) for value in values):
+        raise RuntimeError("Farcel 结果包含非有限 y 值")
+
+    samples = {target: _sample_at(result, target) for target in (0.0, 0.5, 1.0, 2.0)}
+    errors = {
+        target: abs(value - (1.0 - math.exp(-target / time_constant)))
+        for target, value in samples.items()
+    }
+    largest_error = max(errors.values())
+    if largest_error > 0.03:
+        raise RuntimeError(f"数值误差超过 0.03：最大误差 {largest_error:.6g}")
+    return samples, largest_error
+
+
+def _probe_config(time_constant: float) -> SimulationConfig:
+    return SimulationConfig(
+        start_time=0.0,
+        stop_time=2.0,
+        communication_step=0.01,
+        parameters={"T": time_constant},
+        initial_inputs={"u": 1.0},
+        selected_outputs=("y",),
+    )
 
 
 def run_farcel_probe(fmu_path: Path, work_directory: Path) -> None:
@@ -166,32 +240,35 @@ def run_farcel_probe(fmu_path: Path, work_directory: Path) -> None:
             + "; ".join(metadata.diagnostics)
         )
 
-    config = SimulationConfig(
-        start_time=0.0,
-        stop_time=2.0,
-        communication_step=0.01,
-        initial_inputs={"u": 1.0},
-        selected_outputs=("y",),
+    baseline_config = _probe_config(0.5)
+    backend.validate_config(metadata, baseline_config)
+    baseline_result = backend.run_fmu(fmu_path, baseline_config)
+    baseline_values, baseline_error = _validate_simulation_result(baseline_result, 0.5)
+    baseline_export = backend.export_result(
+        baseline_result, work_directory / "FarcelFirstOrder.csv"
     )
-    backend.validate_config(metadata, config)
-    result = backend.run_fmu(fmu_path, config)
-    if result.final_time != 2.0 or result.timestamps[0] != 0.0:
-        raise RuntimeError("Farcel 返回了错误的仿真时间范围")
-    if any(not math.isfinite(float(value)) for value in result.outputs["y"]):
-        raise RuntimeError("Farcel 结果包含非有限 y 值")
-    values = {target: _sample_at(result, target) for target in (0.0, 0.5, 1.0, 2.0)}
-    errors = {
-        target: abs(value - (1.0 - math.exp(-target / 0.5)))
-        for target, value in values.items()
-    }
-    largest_error = max(errors.values())
-    if largest_error > 0.03:
-        raise RuntimeError(f"数值误差超过 0.03：最大误差 {largest_error:.6g}")
-    report = backend.export_result(result, work_directory / "FarcelFirstOrder.csv")
-    if report.row_count != result.sample_count:
-        raise RuntimeError("CSV 导出行数与仿真结果样本数不一致")
-    print(f"Farcel 数值验证: y={values}; 最大误差={largest_error:.6g}")
-    print(f"Farcel CSV: {report.destination}，行数={report.row_count}")
+    if baseline_export.row_count != baseline_result.sample_count:
+        raise RuntimeError("T=0.5 CSV 导出行数与仿真结果样本数不一致")
+
+    slower_config = _probe_config(1.0)
+    backend.validate_config(metadata, slower_config)
+    slower_result = backend.run_fmu(fmu_path, slower_config)
+    slower_values, slower_error = _validate_simulation_result(slower_result, 1.0)
+    if any(
+        slower_values[target] >= baseline_values[target]
+        for target in (0.5, 1.0, 2.0)
+    ):
+        raise RuntimeError("T=1.0 未产生比 T=0.5 更慢的一阶响应")
+    slower_export = backend.export_result(
+        slower_result, work_directory / "FarcelFirstOrder-T1.csv"
+    )
+    if slower_export.row_count != slower_result.sample_count:
+        raise RuntimeError("T=1.0 CSV 导出行数与仿真结果样本数不一致")
+
+    print(f"Farcel T=0.5 数值验证: y={baseline_values}; 最大误差={baseline_error:.6g}")
+    print(f"Farcel T=0.5 CSV: {baseline_export.destination}，行数={baseline_export.row_count}")
+    print(f"Farcel T=1.0 数值验证: y={slower_values}; 最大误差={slower_error:.6g}")
+    print(f"Farcel T=1.0 CSV: {slower_export.destination}，行数={slower_export.row_count}")
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:

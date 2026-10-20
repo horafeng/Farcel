@@ -188,3 +188,100 @@ FMU platform folder 与 `T=1.0` 参数覆盖的实际结果。
 
 **Phase 9.0 状态：BLOCKED。** 原因是当前机器没有 OpenModelica，因此不能满足真实
 OMC 编译、FMU native execution 与数值验收条件；文档、模型与测试脚手架不构成通过。
+
+## 8. Phase 9.0B/9.0C 实测验收记录（2026-10-20）
+
+本节是第 2、4、7 节历史 `BLOCKED` 记录之后的实际复验结果；历史记录保留，
+但不再代表当前状态。本次没有重新安装 OpenModelica，也没有修改系统级 PATH 或
+Farcel 的生产 runtime 实现。
+
+### 8.1 实际环境与编译器
+
+- 主机：Windows NT `10.0.26200`、AMD64；Python `3.13.15`、FMPy `0.3.31`。
+- OMC：`D:\OpenModelica\bin\omc.exe`，`omc --version` 返回码为 `0`，版本为
+  `OpenModelica v1.26.3 (64-bit)`。
+- 本次仅在测试进程内设置 `OPENMODELICAHOME=D:\OpenModelica`；没有持久化或
+  修改系统环境变量。
+- OMC 的 native FMU build 使用可用的 MinGW-w64 GCC `16.1.0`；生成的 FMU
+  运行所需 DLL 由 OMC 一并打包。
+
+验证脚本现在将显式 `--omc` 视为严格选择：给定但不存在的路径立即按“找不到
+编译器”失败（退出码 `2`），不会回退到 `OPENMODELICAHOME`、PATH 或常见目录。
+它也会拒绝 `checkModel()` 未返回实际成功文本、缺少产物、非 FMI 2.0、缺少
+Co-Simulation 接口，或当前 Windows x64 缺少
+`binaries/win64/<modelIdentifier>.dll` 的 FMU。
+
+### 8.2 真实 OMC → FMI 2.0 Co-Simulation 结果
+
+运行命令：
+
+```powershell
+python .\tools\modelica\validate_openmodelica_fmu.py `
+  --omc "D:\OpenModelica\bin\omc.exe" `
+  --work-dir .\artifacts\modelica-phase-9c
+```
+
+该命令返回 `0`。OMC 实际报告 `loadFile()=true`，并报告：
+`Check of FarcelFirstOrder completed successfully.`（2 equations、2 variables）。
+`buildModelFMU(..., version="2.0", fmuType="cs")` 产出
+`FarcelFirstOrder.fmu`；OMC diagnostics 为空。
+
+FMU 的实际检查结果如下：
+
+- FMI version：`2.0`；接口：`CoSimulation`；model identifier：
+  `FarcelFirstOrder`。
+- 文件大小：`1,033,850` bytes；SHA-256：
+  `ac6308a7ee19942d40abfd91ff61e8937bb42f3465971f5cc9e2b4b15fcd013d`。
+- ZIP 包含 `modelDescription.xml`、`binaries/win64/FarcelFirstOrder.dll`
+  （732,295 bytes）、`libFarcelFirstOrder.dll.a` 和运行时
+  `libwinpthread-1.dll`，因此满足当前 Windows x64 的 native capability
+  条件。
+
+### 8.3 Farcel 公共 API 与数值验收
+
+生成的 FMU 已通过现有的 `create_backend()` 公共工作流
+`load_fmu()`、`validate_config()`、`run_fmu()`、`export_result()` 执行；没有
+使用模拟 compiler 或绕过 Farcel runtime。两次运行均满足：
+
+- `SimulationState.COMPLETED`；时间轴从 0 到 2 s 严格递增；
+- 201 个样本、步长 0.01 s、输出 `y` 均有限；
+- 导出的 CSV 行数均为 201，等于 result 的样本数。
+
+| T | y(0.5) | y(1.0) | y(2.0) | 最大绝对误差 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 0.5 | 0.635830320 | 0.867380444 | 0.982412053 | 0.003709761 | 相对 `1-exp(-t/0.5)`，小于 0.03 |
+| 1.0 | 0.394993933 | 0.633967659 | 0.866020325 | 0.001847100 | 相对 `1-exp(-t/1.0)`，小于 0.03 |
+
+`T=1.0` 的三个非零采样值均小于 `T=0.5` 的对应值，证实参数覆盖已生效且响应变慢。
+实际 CSV 位于已忽略的 `artifacts/modelica-phase-9c/FarcelFirstOrder.csv` 与
+`artifacts/modelica-phase-9c/FarcelFirstOrder-T1.csv`，未提交到仓库。
+
+### 8.4 测试结果
+
+专项真实集成测试使用以下命令执行：
+
+```powershell
+$env:OPENMODELICAHOME = "D:\OpenModelica"
+$env:FARCEL_RUN_OPENMODELICA_INTEGRATION = "1"
+python -m unittest tests.integration.test_openmodelica_feasibility -v
+```
+
+结果为 `10/10` 通过，真实 OMC 测试没有跳过。覆盖内容包括显式 OMC 路径的严格
+优先级、普通环境发现、缺失编译器、`checkModel()` 失败/缺少 FMU 产物的拒绝、真实
+FMI 2.0 CS 编译、Farcel 运行、CSV 导出和 `T=1.0` 参数覆盖。
+
+以同一进程级 OMC 环境执行完整后端回归：`736` 个测试中 `733` 个通过、`3` 个既有
+跳过、`0` 个失败、`0` 个错误。测试按 contracts（10）、application（46）、unit
+（546，含 3 个既有跳过）和 integration（134，含上述真实 OMC 测试）完成；没有为
+native FMU 测试设置跳过或使用 bypass。
+
+### 8.5 结论与保留边界
+
+**Phase 9.0 状态：READY_FOR_REVIEW。** 真实 OpenModelica 编译、FMI 2.0
+Co-Simulation 结构/Windows x64 binary 检查、Farcel 公共 API 运行、数值比较、CSV
+导出、`T=1.0` 参数覆盖和完整回归均已通过。
+
+这一结论仅覆盖 `FarcelFirstOrder.mo`、OpenModelica `1.26.3` 和当前 Windows x64
+环境；它不声明所有 Modelica source、其他 OMC release 或其他目标平台均已验证。
+Phase 9.0 仍未引入生产 compiler adapter、Modelica public DTO、project schema、GUI
+或自动安装功能。未经新的明确授权，不进入 Phase 9.1。

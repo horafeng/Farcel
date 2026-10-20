@@ -28,6 +28,66 @@ def _load_probe_module():
 
 
 class OpenModelicaFeasibilityTests(unittest.TestCase):
+    def test_explicit_valid_omc_path_is_strictly_preferred(self) -> None:
+        probe = _load_probe_module()
+
+        with (
+            patch.dict(probe.os.environ, {"OPENMODELICAHOME": "environment-home"}),
+            patch.object(probe.shutil, "which", return_value="path-omc.exe"),
+            patch.object(
+                Path,
+                "is_file",
+                new=lambda path: path.name == "explicit-omc.exe",
+            ),
+        ):
+            result = probe.discover_omc("explicit-omc.exe")
+
+        self.assertIsNotNone(result)
+        self.assertEqual("explicit-omc.exe", result.name)
+
+    def test_invalid_explicit_omc_path_does_not_fall_back_to_environment(self) -> None:
+        probe = _load_probe_module()
+
+        with (
+            patch.dict(probe.os.environ, {"OPENMODELICAHOME": "environment-home"}),
+            patch.object(probe.shutil, "which", return_value="path-omc.exe"),
+            patch.object(Path, "is_file", return_value=False),
+        ):
+            result = probe.discover_omc("missing-omc.exe")
+
+        self.assertIsNone(result)
+
+    def test_environment_discovery_works_without_explicit_omc_path(self) -> None:
+        probe = _load_probe_module()
+
+        with (
+            patch.dict(probe.os.environ, {"OPENMODELICAHOME": "environment-home"}),
+            patch.object(probe.shutil, "which", return_value=None),
+            patch.object(
+                Path,
+                "is_file",
+                new=lambda path: "environment-home" in str(path),
+            ),
+            patch.object(Path, "glob", return_value=()),
+        ):
+            result = probe.discover_omc()
+
+        self.assertIsNotNone(result)
+        self.assertEqual(probe._omc_name(), result.name)
+
+    def test_discovery_returns_none_without_any_compiler(self) -> None:
+        probe = _load_probe_module()
+
+        with (
+            patch.dict(probe.os.environ, {}, clear=True),
+            patch.object(probe.shutil, "which", return_value=None),
+            patch.object(Path, "is_file", return_value=False),
+            patch.object(Path, "glob", return_value=()),
+        ):
+            result = probe.discover_omc()
+
+        self.assertIsNone(result)
+
     def test_probe_model_has_the_required_minimal_interface(self) -> None:
         source = MODEL.read_text(encoding="utf-8")
 
@@ -75,6 +135,48 @@ class OpenModelicaFeasibilityTests(unittest.TestCase):
                 )
 
         self.assertEqual(4, exit_code)
+
+    def test_compile_rejects_failed_check_model_result(self) -> None:
+        probe = _load_probe_module()
+        output = "\n".join(
+            (
+                "FARCEL_LOAD_FILE=true",
+                "FARCEL_CHECK_MODEL=Error: check failed",
+                "FARCEL_FMU_PATH=FarcelFirstOrder.fmu",
+            )
+        )
+        with (
+            patch.object(probe, "_write_omc_script", return_value=SCRIPT),
+            patch.object(
+                probe.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, output, ""),
+            ),
+        ):
+            with redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "checkModel\\(\\) 未返回预期成功结果"):
+                    probe.compile_fmu(Path("omc"), MODEL, REPOSITORY_ROOT, 1.0)
+
+    def test_compile_rejects_missing_reported_fmu_artifact(self) -> None:
+        probe = _load_probe_module()
+        output = "\n".join(
+            (
+                "FARCEL_LOAD_FILE=true",
+                "FARCEL_CHECK_MODEL=Check of FarcelFirstOrder completed successfully.",
+                "FARCEL_FMU_PATH=missing-FarcelFirstOrder.fmu",
+            )
+        )
+        with (
+            patch.object(probe, "_write_omc_script", return_value=SCRIPT),
+            patch.object(
+                probe.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, output, ""),
+            ),
+        ):
+            with redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "FMU 产物不存在"):
+                    probe.compile_fmu(Path("omc"), MODEL, REPOSITORY_ROOT, 1.0)
 
     @unittest.skipUnless(
         os.environ.get("FARCEL_RUN_OPENMODELICA_INTEGRATION") == "1",
