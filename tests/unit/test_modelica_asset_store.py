@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,6 +30,13 @@ class LocalModelicaAssetStoreTests(unittest.TestCase):
         workspace = self.store.prepare_source_snapshot(self.root, self.source, _BUILD_ID)
         fmu = workspace.compiler_output_directory / "Source.fmu"
         fmu.write_bytes(b"verified-fmu")
+        (workspace.compiler_output_directory / "intermediate.c").write_text(
+            "temporary C source", encoding="utf-8"
+        )
+        (workspace.compiler_output_directory / "compile.log").write_text(
+            "temporary log", encoding="utf-8"
+        )
+        (workspace.compiler_output_directory / "temporary.bin").write_bytes(b"temporary")
         digest = _sha256(fmu)
 
         published = self.store.publish_verified_build(workspace, fmu, digest)
@@ -43,6 +51,15 @@ class LocalModelicaAssetStoreTests(unittest.TestCase):
         self.assertEqual(digest, _sha256(published))
         self.assertFalse(workspace.workspace_path.exists())
         self.assertTrue(saved_source.is_file())
+        final_directory = published.parent.parent
+        self.assertTrue((final_directory / ".farcel-modelica-staging").is_file())
+        self.assertFalse((final_directory / "compiler-output").exists())
+        self.assertEqual(
+            {".farcel-modelica-staging", "source", "model"},
+            {entry.name for entry in final_directory.iterdir()},
+        )
+        self.assertEqual({"model.mo"}, {entry.name for entry in saved_source.parent.iterdir()})
+        self.assertEqual({"model.fmu"}, {entry.name for entry in published.parent.iterdir()})
 
     def test_source_change_during_copy_is_rejected_and_owned_workspace_is_cleaned(self) -> None:
         original_copy = __import__(
@@ -109,6 +126,34 @@ class LocalModelicaAssetStoreTests(unittest.TestCase):
         self.store.discard_workspace(workspace)
         self.assertFalse(workspace.workspace_path.exists())
 
+    def test_compiler_output_cleanup_failure_prevents_publication_and_preserves_other_builds(self) -> None:
+        workspace = self.store.prepare_source_snapshot(self.root, self.source, _BUILD_ID)
+        fmu = workspace.compiler_output_directory / "Source.fmu"
+        fmu.write_bytes(b"new")
+        other = self.root / "modelica-builds" / ("build-" + "b" * 32)
+        other.mkdir(parents=True)
+        sentinel = other / "keep.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        original_rmtree = shutil.rmtree
+
+        def refuse_current_output(path: str | Path, *args: object, **kwargs: object) -> None:
+            if Path(path) == workspace.compiler_output_directory:
+                raise OSError("simulated cleanup failure")
+            original_rmtree(path, *args, **kwargs)
+
+        with patch(
+            "farcel.infrastructure.project.modelica_asset_store.shutil.rmtree",
+            side_effect=refuse_current_output,
+        ):
+            with self.assertRaises(EngineError) as raised:
+                self.store.publish_verified_build(workspace, fmu, _sha256(fmu))
+
+        self.assertEqual(ErrorCode.MODELICA_STAGING_ERROR, raised.exception.code)
+        self.assertFalse((self.root / "modelica-builds" / f"build-{_BUILD_ID}").exists())
+        self.assertEqual("keep", sentinel.read_text(encoding="utf-8"))
+        self.assertTrue(workspace.workspace_path.is_dir())
+        self.store.discard_workspace(workspace)
+
     def test_cleanup_only_removes_marker_owned_workspace(self) -> None:
         workspace = self.store.prepare_source_snapshot(self.root, self.source, _BUILD_ID)
         self.store.discard_workspace(workspace)
@@ -150,6 +195,27 @@ class LocalModelicaAssetStoreTests(unittest.TestCase):
         self.assertEqual(ErrorCode.MODELICA_STAGING_ERROR, raised.exception.code)
         self.assertEqual([], list(outside.iterdir()))
         self.store.discard_workspace(workspace)
+
+    def test_symlinked_compiler_output_is_never_removed_when_supported(self) -> None:
+        workspace = self.store.prepare_source_snapshot(self.root, self.source, _BUILD_ID)
+        outside = Path(self._temporary_directory.name) / "Outside"
+        outside.mkdir()
+        sentinel = outside / "keep.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        shutil.rmtree(workspace.compiler_output_directory)
+        try:
+            workspace.compiler_output_directory.symlink_to(outside, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"symlink creation is unavailable: {error}")
+
+        module = __import__(
+            "farcel.infrastructure.project.modelica_asset_store", fromlist=["_remove_compiler_output"]
+        )
+        with self.assertRaises(EngineError) as raised:
+            module._remove_compiler_output(workspace)
+
+        self.assertEqual(ErrorCode.MODELICA_STAGING_ERROR, raised.exception.code)
+        self.assertEqual("keep", sentinel.read_text(encoding="utf-8"))
 
 
 def _sha256(path: Path) -> str:

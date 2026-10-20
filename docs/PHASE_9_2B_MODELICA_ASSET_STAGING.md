@@ -29,13 +29,13 @@ project-root/
   results/
 ```
 
-编译前的私有工作目录位于 `project-root/.farcel-modelica-staging/`。它包含相同的归属标记、源快照和独立的 `compiler-output/`。正式文件只使用固定受控名称；用户路径和模型名不会直接构成目录名。
+编译前的私有工作目录位于 `project-root/.farcel-modelica-staging/`。它包含相同的归属标记、源快照和独立的 `compiler-output/`。该目录仅是未发布的私有编译输出，绝不会进入正式构建包；正式文件只使用固定受控名称，用户路径和模型名不会直接构成目录名。
 
 源文件按“原文件 SHA-256 → 排他复制 → 快照 SHA-256 → 原文件再次 SHA-256”校验。任一不一致都会失败，且不会宣称快照可信。编译前后再次校验快照，因此 OMC 读取的是本次保存的快照，而非用户后来修改的原始 `.mo`。
 
-FMU 必须位于当前工作目录的 `compiler-output/` 内，是普通文件，并与 `ModelicaCompileResult.sha256` 一致。发布到构建包后再次计算散列。`ModelAsset.sha256` 是 FMU 哈希的唯一权威；provenance 不保存第二份 FMU 散列。
+FMU 必须位于当前工作目录的 `compiler-output/` 内，是普通文件，并与 `ModelicaCompileResult.sha256` 一致。复制到 `model/model.fmu` 后再次计算散列、再次验证源快照，再安全删除受控的 `compiler-output/`。删除失败、目录解析越界或剩余文件结构不符合冻结布局时，发布立即以 `MODELICA_STAGING_ERROR` 失败。`ModelAsset.sha256` 是 FMU 哈希的唯一权威；provenance 不保存第二份 FMU 散列。
 
-同一文件系统内，在目标 `build-<id>` 不存在时，最终使用目录 rename 发布，因此完整构建包对读取方一次可见。它不是跨文件系统事务，也不把普通 `open("xb")` 文件复制描述为原子发布。构建 ID 由 UUID 生成，目标已存在立即返回 `MODELICA_OUTPUT_CONFLICT`，绝不覆盖。
+同一文件系统内，在目标 `build-<id>` 不存在时，最终使用目录 rename 发布，因此完整构建包对读取方一次可见。发布前会白名单验证目录只包含归属标记、`source/model.mo` 与 `model/model.fmu`。它不是跨文件系统事务，也不把普通 `open("xb")` 文件复制描述为原子发布；不同平台对目录 rename 的覆盖语义也不相同，因此发布前后均明确拒绝同名目标。构建 ID 由 UUID 生成，目标已存在立即返回 `MODELICA_OUTPUT_CONFLICT`，绝不覆盖。
 
 发生编译或发布失败时，服务只删除带匹配归属标记的当前未发布工作目录。清理失败会保留可识别的暂存目录以供显式恢复，绝不扫描或删除未知目录。若发布后本地 `ModelAsset` 完整性复核失败，仅移除带匹配标记的刚发布构建包。
 
@@ -59,7 +59,7 @@ FMU 必须位于当前工作目录的 `compiler-output/` 内，是普通文件�
 
 可选真实集成测试通过 `FARCEL_RUN_OPENMODELICA_INTEGRATION=1` 启用，使用 OpenModelica 1.26.3 编译 `FarcelFirstOrder.mo`，随后由既有 Farcel API 加载、运行并检查一阶系统理论误差不超过 0.03，同时验证项目移动后的相对路径和散列。
 
-Windows 本机已实际运行新增暂存测试、Phase 9.0--9.2A 相关回归及完整后端回归；受 Windows 开发者模式/符号链接权限影响的两项符号链接测试会明确条件跳过，其余测试均通过。真实集成测试已实际使用 OpenModelica 1.26.3。
+Windows 本机已实际运行新增暂存测试、Phase 9.0--9.2A 相关回归及完整后端回归；受 Windows 开发者模式/符号链接权限影响的符号链接测试会明确条件跳过，其余测试均通过。真实集成测试已实际使用 OpenModelica 1.26.3，并断言发布目录不包含 `compiler-output/`。
 
 ## 9.2C 前置条件
 

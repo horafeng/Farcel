@@ -104,6 +104,8 @@ class LocalModelicaAssetStore:
             if _sha256(packaged_fmu) != fmu_sha256:
                 raise _staging_error("已暂存 FMU SHA-256 校验失败。", "fmu_publish")
             self.verify_source_snapshot(workspace)
+            _remove_compiler_output(workspace)
+            _verify_publishable_build_layout(workspace)
             final_parent = _controlled_directory(workspace.project_root, _BUILD_DIRECTORY)
             final_directory = final_parent / _build_directory_name(workspace.build_id)
             if final_directory.exists() or final_directory.is_symlink():
@@ -216,7 +218,11 @@ def _verify_workspace(workspace: ModelicaStagingWorkspace) -> None:
     _require_build_id(workspace.build_id)
     marker = workspace.workspace_path / _MARKER_NAME
     try:
-        if workspace.workspace_path.is_symlink() or marker.read_text(encoding="utf-8") != workspace.build_id:
+        if (
+            workspace.workspace_path.is_symlink()
+            or marker.is_symlink()
+            or marker.read_text(encoding="utf-8") != workspace.build_id
+        ):
             raise _staging_error("Modelica 暂存工作目录不属于当前构建。", "workspace_verify")
         if not _is_within(workspace.project_root, workspace.workspace_path.resolve(strict=True)):
             raise _staging_error("Modelica 暂存工作目录解析后不能离开 project_root。", "workspace_verify")
@@ -224,6 +230,54 @@ def _verify_workspace(workspace: ModelicaStagingWorkspace) -> None:
         raise
     except (OSError, RuntimeError):
         raise _staging_error("无法验证 Modelica 暂存工作目录。", "workspace_verify") from None
+
+
+def _remove_compiler_output(workspace: ModelicaStagingWorkspace) -> None:
+    """Remove only this verified workspace's private compiler output."""
+
+    _verify_workspace(workspace)
+    expected = workspace.workspace_path / "compiler-output"
+    output = workspace.compiler_output_directory
+    try:
+        if output != expected or output.is_symlink() or not output.is_dir():
+            raise _staging_error("编译临时输出目录不属于当前构建。", "compiler_output_cleanup")
+        workspace_root = workspace.workspace_path.resolve(strict=True)
+        resolved = output.resolve(strict=True)
+        if not _is_within(workspace_root, resolved) or resolved.relative_to(workspace_root) != Path("compiler-output"):
+            raise _staging_error("编译临时输出目录解析后不能离开当前构建。", "compiler_output_cleanup")
+        shutil.rmtree(resolved)
+    except EngineError:
+        raise
+    except (OSError, RuntimeError):
+        raise _staging_error("无法清理当前构建的编译临时输出。", "compiler_output_cleanup") from None
+
+
+def _verify_publishable_build_layout(workspace: ModelicaStagingWorkspace) -> None:
+    """Require the frozen minimal layout before publishing a build package."""
+
+    _verify_workspace(workspace)
+    root = workspace.workspace_path
+    source_directory = root / "source"
+    model_directory = root / "model"
+    source = root / _SOURCE_RELATIVE_NAME
+    fmu = root / _FMU_RELATIVE_NAME
+    try:
+        if (root / "compiler-output").exists() or (root / "compiler-output").is_symlink():
+            raise _staging_error("正式构建包不能包含编译临时输出。", "publish_layout")
+        if source_directory.is_symlink() or model_directory.is_symlink():
+            raise _staging_error("正式构建包目录不能是符号链接。", "publish_layout")
+        if source.is_symlink() or fmu.is_symlink() or not source.is_file() or not fmu.is_file():
+            raise _staging_error("正式构建包缺少已验证的源快照或 FMU。", "publish_layout")
+        if {entry.name for entry in root.iterdir()} != {_MARKER_NAME, "source", "model"}:
+            raise _staging_error("正式构建包包含不受支持的临时文件。", "publish_layout")
+        if {entry.name for entry in source_directory.iterdir()} != {"model.mo"}:
+            raise _staging_error("正式构建包的源快照目录不符合约定。", "publish_layout")
+        if {entry.name for entry in model_directory.iterdir()} != {"model.fmu"}:
+            raise _staging_error("正式构建包的 FMU 目录不符合约定。", "publish_layout")
+    except EngineError:
+        raise
+    except (OSError, RuntimeError):
+        raise _staging_error("无法验证正式 Modelica 构建包结构。", "publish_layout") from None
 
 
 def _discard_owned_directory(project_root: Path, directory: Path, build_id: str) -> None:

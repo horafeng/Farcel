@@ -53,7 +53,14 @@ class ModelicaAssetStagingIntegrationTests(unittest.TestCase):
 
             fmu_path = root / staged.model_asset.relative_path
             source_path = root / staged.provenance.source_snapshot.relative_path
+            build_directory = fmu_path.parent.parent
             self.assertEqual(project_bytes, project_json.read_bytes())
+            self.assertEqual(
+                {".farcel-modelica-staging", "source", "model"},
+                {entry.name for entry in build_directory.iterdir()},
+            )
+            self.assertFalse((build_directory / "compiler-output").exists())
+            self.assertTrue((build_directory / ".farcel-modelica-staging").is_file())
             self.assertEqual(_sha256(source_path), staged.provenance.source_snapshot.sha256)
             self.assertEqual(_sha256(fmu_path), staged.model_asset.sha256)
             self.assertEqual(staged.model_asset.asset_id, staged.provenance.fmu_asset_id)

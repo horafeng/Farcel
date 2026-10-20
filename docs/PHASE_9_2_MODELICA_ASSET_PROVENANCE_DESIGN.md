@@ -85,7 +85,7 @@ project-root/
 
 来源记录只保存 `/` 分隔的项目内相对路径。项目整体移动后，解析应以新的 project root 为基准，而不是使用开发者机器的工作目录或 OpenModelica 安装路径。
 
-9.2B 的实际暂存目录为 project root 内受控的 `.farcel-modelica-staging/`，正式构建目录只在源快照与 FMU 均已校验后以同文件系统目录 rename 发布。详见 `PHASE_9_2B_MODELICA_ASSET_STAGING.md`。
+9.2B 的实际暂存目录为 project root 内受控的 `.farcel-modelica-staging/`。`compiler-output/` 只存在于该私有目录，复制并校验 `model/model.fmu` 后会在发布前删除；正式构建目录只保留归属标记、源快照和 FMU，并以同文件系统目录 rename 发布。详见 `PHASE_9_2B_MODELICA_ASSET_STAGING.md`。
 
 ## 冻结的 schema 1.1 草案（尚未实现）
 
