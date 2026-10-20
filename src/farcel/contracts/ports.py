@@ -34,7 +34,11 @@ from farcel.contracts.models import (
     StepResult,
     ValidationReport,
 )
-from farcel.contracts.project import SimulationProject
+from farcel.contracts.project import (
+    ProjectSchemaMigrationCandidate,
+    ProjectSchemaMigrationResult,
+    SimulationProject,
+)
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.worker_protocol import WorkerRequest, WorkerResponse
@@ -250,6 +254,20 @@ class ProjectRepository(Protocol):
     def load(self, project_root: Path) -> SimulationProject: ...
 
     def save(self, project_root: Path, project: SimulationProject) -> None: ...
+
+
+class ProjectSchemaMigrationRepository(Protocol):
+    """Explicit, repository-owned 1.0 to 1.1 JSON migration boundary."""
+
+    def load_1_0_migration_candidate(
+        self, project_root: Path
+    ) -> ProjectSchemaMigrationCandidate: ...
+
+    def migrate_1_0_to_1_1(
+        self,
+        project_root: Path,
+        candidate: ProjectSchemaMigrationCandidate,
+    ) -> ProjectSchemaMigrationResult: ...
 
 
 class ProjectRunArtifactRepository(Protocol):

@@ -2,15 +2,15 @@
 
 ## 目标与阶段边界
 
-Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目资产模型。本文件冻结的是持久化前的合同和演进策略；它不改变当前 Project schema 1.0，也不复制源文件、登记资产或写入 `project.json`。
+Phase 9.2 为由 Modelica 源文件编译得到的 FMU 建立可追溯的项目资产模型。9.2A/9.2B 的合同和受控暂存仍不自动写入 Project；9.2C 已实现明确选择的 schema 1.0 到 1.1 来源持久化与迁移。
 
 阶段建议划分如下：
 
 | 阶段 | 范围 |
 | --- | --- |
-| 9.2A（当前） | 不可变 provenance DTO、纯验证和 schema 演进设计。 |
+| 9.2A（已实现） | 不可变 provenance DTO、纯验证和 schema 演进设计。 |
 | 9.2B（已实现） | 受控源快照、既有编译器复用、已验证 FMU 构建包暂存；不登记到 Project JSON。 |
-| 9.2C（后续） | 设计、实现并测试显式的 Project schema 版本读取、保存和迁移。 |
+| 9.2C（已实现） | 严格 Project schema 1.1 编解码、来源持久化、验证和显式迁移。 |
 | 9.2D（后续） | 在上述能力稳定后，考虑面向 Project 的编译与来源查询编排 API。 |
 
 这些后续阶段均不是当前提供的功能。
@@ -87,9 +87,11 @@ project-root/
 
 9.2B 的实际暂存目录为 project root 内受控的 `.farcel-modelica-staging/`。`compiler-output/` 只存在于该私有目录，复制并校验 `model/model.fmu` 后会在发布前删除；正式构建目录只保留归属标记、源快照和 FMU，并以同文件系统目录 rename 发布。详见 `PHASE_9_2B_MODELICA_ASSET_STAGING.md`。
 
-## 冻结的 schema 1.1 草案（尚未实现）
+## schema 1.1 实现记录
 
-9.2C 建议将 `PROJECT_SCHEMA_VERSION` 升级为 `"1.1"`，但 9.2B 不改变当前值或 repository。新增顶层可选集合 `modelica_build_provenance`，编码形状建议为：
+9.2C 已实现严格的 schema 1.1 JSON 编解码、`modelica_build_provenance` 持久化、Project 级来源/文件完整性验证及显式 1.0 到 1.1 迁移。schema 1.0 默认构造、读取和保存均保持不变；普通读取或保存绝不自动迁移。完整格式、备份和并发限制见 `PHASE_9_2C_PROJECT_SCHEMA_MIGRATION.md`。
+
+9.2C 保持 `PROJECT_SCHEMA_VERSION = "1.0"` 作为兼容默认值，并以 `LATEST_PROJECT_SCHEMA_VERSION = "1.1"` 表示最新可选格式。schema 1.1 的新增顶层集合 `modelica_build_provenance` 编码形状为：
 
 ```json
 {

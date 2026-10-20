@@ -12,10 +12,18 @@ import unittest
 
 from farcel import create_backend
 from farcel.application.modelica_asset_staging import ModelicaAssetStagingService
+from farcel.application.project_schema_migration import ProjectSchemaMigrationService
 from farcel.application.project_assets import ProjectAssetValidator
-from farcel.contracts import ModelicaAssetStagingRequest, SimulationConfig, SimulationState
+from farcel.application.project_validation import ProjectValidator
+from farcel.contracts import (
+    ModelicaAssetStagingRequest,
+    SimulationConfig,
+    SimulationProject,
+    SimulationState,
+)
+from farcel.infrastructure.fmpy import FmpyImporter
 from farcel.infrastructure.openmodelica import OpenModelicaCompiler
-from farcel.infrastructure.project import LocalModelicaAssetStore
+from farcel.infrastructure.project import LocalJsonProjectRepository, LocalModelicaAssetStore
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -35,9 +43,15 @@ class ModelicaAssetStagingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / "artifacts") as directory:
             root = Path(directory) / "Project"
             root.mkdir()
+            repository = LocalJsonProjectRepository()
+            repository.save(root, SimulationProject("project", "真实 Modelica 项目"))
+            migration = ProjectSchemaMigrationService(
+                repository,
+                ProjectValidator(FmpyImporter()),
+            ).migrate_1_0_to_1_1(root)
+            self.assertEqual("1.1", migration.project.schema_version)
             project_json = root / "project.json"
-            project_bytes = b'{"schema_version":"1.0"}\n'
-            project_json.write_bytes(project_bytes)
+            json_after_migration = project_json.read_bytes()
             service = ModelicaAssetStagingService(
                 OpenModelicaCompiler(),
                 LocalModelicaAssetStore(),
@@ -54,7 +68,7 @@ class ModelicaAssetStagingIntegrationTests(unittest.TestCase):
             fmu_path = root / staged.model_asset.relative_path
             source_path = root / staged.provenance.source_snapshot.relative_path
             build_directory = fmu_path.parent.parent
-            self.assertEqual(project_bytes, project_json.read_bytes())
+            self.assertEqual(json_after_migration, project_json.read_bytes())
             self.assertEqual(
                 {".farcel-modelica-staging", "source", "model"},
                 {entry.name for entry in build_directory.iterdir()},
@@ -66,6 +80,19 @@ class ModelicaAssetStagingIntegrationTests(unittest.TestCase):
             self.assertEqual(staged.model_asset.asset_id, staged.provenance.fmu_asset_id)
             self.assertEqual("OpenModelica", staged.provenance.compiler_name)
             self.assertEqual("1.26.3", staged.provenance.compiler_version)
+
+            persisted = SimulationProject(
+                project_id=migration.project.project_id,
+                name=migration.project.name,
+                model_assets=(staged.model_asset,),
+                schema_version="1.1",
+                modelica_build_provenance=(staged.provenance,),
+            )
+            report = ProjectValidator(FmpyImporter()).validate(root, persisted)
+            self.assertTrue(report.is_valid, report.issues)
+            repository.save(root, persisted)
+            loaded = repository.load(root)
+            self.assertEqual(persisted, loaded)
 
             backend = create_backend()
             metadata = backend.load_fmu(fmu_path)
@@ -97,6 +124,7 @@ class ModelicaAssetStagingIntegrationTests(unittest.TestCase):
             self.assertTrue(
                 ProjectAssetValidator().check(relocated, staged.model_asset).report.is_valid
             )
+            self.assertTrue(ProjectValidator(FmpyImporter()).validate(relocated, loaded).is_valid)
 
 
 def _sha256(path: Path) -> str:

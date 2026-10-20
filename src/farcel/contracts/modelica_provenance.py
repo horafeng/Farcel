@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from farcel.contracts.project import ModelAsset
+if TYPE_CHECKING:
+    from farcel.contracts.project import ModelAsset
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import tempfile
 from typing import Any
+from dataclasses import replace
 
 from farcel.contracts.errors import EngineError, ErrorCode
 from farcel.contracts.graph import (
@@ -21,11 +23,19 @@ from farcel.contracts.graph import (
 )
 from farcel.contracts.models import InputUpdate, InterfaceType, SimulationState
 from farcel.contracts.project import (
+    LATEST_PROJECT_SCHEMA_VERSION,
     PROJECT_SCHEMA_VERSION,
+    SUPPORTED_PROJECT_SCHEMA_VERSIONS,
     ModelAsset,
+    ProjectSchemaMigrationCandidate,
+    ProjectSchemaMigrationResult,
     ProjectRunRecord,
     SimulationCase,
     SimulationProject,
+)
+from farcel.contracts.modelica_provenance import (
+    ModelicaBuildProvenance,
+    ModelicaSourceSnapshot,
 )
 
 
@@ -41,22 +51,52 @@ class LocalJsonProjectRepository:
 
     def load(self, project_root: Path) -> SimulationProject:
         project_path = Path(project_root) / _PROJECT_FILENAME
-        try:
-            text = project_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise _format_error("project.json 不是有效 UTF-8", project_path, exc) from None
-        except OSError as exc:
-            raise _io_error("无法读取 project.json", project_path, exc) from None
+        return _read_project(project_path)
 
-        try:
-            document = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise _format_error("project.json 不是有效 JSON", project_path, exc) from None
+    def load_1_0_migration_candidate(
+        self, project_root: Path
+    ) -> ProjectSchemaMigrationCandidate:
+        project_path = Path(project_root) / _PROJECT_FILENAME
+        project, document_bytes = _read_project_with_bytes(project_path)
+        if project.schema_version != PROJECT_SCHEMA_VERSION:
+            raise _format_error("仅可迁移 Project schema 1.0", project_path, ValueError(project.schema_version))
+        return ProjectSchemaMigrationCandidate(project, _sha256_bytes(document_bytes))
 
+    def migrate_1_0_to_1_1(
+        self,
+        project_root: Path,
+        candidate: ProjectSchemaMigrationCandidate,
+    ) -> ProjectSchemaMigrationResult:
+        project_path = Path(project_root) / _PROJECT_FILENAME
+        if (
+            not isinstance(candidate, ProjectSchemaMigrationCandidate)
+            or candidate.project.schema_version != PROJECT_SCHEMA_VERSION
+            or candidate.project.modelica_build_provenance
+        ):
+            raise _format_error("Project schema 迁移候选无效", project_path, ValueError("candidate"))
+        current, original_bytes = _read_project_with_bytes(project_path)
+        if current != candidate.project or _sha256_bytes(original_bytes) != candidate.document_sha256:
+            raise _io_error("迁移期间 project.json 已被修改，拒绝覆盖", project_path, ValueError("conflict"))
+
+        migrated = replace(
+            current,
+            schema_version=LATEST_PROJECT_SCHEMA_VERSION,
+            modelica_build_provenance=(),
+        )
         try:
-            return _decode_project(document)
-        except _ProjectFormatError as exc:
-            raise _format_error("project.json 结构无效", project_path, exc) from None
+            document = _encode_project(migrated)
+            text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+            if _decode_project(json.loads(text)) != migrated:
+                raise _ProjectFormatError("迁移后的 project.json 自检失败")
+        except (TypeError, ValueError, _ProjectFormatError) as exc:
+            raise _format_error("无法构造 schema 1.1 project.json", project_path, exc) from None
+
+        backup_path = project_path.with_name(
+            f"{_PROJECT_FILENAME}.1.0-backup-{candidate.document_sha256}.json"
+        )
+        _write_backup_without_overwrite(backup_path, original_bytes, project_path)
+        _replace_if_unchanged(project_path, text, candidate.document_sha256)
+        return ProjectSchemaMigrationResult(migrated, backup_path.name)
 
     def save(self, project_root: Path, project: SimulationProject) -> None:
         project_path = Path(project_root) / _PROJECT_FILENAME
@@ -71,44 +111,188 @@ class LocalJsonProjectRepository:
         except (AttributeError, TypeError, ValueError, _ProjectFormatError) as exc:
             raise _format_error("SimulationProject 无法编码为 project.json", project_path, exc) from None
 
-        temporary_path: Path | None = None
+        _replace_project_text(project_path, text)
+
+
+def _read_project(project_path: Path) -> SimulationProject:
+    return _read_project_with_bytes(project_path)[0]
+
+
+def _read_project_with_bytes(project_path: Path) -> tuple[SimulationProject, bytes]:
+    try:
+        document_bytes = project_path.read_bytes()
+        text = document_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _format_error("project.json 不是有效 UTF-8", project_path, exc) from None
+    except OSError as exc:
+        raise _io_error("无法读取 project.json", project_path, exc) from None
+
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _format_error("project.json 不是有效 JSON", project_path, exc) from None
+
+    try:
+        return _decode_project(document), document_bytes
+    except _ProjectFormatError as exc:
+        raise _format_error("project.json 结构无效", project_path, exc) from None
+
+
+def _replace_project_text(project_path: Path, text: str) -> None:
+    temporary_path: Path | None = None
+    try:
+        project_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=project_path.parent,
+            prefix=".project-",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, project_path)
+        temporary_path = None
+    except OSError as exc:
+        raise _io_error("无法原子保存 project.json", project_path, exc) from None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _write_backup_without_overwrite(
+    backup_path: Path,
+    original_bytes: bytes,
+    project_path: Path,
+) -> None:
+    try:
+        with backup_path.open("xb") as stream:
+            stream.write(original_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError:
         try:
-            project_path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                newline="\n",
-                dir=project_path.parent,
-                prefix=".project-",
-                suffix=".tmp",
-                delete=False,
-            ) as stream:
-                temporary_path = Path(stream.name)
-                stream.write(text)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary_path, project_path)
-            temporary_path = None
+            if backup_path.read_bytes() == original_bytes:
+                return
         except OSError as exc:
-            raise _io_error("无法原子保存 project.json", project_path, exc) from None
-        finally:
-            if temporary_path is not None:
-                try:
-                    temporary_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            raise _io_error("无法验证既有迁移备份", project_path, exc) from None
+        raise _io_error("迁移备份路径已被不同内容占用", project_path, ValueError(backup_path.name))
+    except OSError as exc:
+        raise _io_error("无法创建 project.json 迁移备份", project_path, exc) from None
+
+
+def _replace_if_unchanged(project_path: Path, text: str, expected_sha256: str) -> None:
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=project_path.parent,
+            prefix=".project-migration-",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if _sha256_bytes(project_path.read_bytes()) != expected_sha256:
+            raise _io_error("迁移期间 project.json 已被修改，拒绝覆盖", project_path, ValueError("conflict"))
+        os.replace(temporary_path, project_path)
+        temporary_path = None
+    except EngineError:
+        raise
+    except OSError as exc:
+        raise _io_error("无法发布迁移后的 project.json", project_path, exc) from None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def _encode_project(project: SimulationProject) -> dict[str, Any]:
-    if project.schema_version != PROJECT_SCHEMA_VERSION:
+    if project.schema_version not in SUPPORTED_PROJECT_SCHEMA_VERSIONS:
         raise _ProjectFormatError("不支持的 project schema_version")
-    return {
+    if project.schema_version == PROJECT_SCHEMA_VERSION and project.modelica_build_provenance:
+        raise _ProjectFormatError("schema 1.0 不允许保存 Modelica provenance")
+    if project.schema_version == LATEST_PROJECT_SCHEMA_VERSION:
+        _validate_provenance_persistence_links(project)
+    document: dict[str, Any] = {
         "schema_version": project.schema_version,
         "project_id": _encode_string(project.project_id, "project_id"),
         "name": _encode_string(project.name, "name"),
         "model_assets": [_encode_asset(asset) for asset in project.model_assets],
         "simulation_cases": [_encode_case(case) for case in project.simulation_cases],
         "run_history": [_encode_run_record(record) for record in project.run_history],
+    }
+    if project.schema_version == LATEST_PROJECT_SCHEMA_VERSION:
+        document["modelica_build_provenance"] = [
+            _encode_provenance(provenance)
+            for provenance in project.modelica_build_provenance
+        ]
+    return document
+
+
+def _validate_provenance_persistence_links(project: SimulationProject) -> None:
+    """Keep schema 1.1 relation errors out of persisted JSON without I/O."""
+
+    asset_counts: dict[str, int] = {}
+    for asset in project.model_assets:
+        asset_counts[asset.asset_id] = asset_counts.get(asset.asset_id, 0) + 1
+    build_ids: set[str] = set()
+    referenced_assets: set[str] = set()
+    for provenance in project.modelica_build_provenance:
+        if not isinstance(provenance, ModelicaBuildProvenance):
+            raise _ProjectFormatError("modelica_build_provenance 必须是 ModelicaBuildProvenance")
+        if provenance.build_id in build_ids:
+            raise _ProjectFormatError("modelica_build_provenance.build_id 必须唯一")
+        build_ids.add(provenance.build_id)
+        if asset_counts.get(provenance.fmu_asset_id) != 1:
+            raise _ProjectFormatError("fmu_asset_id 必须唯一关联一个 ModelAsset")
+        if provenance.fmu_asset_id in referenced_assets:
+            raise _ProjectFormatError("同一 ModelAsset 不能关联多条 Modelica provenance")
+        referenced_assets.add(provenance.fmu_asset_id)
+        asset = next(asset for asset in project.model_assets if asset.asset_id == provenance.fmu_asset_id)
+        prefix = f"modelica-builds/build-{provenance.build_id}/"
+        if (
+            provenance.source_snapshot.relative_path != f"{prefix}source/model.mo"
+            or asset.relative_path != f"{prefix}model/model.fmu"
+        ):
+            raise _ProjectFormatError("Modelica provenance 与 ModelAsset 不属于同一构建包")
+
+
+def _encode_provenance(provenance: ModelicaBuildProvenance) -> dict[str, Any]:
+    if not isinstance(provenance, ModelicaBuildProvenance):
+        raise _ProjectFormatError("modelica_build_provenance 必须是 ModelicaBuildProvenance")
+    return {
+        "build_id": _encode_string(provenance.build_id, "build_id"),
+        "source_snapshot": {
+            "relative_path": _encode_string(
+                provenance.source_snapshot.relative_path,
+                "source_snapshot.relative_path",
+            ),
+            "sha256": _encode_string(provenance.source_snapshot.sha256, "source_snapshot.sha256"),
+        },
+        "model_name": _encode_string(provenance.model_name, "model_name"),
+        "compiler_name": _encode_string(provenance.compiler_name, "compiler_name"),
+        "compiler_version": _encode_string(provenance.compiler_version, "compiler_version"),
+        "fmi_version": _encode_string(provenance.fmi_version, "fmi_version"),
+        "fmu_type": _encode_string(provenance.fmu_type, "fmu_type"),
+        "fmu_asset_id": _encode_string(provenance.fmu_asset_id, "fmu_asset_id"),
     }
 
 
@@ -264,9 +448,10 @@ def _encode_optional_number(value: object, field_name: str) -> int | float | Non
 
 
 def _decode_project(document: object) -> SimulationProject:
-    data = _object_with_fields(
-        document,
-        "project",
+    if not isinstance(document, dict):
+        raise _ProjectFormatError("project 必须是 object")
+    schema_version = _string(document.get("schema_version"), "schema_version")
+    expected_fields = (
         (
             "schema_version",
             "project_id",
@@ -274,10 +459,24 @@ def _decode_project(document: object) -> SimulationProject:
             "model_assets",
             "simulation_cases",
             "run_history",
-        ),
+        )
+        if schema_version == PROJECT_SCHEMA_VERSION
+        else (
+            "schema_version",
+            "project_id",
+            "name",
+            "model_assets",
+            "simulation_cases",
+            "run_history",
+            "modelica_build_provenance",
+        )
     )
-    schema_version = _string(data["schema_version"], "schema_version")
-    if schema_version != PROJECT_SCHEMA_VERSION:
+    data = _object_with_fields(
+        document,
+        "project",
+        expected_fields,
+    )
+    if schema_version not in SUPPORTED_PROJECT_SCHEMA_VERSIONS:
         raise _ProjectFormatError("不支持的 project schema_version")
     return SimulationProject(
         project_id=_string(data["project_id"], "project_id"),
@@ -290,6 +489,52 @@ def _decode_project(document: object) -> SimulationProject:
             _decode_run_record(item) for item in _array(data["run_history"], "run_history")
         ),
         schema_version=schema_version,
+        modelica_build_provenance=(
+            ()
+            if schema_version == PROJECT_SCHEMA_VERSION
+            else tuple(
+                _decode_provenance(item)
+                for item in _array(
+                    data["modelica_build_provenance"],
+                    "modelica_build_provenance",
+                )
+            )
+        ),
+    )
+
+
+def _decode_provenance(document: object) -> ModelicaBuildProvenance:
+    data = _object_with_fields(
+        document,
+        "modelica provenance",
+        (
+            "build_id",
+            "source_snapshot",
+            "model_name",
+            "compiler_name",
+            "compiler_version",
+            "fmi_version",
+            "fmu_type",
+            "fmu_asset_id",
+        ),
+    )
+    source = _object_with_fields(
+        data["source_snapshot"],
+        "source_snapshot",
+        ("relative_path", "sha256"),
+    )
+    return ModelicaBuildProvenance(
+        build_id=_string(data["build_id"], "build_id"),
+        source_snapshot=ModelicaSourceSnapshot(
+            relative_path=_string(source["relative_path"], "source_snapshot.relative_path"),
+            sha256=_string(source["sha256"], "source_snapshot.sha256"),
+        ),
+        model_name=_string(data["model_name"], "model_name"),
+        compiler_name=_string(data["compiler_name"], "compiler_name"),
+        compiler_version=_string(data["compiler_version"], "compiler_version"),
+        fmi_version=_string(data["fmi_version"], "fmi_version"),
+        fmu_type=_string(data["fmu_type"], "fmu_type"),
+        fmu_asset_id=_string(data["fmu_asset_id"], "fmu_asset_id"),
     )
 
 
