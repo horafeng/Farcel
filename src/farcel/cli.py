@@ -6,9 +6,14 @@ import sys
 from collections.abc import Sequence
 from dataclasses import asdict
 from enum import Enum
+from pathlib import Path
 
 from farcel import create_backend
 from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaEnvironmentInfo,
+)
 from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
@@ -121,6 +126,26 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="CSV 目标文件路径",
     )
+    modelica_parser = subparsers.add_parser("modelica", help="查询或编译 Modelica 模型")
+    modelica_subparsers = modelica_parser.add_subparsers(dest="modelica_command")
+    modelica_env_parser = modelica_subparsers.add_parser(
+        "env", help="检查 OpenModelica 编译器环境"
+    )
+    modelica_env_parser.add_argument("--omc", metavar="PATH", help="显式 OMC 可执行文件路径")
+    modelica_env_parser.add_argument("--json", action="store_true", help="输出 JSON")
+    modelica_compile_parser = modelica_subparsers.add_parser(
+        "compile", help="将单个 .mo 模型编译为 FMI 2.0 Co-Simulation FMU"
+    )
+    modelica_compile_parser.add_argument("source_mo", metavar="SOURCE_MO", help="Modelica 源文件")
+    modelica_compile_parser.add_argument("--model", required=True, metavar="NAME", help="要编译的模型类名")
+    modelica_compile_parser.add_argument(
+        "--output-dir", required=True, metavar="PATH", help="已存在的 FMU 输出目录"
+    )
+    modelica_compile_parser.add_argument("--omc", metavar="PATH", help="显式 OMC 可执行文件路径")
+    modelica_compile_parser.add_argument(
+        "--timeout", type=float, default=120.0, metavar="SECONDS", help="编译超时秒数，默认 120"
+    )
+    modelica_compile_parser.add_argument("--json", action="store_true", help="输出 JSON")
     return parser
 
 
@@ -130,6 +155,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    if args.command == "modelica":
+        if args.modelica_command is None:
+            parser.parse_args(["modelica", "--help"])
+            return 2
+        if args.modelica_command == "env":
+            return _modelica_env(args)
+        if args.modelica_command == "compile":
+            return _modelica_compile(args)
     if args.command == "inspect":
         try:
             metadata = create_backend().load_fmu(args.fmu)
@@ -198,7 +231,93 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _json_default(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, Path):
+        return str(value)
     raise TypeError(f"无法序列化 {type(value).__name__}")
+
+
+def _modelica_env(args: argparse.Namespace) -> int:
+    """Delegate compiler discovery to the public backend facade."""
+
+    try:
+        info = create_backend().get_modelica_environment(compiler_path=args.omc)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = _modelica_environment_payload(info)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"状态: {payload['status']}")
+        print(f"编译器: {info.compiler_name}")
+        print(f"版本: {info.compiler_version or '未知'}")
+        print(f"诊断: {info.diagnostic_message}")
+    return 0 if info.is_available else 1
+
+
+def _modelica_compile(args: argparse.Namespace) -> int:
+    """Construct the public request contract and delegate standalone compilation."""
+
+    request = ModelicaCompileRequest(
+        source_path=args.source_mo,
+        model_name=args.model,
+        output_directory=args.output_dir,
+        compiler_path=args.omc,
+        timeout_seconds=args.timeout,
+    )
+    try:
+        result = create_backend().compile_modelica(request)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = {
+        "success": True,
+        "fmu_path": str(result.fmu_path),
+        "fmi_version": result.fmi_version,
+        "fmu_type": result.fmu_type,
+        "compiler_version": result.compiler_version,
+        "sha256": result.sha256,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"FMU: {payload['fmu_path']}")
+        print(f"FMI 版本: {payload['fmi_version']}")
+        print(f"FMU 类型: {payload['fmu_type']}")
+        print(f"OpenModelica 版本: {payload['compiler_version']}")
+        print(f"SHA-256: {payload['sha256']}")
+        print("编译完成: 是")
+    return 0
+
+
+def _modelica_environment_payload(info: ModelicaEnvironmentInfo) -> dict[str, object]:
+    return {
+        "success": info.is_available,
+        "status": info.status.name,
+        "compiler_name": info.compiler_name,
+        "compiler_version": info.compiler_version,
+        "diagnostic_message": info.diagnostic_message,
+    }
+
+
+def _print_modelica_error(error: EngineError, *, as_json: bool) -> int:
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": {
+                        "code": error.code.value,
+                        "message": error.message,
+                        "details": error.details,
+                    },
+                },
+                ensure_ascii=False,
+                default=_json_default,
+            ),
+            file=sys.stderr,
+        )
+    else:
+        _print_engine_error(error)
+    return 1
 
 
 def _parse_parameters(items: Sequence[str]) -> dict[str, object]:
