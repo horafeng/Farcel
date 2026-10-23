@@ -4,6 +4,7 @@ from typing import get_type_hints
 import unittest
 
 from farcel.contracts import (
+    LATEST_PROJECT_SCHEMA_VERSION,
     PROJECT_SCHEMA_VERSION,
     GraphSimulationConfig,
     ModelAsset,
@@ -45,6 +46,7 @@ class ProjectContractTests(unittest.TestCase):
         self.assertEqual(project.model_assets, ())
         self.assertEqual(project.simulation_cases, ())
         self.assertEqual(project.run_history, ())
+        self.assertEqual(project.modelica_build_provenance, ())
 
     def test_nested_project_structure_is_representable(self) -> None:
         asset = ModelAsset("plant", "Plant", "models/plant.fmu", "abc")
@@ -137,5 +139,12 @@ class ProjectContractTests(unittest.TestCase):
                 "simulation_cases",
                 "run_history",
                 "schema_version",
+                "modelica_build_provenance",
             ),
         )
+
+    def test_old_positional_schema_version_position_is_unchanged(self) -> None:
+        project = SimulationProject("project", "Demo", (), (), (), "1.1")
+
+        self.assertEqual(LATEST_PROJECT_SCHEMA_VERSION, project.schema_version)
+        self.assertEqual((), project.modelica_build_provenance)

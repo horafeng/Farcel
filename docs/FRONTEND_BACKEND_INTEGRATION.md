@@ -66,6 +66,10 @@ from farcel.contracts import (
     RunControl,
     RunProgress,
     ModelAsset,
+    ModelicaEnvironmentInfo,
+    ModelicaEnvironmentStatus,
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
     SimulationCase,
     SimulationProject,
     ProjectRunRecord,
@@ -721,3 +725,120 @@ automatic discovery/start/restart/reconnect, cluster scheduling, and TLS/auth
 are not frontend capabilities in this release. See
 `FRONTEND_DISTRIBUTED_EXECUTION_GUIDE.md` for the focused handoff and
 `DISTRIBUTED_EXECUTION_USER_GUIDE.md` for Worker operational setup.
+
+## 19. Modelica 编译器环境查询
+
+GUI 可通过默认 backend 查询 OpenModelica 是否已安装且可实际启动；它只能使用
+Farcel-owned contract，不能扫描安装目录或调用 OMC：
+
+```python
+environment = backend.get_modelica_environment(
+    compiler_path="D:/OpenModelica/bin/omc.exe"
+)
+if environment.is_available:
+    show_compiler_version(environment.compiler_version)
+else:
+    show_environment_diagnostic(environment.diagnostic_message)
+```
+
+`ModelicaEnvironmentInfo.status` 为 `AVAILABLE`、`NOT_FOUND` 或 `UNUSABLE`，并带有
+简体中文 `diagnostic_message`。显式路径是严格选择：无效路径返回 `NOT_FOUND`，不会静默
+回退到其他位置。未传路径时，Farcel 依次检查 `OPENMODELICAHOME`、PATH 和常见 Windows
+目录，并仅以一次 `omc --version` 的成功结果判定可用。
+
+GUI 不得导入 `farcel.infrastructure.openmodelica`、调用 subprocess，或依赖 OMC/FMPy
+对象。
+
+## 20. Modelica 公共编译 API
+
+默认 backend 提供同步的 `.mo` → FMI 2.0 Co-Simulation FMU 编译入口。前端先检测环境，
+由用户选择或配置输出目录；目录必须在调用前已经存在：
+
+```python
+from pathlib import Path
+
+from farcel import create_backend
+from farcel.contracts import EngineError, ModelicaCompileRequest
+
+backend = create_backend()
+environment = backend.get_modelica_environment(
+    compiler_path="D:/OpenModelica/bin/omc.exe"
+)
+if not environment.is_available:
+    show_environment_diagnostic(environment.diagnostic_message)
+else:
+    request = ModelicaCompileRequest(
+        source_path=Path("examples/modelica/FarcelFirstOrder.mo"),
+        model_name="FarcelFirstOrder",
+        output_directory=Path("artifacts/modelica-api"),
+        compiler_path=Path("D:/OpenModelica/bin/omc.exe"),
+    )
+    try:
+        compiled = backend.compile_modelica(request)
+    except EngineError as error:
+        show_compile_error(error.code, error.message, error.details)
+    else:
+        metadata = backend.load_fmu(compiled.fmu_path)
+```
+
+`compile_modelica(request)` 返回 `ModelicaCompileResult`，其中 `fmu_path` 是当前运行时
+产物位置，`compiler_version` 是已验证 OMC 版本，`sha256` 是发布后文件的摘要。编译不会
+自动运行 FMU；前端如需仿真，继续使用既有 `load_fmu()`、`validate_config()`、`run_fmu()`
+与 `export_result()` 工作流。
+
+同名 FMU 已存在时，后端返回 `MODELICA_OUTPUT_CONFLICT`，不会覆盖原文件。无效请求返回
+带字段级 issues 的 `CONFIG_ERROR`；其他失败继续使用 Farcel 的稳定 `ErrorCode`。前端不
+需要、也不得直接调用 `omc.exe`、生成 `.mos` 或解析 OMC stdout/stderr。
+
+该调用是同步且可能耗时。PySide6 前端必须从自己的工作线程调用它，不能阻塞 GUI 主线程；
+本后端不创建 Qt 工作线程，也不在本阶段提供异步编译 API。
+
+## 21. Modelica Project 编译与来源登记
+
+需要把编译结果纳入 Project 时，GUI 只能调用 backend 的 Project API，不能自行复制源文件、
+修改 `project.json`、调用 OMC 或扫描构建目录。该工作流只支持已持久化的 schema `1.1` Project：
+
+```python
+from pathlib import Path
+
+from farcel import create_backend
+from farcel.contracts import EngineError, ModelicaAssetStagingRequest
+
+backend = create_backend()
+project = backend.open_project(project_root)
+if project.schema_version == "1.0":
+    # 这必须由用户确认后明确调用，绝不自动迁移。
+    project = backend.migrate_project_schema(project_root).project
+
+request = ModelicaAssetStagingRequest(
+    project_root=project_root,
+    source_path=Path("examples/modelica/FarcelFirstOrder.mo"),
+    model_name="FarcelFirstOrder",
+    compiler_path=Path("D:/OpenModelica/bin/omc.exe"),
+)
+try:
+    registration = backend.compile_project_modelica(project, request)
+except EngineError as error:
+    show_compile_error(error.code, error.message, error.details)
+else:
+    project = registration.project
+    asset = registration.staged_build.model_asset
+    provenance = registration.staged_build.provenance
+    assert provenance.fmu_asset_id == asset.asset_id
+    reopened = backend.open_project(project_root)
+```
+
+`compile_project_modelica(project, request)` 会先确认调用者持有的 Project 与磁盘内容一致，
+再使用受控源快照编译和暂存 FMU，验证完整更新后的 Project，最后条件保存。成功返回的
+`ProjectModelicaCompilation` 同时包含更新后的 `SimulationProject` 和本次已登记的
+`ModelicaStagedBuild`。生成的 `ModelAsset` 可由后续前端模块库或 Graph 使用；本调用不会
+自动创建 SimulationCase 或修改 Graph。
+
+当 `project.json` 在编译期间被修改，后端返回 `PROJECT_CONFLICT`，GUI 应重新打开 Project，
+不能盲目重试覆盖。若构建包已发布但 `pre_persist` 验证或登记保存失败，错误 details 中的
+`unregistered_build` 会标识保留的 `build_id` 与 FMU 相对路径；GUI 不得自行删除它。
+`backend.list_project_modelica_builds(project)` 可只读返回 provenance 元组，不扫描目录、
+不重新编译，也不需要 OMC。
+
+这两个编译 API 均是同步、可能耗时的调用。PySide6 GUI 必须在工作线程调用；GUI 不导入
+infrastructure，不解析 OMC 日志，也不直接写 Project JSON。

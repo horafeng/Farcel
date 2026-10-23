@@ -5,6 +5,17 @@ from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
 from farcel.contracts.distributed import ExecutionPlan
+from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
+    ModelicaEnvironmentInfo,
+)
+from farcel.contracts.modelica_provenance import (
+    ModelicaAssetStagingRequest,
+    ModelicaBuildProvenance,
+    ModelicaStagingWorkspace,
+    ProjectModelicaCompilation,
+)
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
@@ -28,7 +39,12 @@ from farcel.contracts.models import (
     StepResult,
     ValidationReport,
 )
-from farcel.contracts.project import SimulationProject
+from farcel.contracts.project import (
+    ProjectRevision,
+    ProjectSchemaMigrationCandidate,
+    ProjectSchemaMigrationResult,
+    SimulationProject,
+)
 from farcel.contracts.project_result import ProjectRunArtifact
 from farcel.contracts.run_control import RunControl
 from farcel.contracts.worker_protocol import WorkerRequest, WorkerResponse
@@ -39,6 +55,55 @@ class ModelImporter(Protocol):
 
     def load(self, path: Path) -> ModelMetadata:
         """Parse and normalise an FMU without exposing adapter-native types."""
+
+
+class ModelicaEnvironmentDetector(Protocol):
+    """查询 Modelica 编译器环境的实现无关边界。"""
+
+    def detect(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo:
+        """验证指定编译器，或自动发现一个候选编译器。"""
+
+
+class ModelicaCompiler(Protocol):
+    """执行已验证 Modelica 编译请求的实现无关边界。"""
+
+    @property
+    def compiler_name(self) -> str:
+        """Return the adapter's verified compiler product name."""
+
+    def compile(self, request: ModelicaCompileRequest) -> ModelicaCompileResult:
+        """编译一个请求并返回经验证的 FMU 结果。"""
+
+
+class ModelicaAssetStore(Protocol):
+    """Store-owned local workspace and verified build-package lifecycle."""
+
+    def prepare_source_snapshot(
+        self,
+        project_root: Path,
+        source_path: Path,
+        build_id: str,
+    ) -> ModelicaStagingWorkspace:
+        """Create and verify a source snapshot in an unpublished workspace."""
+
+    def verify_source_snapshot(self, workspace: ModelicaStagingWorkspace) -> None:
+        """Reject a workspace whose saved source no longer matches its snapshot."""
+
+    def publish_verified_build(
+        self,
+        workspace: ModelicaStagingWorkspace,
+        fmu_path: Path,
+        fmu_sha256: str,
+    ) -> Path:
+        """Publish one verified package and return its project-root-contained FMU."""
+
+    def discard_workspace(self, workspace: ModelicaStagingWorkspace) -> None:
+        """Best-effort removal limited to the store-owned unpublished workspace."""
+
+    def discard_published_build(self, project_root: Path, build_id: str) -> None:
+        """Remove only a marker-owned build after later validation fails."""
 
 
 class WorkerProtocolSemanticValidator(Protocol):
@@ -197,6 +262,33 @@ class ProjectRepository(Protocol):
     def save(self, project_root: Path, project: SimulationProject) -> None: ...
 
 
+class ProjectRevisionRepository(Protocol):
+    """Optimistic-concurrency persistence boundary for Project mutations."""
+
+    def load_with_revision(self, project_root: Path) -> ProjectRevision: ...
+
+    def save_if_unchanged(
+        self,
+        project_root: Path,
+        project: SimulationProject,
+        expected_document_sha256: str,
+    ) -> None: ...
+
+
+class ProjectSchemaMigrationRepository(Protocol):
+    """Explicit, repository-owned 1.0 to 1.1 JSON migration boundary."""
+
+    def load_1_0_migration_candidate(
+        self, project_root: Path
+    ) -> ProjectSchemaMigrationCandidate: ...
+
+    def migrate_1_0_to_1_1(
+        self,
+        project_root: Path,
+        candidate: ProjectSchemaMigrationCandidate,
+    ) -> ProjectSchemaMigrationResult: ...
+
+
 class ProjectRunArtifactRepository(Protocol):
     """Persistence boundary for ProjectRunArtifact files."""
 
@@ -207,6 +299,28 @@ class ProjectRunArtifactRepository(Protocol):
 
 class SimulationEngine(Protocol):
     """Stable interface consumed by CLI and GUI."""
+
+    def get_modelica_environment(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo: ...
+
+    def compile_modelica(
+        self, request: ModelicaCompileRequest
+    ) -> ModelicaCompileResult: ...
+
+    def compile_project_modelica(
+        self,
+        project: SimulationProject,
+        request: ModelicaAssetStagingRequest,
+    ) -> ProjectModelicaCompilation: ...
+
+    def migrate_project_schema(
+        self, project_root: str | Path
+    ) -> ProjectSchemaMigrationResult: ...
+
+    def list_project_modelica_builds(
+        self, project: SimulationProject
+    ) -> tuple[ModelicaBuildProvenance, ...]: ...
 
     def load_fmu(self, path: str | Path) -> ModelMetadata: ...
 

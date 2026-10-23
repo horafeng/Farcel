@@ -2,7 +2,12 @@ from pathlib import Path
 import unittest
 
 from farcel.application.engine import FarcelEngine
-from farcel.contracts import EngineError, ErrorCode, SimulationProject
+from farcel.contracts import (
+    EngineError,
+    ErrorCode,
+    ModelicaAssetStagingRequest,
+    SimulationProject,
+)
 
 
 class _Importer:
@@ -97,3 +102,21 @@ class ProjectBackendApiTests(unittest.TestCase):
         self.assertEqual(opened.exception.code, ErrorCode.NOT_IMPLEMENTED)
         self.assertEqual(saved.exception.code, ErrorCode.NOT_IMPLEMENTED)
         self.assertTrue(engine.validate_project("project-root", project).is_valid)
+
+    def test_project_modelica_services_are_explicit_when_engine_is_manually_built(self) -> None:
+        engine = FarcelEngine(_Importer())
+        project = SimulationProject("project", "Demo", schema_version="1.1")
+        request = ModelicaAssetStagingRequest(
+            project_root="project-root",
+            source_path="source.mo",
+            model_name="Example.FirstOrder",
+        )
+
+        with self.assertRaises(EngineError) as compile_error:
+            engine.compile_project_modelica(project, request)
+        with self.assertRaises(EngineError) as migration_error:
+            engine.migrate_project_schema("project-root")
+
+        self.assertEqual(ErrorCode.NOT_IMPLEMENTED, compile_error.exception.code)
+        self.assertEqual(ErrorCode.NOT_IMPLEMENTED, migration_error.exception.code)
+        self.assertEqual((), engine.list_project_modelica_builds(project))

@@ -4,7 +4,16 @@ from pathlib import Path
 from typing import get_type_hints
 import unittest
 
-from farcel.contracts import blocks, distributed, graph, models, project, project_batch, project_comparison
+from farcel.contracts import (
+    blocks,
+    distributed,
+    graph,
+    modelica_provenance,
+    models,
+    project,
+    project_batch,
+    project_comparison,
+)
 from farcel.contracts import worker_protocol
 
 
@@ -63,6 +72,8 @@ class ContractBoundaryTests(unittest.TestCase):
             project.SimulationCase,
             project.ProjectRunRecord,
             project.SimulationProject,
+            modelica_provenance.ModelicaSourceSnapshot,
+            modelica_provenance.ModelicaBuildProvenance,
             project_batch.ProjectBatchProgress,
             project_batch.ProjectBatchRunItem,
             project_batch.ProjectBatchRunResult,

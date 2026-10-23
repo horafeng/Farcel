@@ -6,9 +6,20 @@ import sys
 from collections.abc import Sequence
 from dataclasses import asdict
 from enum import Enum
+from pathlib import Path
 
 from farcel import create_backend
 from farcel.contracts.errors import EngineError, ErrorCode
+from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaEnvironmentInfo,
+)
+from farcel.contracts.modelica_provenance import (
+    ModelicaAssetStagingRequest,
+    ModelicaBuildProvenance,
+    ProjectModelicaCompilation,
+)
+from farcel.contracts.project import ModelAsset, ProjectSchemaMigrationResult, SimulationProject
 from farcel.contracts.models import (
     InterfaceType,
     ModelMetadata,
@@ -121,6 +132,53 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="CSV 目标文件路径",
     )
+    modelica_parser = subparsers.add_parser("modelica", help="查询或编译 Modelica 模型")
+    modelica_subparsers = modelica_parser.add_subparsers(dest="modelica_command")
+    modelica_env_parser = modelica_subparsers.add_parser(
+        "env", help="检查 OpenModelica 编译器环境"
+    )
+    modelica_env_parser.add_argument("--omc", metavar="PATH", help="显式 OMC 可执行文件路径")
+    modelica_env_parser.add_argument("--json", action="store_true", help="输出 JSON")
+    modelica_compile_parser = modelica_subparsers.add_parser(
+        "compile", help="将单个 .mo 模型编译为 FMI 2.0 Co-Simulation FMU"
+    )
+    modelica_compile_parser.add_argument("source_mo", metavar="SOURCE_MO", help="Modelica 源文件")
+    modelica_compile_parser.add_argument("--model", required=True, metavar="NAME", help="要编译的模型类名")
+    modelica_compile_parser.add_argument(
+        "--output-dir", required=True, metavar="PATH", help="已存在的 FMU 输出目录"
+    )
+    modelica_compile_parser.add_argument("--omc", metavar="PATH", help="显式 OMC 可执行文件路径")
+    modelica_compile_parser.add_argument(
+        "--timeout", type=float, default=120.0, metavar="SECONDS", help="编译超时秒数，默认 120"
+    )
+    modelica_compile_parser.add_argument("--json", action="store_true", help="输出 JSON")
+    modelica_project_parser = modelica_subparsers.add_parser(
+        "project", help="迁移、编译登记或查询 Modelica Project 构建记录"
+    )
+    modelica_project_subparsers = modelica_project_parser.add_subparsers(
+        dest="modelica_project_command"
+    )
+    modelica_project_migrate_parser = modelica_project_subparsers.add_parser(
+        "migrate", help="显式将 Project schema 1.0 迁移到 1.1"
+    )
+    _add_project_root_argument(modelica_project_migrate_parser)
+    modelica_project_migrate_parser.add_argument("--json", action="store_true", help="输出 JSON")
+    modelica_project_compile_parser = modelica_project_subparsers.add_parser(
+        "compile", help="编译 Modelica 模型并登记到 schema 1.1 Project"
+    )
+    _add_project_root_argument(modelica_project_compile_parser)
+    modelica_project_compile_parser.add_argument("--source", required=True, metavar="PATH", help="Modelica 源文件")
+    modelica_project_compile_parser.add_argument("--model", required=True, metavar="NAME", help="要编译的模型类名")
+    modelica_project_compile_parser.add_argument("--omc", metavar="PATH", help="显式 OMC 可执行文件路径")
+    modelica_project_compile_parser.add_argument(
+        "--timeout", type=float, default=120.0, metavar="SECONDS", help="编译超时秒数，默认 120"
+    )
+    modelica_project_compile_parser.add_argument("--json", action="store_true", help="输出 JSON")
+    modelica_project_list_parser = modelica_project_subparsers.add_parser(
+        "list", help="列出 Project 已登记的 Modelica 构建来源"
+    )
+    _add_project_root_argument(modelica_project_list_parser)
+    modelica_project_list_parser.add_argument("--json", action="store_true", help="输出 JSON")
     return parser
 
 
@@ -130,6 +188,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    if args.command == "modelica":
+        if args.modelica_command is None:
+            parser.error("modelica 命令需要指定子命令")
+        if args.modelica_command == "env":
+            return _modelica_env(args)
+        if args.modelica_command == "compile":
+            return _modelica_compile(args)
+        if args.modelica_command == "project":
+            if args.modelica_project_command is None:
+                parser.error("modelica project 命令需要指定子命令")
+            if args.modelica_project_command == "migrate":
+                return _modelica_project_migrate(args)
+            if args.modelica_project_command == "compile":
+                return _modelica_project_compile(args)
+            if args.modelica_project_command == "list":
+                return _modelica_project_list(args)
     if args.command == "inspect":
         try:
             metadata = create_backend().load_fmu(args.fmu)
@@ -198,7 +272,229 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _json_default(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, Path):
+        return str(value)
     raise TypeError(f"无法序列化 {type(value).__name__}")
+
+
+def _modelica_env(args: argparse.Namespace) -> int:
+    """Delegate compiler discovery to the public backend facade."""
+
+    try:
+        info = create_backend().get_modelica_environment(compiler_path=args.omc)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = _modelica_environment_payload(info)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"状态: {payload['status']}")
+        print(f"编译器: {info.compiler_name}")
+        print(f"版本: {info.compiler_version or '未知'}")
+        print(f"诊断: {info.diagnostic_message}")
+    return 0 if info.is_available else 1
+
+
+def _modelica_compile(args: argparse.Namespace) -> int:
+    """Construct the public request contract and delegate standalone compilation."""
+
+    request = ModelicaCompileRequest(
+        source_path=args.source_mo,
+        model_name=args.model,
+        output_directory=args.output_dir,
+        compiler_path=args.omc,
+        timeout_seconds=args.timeout,
+    )
+    try:
+        result = create_backend().compile_modelica(request)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = {
+        "success": True,
+        "fmu_path": str(result.fmu_path),
+        "fmi_version": result.fmi_version,
+        "fmu_type": result.fmu_type,
+        "compiler_version": result.compiler_version,
+        "sha256": result.sha256,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"FMU: {payload['fmu_path']}")
+        print(f"FMI 版本: {payload['fmi_version']}")
+        print(f"FMU 类型: {payload['fmu_type']}")
+        print(f"OpenModelica 版本: {payload['compiler_version']}")
+        print(f"SHA-256: {payload['sha256']}")
+        print("编译完成: 是")
+    return 0
+
+
+def _modelica_project_migrate(args: argparse.Namespace) -> int:
+    """Explicitly delegate schema migration to the public backend facade."""
+
+    try:
+        result = create_backend().migrate_project_schema(args.project_root)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = _project_migration_payload(args.project_root, result)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"项目目录: {payload['project_root']}")
+        print(f"Schema 版本: {payload['schema_version']}")
+        print(f"备份文件: {payload['backup_relative_path']}")
+        print("迁移完成: 是")
+    return 0
+
+
+def _modelica_project_compile(args: argparse.Namespace) -> int:
+    """Compile and register a build only through the public Project API."""
+
+    backend = create_backend()
+    try:
+        project = backend.open_project(args.project_root)
+        request = ModelicaAssetStagingRequest(
+            project_root=args.project_root,
+            source_path=args.source,
+            model_name=args.model,
+            compiler_path=args.omc,
+            timeout_seconds=args.timeout,
+        )
+        registration = backend.compile_project_modelica(project, request)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = _project_compilation_payload(registration)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"项目 ID: {payload['project_id']}")
+        print(f"Schema 版本: {payload['schema_version']}")
+        print(f"构建 ID: {payload['build_id']}")
+        print(f"FMU 资产: {payload['fmu_relative_path']}")
+        print(f"FMU SHA-256: {payload['fmu_sha256']}")
+        print(f"源快照: {payload['source_relative_path']}")
+        print(f"源 SHA-256: {payload['source_sha256']}")
+        print("编译并登记完成: 是")
+    return 0
+
+
+def _modelica_project_list(args: argparse.Namespace) -> int:
+    """List persisted provenance only; no compilation or filesystem mutation."""
+
+    backend = create_backend()
+    try:
+        project = backend.open_project(args.project_root)
+        provenances = backend.list_project_modelica_builds(project)
+    except EngineError as exc:
+        return _print_modelica_error(exc, as_json=args.json)
+    payload = _project_build_list_payload(project, provenances)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    else:
+        print(f"项目 ID: {payload['project_id']}")
+        print(f"Schema 版本: {payload['schema_version']}")
+        print(f"已登记 Modelica 构建数: {payload['count']}")
+        for build in payload["builds"]:
+            print(f"- {build['build_id']}: {build['model_name']} -> {build['fmu_relative_path']}")
+    return 0
+
+
+def _project_migration_payload(
+    project_root: str | Path,
+    result: ProjectSchemaMigrationResult,
+) -> dict[str, object]:
+    return {
+        "success": True,
+        "project_root": str(project_root),
+        "schema_version": result.project.schema_version,
+        "backup_relative_path": result.backup_relative_path,
+    }
+
+
+def _project_compilation_payload(
+    registration: ProjectModelicaCompilation,
+) -> dict[str, object]:
+    staged = registration.staged_build
+    provenance = staged.provenance
+    asset = staged.model_asset
+    return {
+        "success": True,
+        "project_id": registration.project.project_id,
+        "schema_version": registration.project.schema_version,
+        "build_id": provenance.build_id,
+        "asset_id": asset.asset_id,
+        "fmu_relative_path": asset.relative_path,
+        "fmu_sha256": asset.sha256,
+        "source_relative_path": provenance.source_snapshot.relative_path,
+        "source_sha256": provenance.source_snapshot.sha256,
+        "model_name": provenance.model_name,
+        "compiler_name": provenance.compiler_name,
+        "compiler_version": provenance.compiler_version,
+    }
+
+
+def _project_build_list_payload(
+    project: SimulationProject,
+    provenances: tuple[ModelicaBuildProvenance, ...],
+) -> dict[str, object]:
+    assets = {asset.asset_id: asset for asset in project.model_assets}
+    builds = tuple(_project_build_payload(provenance, assets.get(provenance.fmu_asset_id)) for provenance in provenances)
+    return {
+        "success": True,
+        "project_id": project.project_id,
+        "schema_version": project.schema_version,
+        "count": len(builds),
+        "builds": builds,
+    }
+
+
+def _project_build_payload(
+    provenance: ModelicaBuildProvenance,
+    asset: ModelAsset | None,
+) -> dict[str, object]:
+    return {
+        "build_id": provenance.build_id,
+        "asset_id": provenance.fmu_asset_id,
+        "model_name": provenance.model_name,
+        "compiler_name": provenance.compiler_name,
+        "compiler_version": provenance.compiler_version,
+        "source_relative_path": provenance.source_snapshot.relative_path,
+        "source_sha256": provenance.source_snapshot.sha256,
+        "fmu_relative_path": asset.relative_path if asset is not None else None,
+        "fmu_sha256": asset.sha256 if asset is not None else None,
+    }
+
+
+def _modelica_environment_payload(info: ModelicaEnvironmentInfo) -> dict[str, object]:
+    return {
+        "success": info.is_available,
+        "status": info.status.name,
+        "compiler_name": info.compiler_name,
+        "compiler_version": info.compiler_version,
+        "diagnostic_message": info.diagnostic_message,
+    }
+
+
+def _print_modelica_error(error: EngineError, *, as_json: bool) -> int:
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": {
+                        "code": error.code.value,
+                        "message": error.message,
+                        "details": error.details,
+                    },
+                },
+                ensure_ascii=False,
+                default=_json_default,
+            ),
+            file=sys.stderr,
+        )
+    else:
+        _print_engine_error(error)
+    return 1
 
 
 def _parse_parameters(items: Sequence[str]) -> dict[str, object]:
@@ -241,6 +537,15 @@ def _add_execution_interface_argument(parser: argparse.ArgumentParser) -> None:
         choices=(InterfaceType.CO_SIMULATION.value, InterfaceType.MODEL_EXCHANGE.value),
         default=None,
         help="执行接口；省略时优先 Co-Simulation，其次可执行的 FMI2 Model Exchange",
+    )
+
+
+def _add_project_root_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        required=True,
+        metavar="PATH",
+        help="包含 project.json 的 Project 目录",
     )
 
 

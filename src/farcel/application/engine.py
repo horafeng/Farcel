@@ -16,6 +16,9 @@ from farcel.application.runners import (
 from farcel.application.graph_runner import GraphSimulationRunner
 from farcel.application.graph_runtime_factory import GraphRuntimeBindingsFactory
 from farcel.application.graph_validation import GraphValidator
+from farcel.application.modelica_service import ModelicaService
+from farcel.application.project_modelica_service import ProjectModelicaService
+from farcel.application.project_schema_migration import ProjectSchemaMigrationService
 from farcel.application.distributed_execution import DistributedGraphExecutor
 from farcel.application.execution_plan import ExecutionPlanValidator, resolve_node_placement
 from farcel.application.node_runtime import (
@@ -43,13 +46,28 @@ from farcel.contracts.models import (
     StepStatus,
     ValidationReport,
 )
+from farcel.contracts.modelica import (
+    ModelicaCompileRequest,
+    ModelicaCompileResult,
+    ModelicaEnvironmentInfo,
+    ModelicaEnvironmentStatus,
+)
+from farcel.contracts.modelica_provenance import (
+    ModelicaAssetStagingRequest,
+    ModelicaBuildProvenance,
+    ProjectModelicaCompilation,
+)
 from farcel.contracts.graph import (
     GraphSimulationConfig,
     GraphSimulationResult,
     SimulationGraph,
 )
 from farcel.contracts.distributed import ExecutionPlan, PlacementKind
-from farcel.contracts.project import ProjectRunRecord, SimulationProject
+from farcel.contracts.project import (
+    ProjectRunRecord,
+    ProjectSchemaMigrationResult,
+    SimulationProject,
+)
 from farcel.contracts.project_batch import ProjectBatchProgress, ProjectBatchRunResult
 from farcel.contracts.project_comparison import ProjectRunComparison
 from farcel.contracts.project_result import ProjectRunArtifact
@@ -93,6 +111,9 @@ class FarcelEngine:
         project_run_artifact_repository: ProjectRunArtifactRepository | None = None,
         graph_result_exporter: GraphResultExporter | None = None,
         distributed_graph_executor: DistributedGraphExecutor | None = None,
+        modelica_service: ModelicaService | None = None,
+        project_modelica_service: ProjectModelicaService | None = None,
+        project_schema_migration_service: ProjectSchemaMigrationService | None = None,
     ) -> None:
         self._importer = importer
         self._project_repository = project_repository
@@ -102,6 +123,9 @@ class FarcelEngine:
         self._result_exporter = result_exporter
         self._graph_result_exporter = graph_result_exporter
         self._distributed_graph_executor = distributed_graph_executor
+        self._modelica_service = modelica_service
+        self._project_modelica_service = project_modelica_service
+        self._project_schema_migration_service = project_schema_migration_service
         self._models: dict[str, ModelMetadata] = {}
         self._sessions: dict[str, _SessionRecord] = {}
         self._co_simulation_runner: ExecutionRunner = CoSimulationRunner(session_factory)
@@ -116,6 +140,58 @@ class FarcelEngine:
                 model_exchange_session_factory, solver_factory
             ),
         )
+
+    def get_modelica_environment(
+        self, compiler_path: str | Path | None = None
+    ) -> ModelicaEnvironmentInfo:
+        """查询 Modelica 编译器环境，不影响现有 FMU 运行能力。"""
+
+        if self._modelica_service is None:
+            return ModelicaEnvironmentInfo(
+                status=ModelicaEnvironmentStatus.UNUSABLE,
+                compiler_name="OpenModelica",
+                compiler_version=None,
+                diagnostic_message="未配置 Modelica 环境检测服务。",
+            )
+        return self._modelica_service.get_environment(compiler_path)
+
+    def compile_modelica(
+        self, request: ModelicaCompileRequest,
+    ) -> ModelicaCompileResult:
+        """Compile one validated Modelica request through the configured service."""
+
+        if self._modelica_service is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Modelica 编译服务。")
+        return self._modelica_service.compile_modelica(request)
+
+    def compile_project_modelica(
+        self,
+        project: SimulationProject,
+        request: ModelicaAssetStagingRequest,
+    ) -> ProjectModelicaCompilation:
+        """Compile and register one Modelica build in a persisted Project 1.1."""
+
+        if self._project_modelica_service is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Project Modelica 编译服务。")
+        return self._project_modelica_service.compile_and_register(project, request)
+
+    def migrate_project_schema(
+        self, project_root: str | Path
+    ) -> ProjectSchemaMigrationResult:
+        """Explicitly migrate one persisted Project 1.0 document to schema 1.1."""
+
+        if self._project_schema_migration_service is None:
+            raise EngineError(ErrorCode.NOT_IMPLEMENTED, "未配置 Project schema 迁移服务。")
+        return self._project_schema_migration_service.migrate_1_0_to_1_1(
+            Path(project_root)
+        )
+
+    def list_project_modelica_builds(
+        self, project: SimulationProject
+    ) -> tuple[ModelicaBuildProvenance, ...]:
+        """Expose persisted Modelica provenance without I/O or compilation."""
+
+        return ProjectModelicaService.list_builds(project)
 
     def load_fmu(self, path: str | Path) -> ModelMetadata:
         metadata = self._importer.load(Path(path))
