@@ -47,13 +47,25 @@ class _Backend:
 
 
 class ModelicaCliTests(unittest.TestCase):
-    def test_modelica_and_nested_help(self) -> None:
-        for arguments in (("modelica",), ("modelica", "env", "--help"), ("modelica", "compile", "--help")):
+    def test_root_and_modelica_help_keep_zero_exit_code(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(0, main(()))
+        self.assertIn("usage:", output.getvalue())
+
+        for arguments in (("modelica", "--help"), ("modelica", "env", "--help"), ("modelica", "compile", "--help")):
             output = StringIO()
             with self.assertRaises(SystemExit) as raised, redirect_stdout(output):
                 main(arguments)
             self.assertEqual(0, raised.exception.code)
             self.assertIn("usage:", output.getvalue())
+
+    def test_missing_modelica_subcommand_is_argparse_error(self) -> None:
+        stderr = StringIO()
+        with self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+            main(("modelica",))
+        self.assertEqual(2, raised.exception.code)
+        self.assertIn("需要指定子命令", stderr.getvalue())
 
     def test_compile_missing_required_arguments_is_argparse_error(self) -> None:
         stderr = StringIO()
@@ -127,7 +139,10 @@ class ModelicaCliTests(unittest.TestCase):
         backend.compile_error = EngineError(
             ErrorCode.CONFIG_ERROR,
             "Modelica 编译请求无效",
-            {"issues": ({"field": "model_name", "code": "INVALID_MODEL_NAME", "message": "无效"},)},
+            {
+                "issues": ({"field": "model_name", "code": "INVALID_MODEL_NAME", "message": "无效"},),
+                "path": Path("输出 目录"),
+            },
         )
         stdout, stderr = StringIO(), StringIO()
         with patch("farcel.cli.create_backend", return_value=backend), redirect_stdout(stdout), redirect_stderr(stderr):
@@ -138,6 +153,7 @@ class ModelicaCliTests(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual("CONFIG_ERROR", payload["error"]["code"])
         self.assertEqual("INVALID_MODEL_NAME", payload["error"]["details"]["issues"][0]["code"])
+        self.assertEqual(str(Path("输出 目录")), payload["error"]["details"]["path"])
 
     def test_compile_runtime_error_codes_remain_distinct(self) -> None:
         for code in (

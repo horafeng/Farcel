@@ -190,16 +190,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "modelica":
         if args.modelica_command is None:
-            parser.parse_args(["modelica", "--help"])
-            return 2
+            parser.error("modelica 命令需要指定子命令")
         if args.modelica_command == "env":
             return _modelica_env(args)
         if args.modelica_command == "compile":
             return _modelica_compile(args)
         if args.modelica_command == "project":
             if args.modelica_project_command is None:
-                parser.parse_args(["modelica", "project", "--help"])
-                return 2
+                parser.error("modelica project 命令需要指定子命令")
             if args.modelica_project_command == "migrate":
                 return _modelica_project_migrate(args)
             if args.modelica_project_command == "compile":

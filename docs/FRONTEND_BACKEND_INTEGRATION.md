@@ -835,7 +835,7 @@ else:
 自动创建 SimulationCase 或修改 Graph。
 
 当 `project.json` 在编译期间被修改，后端返回 `PROJECT_CONFLICT`，GUI 应重新打开 Project，
-不能盲目重试覆盖。若构建包已发布但登记保存失败，错误 details 中的
+不能盲目重试覆盖。若构建包已发布但 `pre_persist` 验证或登记保存失败，错误 details 中的
 `unregistered_build` 会标识保留的 `build_id` 与 FMU 相对路径；GUI 不得自行删除它。
 `backend.list_project_modelica_builds(project)` 可只读返回 provenance 元组，不扫描目录、
 不重新编译，也不需要 OMC。

@@ -119,6 +119,13 @@ class ModelicaProjectCliTests(unittest.TestCase):
             self.assertEqual(0, raised.exception.code)
             self.assertIn("usage:", stdout.getvalue())
 
+    def test_missing_project_subcommand_is_argparse_error(self) -> None:
+        stderr = StringIO()
+        with self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+            main(("modelica", "project"))
+        self.assertEqual(2, raised.exception.code)
+        self.assertIn("需要指定子命令", stderr.getvalue())
+
     def test_migrate_delegates_and_emits_plain_and_json_results(self) -> None:
         backend = _Backend()
         with patch("farcel.cli.create_backend", return_value=backend):

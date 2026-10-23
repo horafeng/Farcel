@@ -124,7 +124,7 @@ Project 1.0 或没有 Modelica 来源记录的 Project 返回空 `builds`：
 
 ## 错误、冲突与退出码
 
-运行时失败返回 `1`，argparse 参数错误返回 `2`。普通模式以简体中文写入 stderr；JSON 模式
+运行时失败返回 `1`，argparse 参数错误或缺失 Project 子命令返回 `2`。普通模式以简体中文写入 stderr；JSON 模式
 错误 stderr 只有一个稳定文档：
 
 ```json

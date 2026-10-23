@@ -62,8 +62,8 @@ class ProjectModelicaService:
                 revision.project.modelica_build_provenance + (staged_build.provenance,)
             ),
         )
-        _require_valid_project(self._validator, root, updated, "pre_persist")
         try:
+            _require_valid_project(self._validator, root, updated, "pre_persist")
             self._repository.save_if_unchanged(
                 root,
                 updated,
@@ -135,7 +135,6 @@ def _registration_failure(
     details = dict(failure.details)
     details.update(
         {
-            "stage": "project_persistence",
             "unregistered_build": {
                 "build_id": provenance.build_id,
                 "fmu_relative_path": (
@@ -144,8 +143,9 @@ def _registration_failure(
             },
         }
     )
+    details.setdefault("stage", "project_persistence")
     return EngineError(
         failure.code,
-        "Modelica 构建包已验证，但 project.json 登记未完成。",
+        "Modelica 构建包已发布，但 project.json 登记未完成。",
         details,
     )

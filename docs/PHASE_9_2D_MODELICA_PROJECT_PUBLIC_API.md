@@ -55,11 +55,11 @@ Repository 新增实现无关的 `ProjectRevisionRepository`：
 普通 `save_project()` 未改变。最终散列检查到 `os.replace()` 之间仍存在跨进程 TOCTOU 窗口；
 这是乐观保护，不是数据库事务或文件锁承诺。
 
-编译/暂存失败时 project.json 不被修改。若构建包发布成功但 Project 条件保存失败，后端保留
-该已验证但未登记的构建包，返回原稳定错误码，并在 details 中提供：
+编译/暂存失败时 project.json 不被修改。若构建包发布成功但后续 Project 验证或条件保存失败，
+后端保留该已发布但未登记的构建包，返回原稳定错误码，并在 details 中提供：
 
 ```text
-stage = "project_persistence"
+stage = "pre_persist" 或 "project_persistence"
 unregistered_build.build_id
 unregistered_build.fmu_relative_path
 ```

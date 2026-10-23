@@ -68,7 +68,7 @@ CLI 构造既有 `ModelicaCompileRequest` 后调用 `backend.compile_modelica()`
 
 ## 错误与退出码
 
-Modelica 运行时错误返回 1，argparse 参数错误返回 2。普通模式错误写入 stderr。`--json` 模式成功时 stdout 不夹杂其他文字；失败时 stderr 只输出一个 JSON 文档：
+Modelica 运行时错误返回 1，argparse 参数错误或缺失二级子命令返回 2。普通模式错误写入 stderr。`--json` 模式成功时 stdout 不夹杂其他文字；失败时 stderr 只输出一个 JSON 文档：
 
 ```json
 {

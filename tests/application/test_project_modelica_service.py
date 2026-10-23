@@ -125,7 +125,11 @@ class ProjectModelicaServiceTests(unittest.TestCase):
         self.assertEqual([], self.repository.saved)
 
     def test_persistence_failure_keeps_build_identification_in_error_details(self) -> None:
-        self.repository.save_error = EngineError(ErrorCode.PROJECT_CONFLICT, "冲突")
+        self.repository.save_error = EngineError(
+            ErrorCode.PROJECT_CONFLICT,
+            "冲突",
+            {"stage": "project_persistence", "reason": "stale_revision"},
+        )
 
         with self.assertRaises(EngineError) as raised:
             self.service.compile_and_register(self.project, self.request)
@@ -133,9 +137,10 @@ class ProjectModelicaServiceTests(unittest.TestCase):
         self.assertEqual(ErrorCode.PROJECT_CONFLICT, raised.exception.code)
         self.assertEqual("project_persistence", raised.exception.details["stage"])
         self.assertEqual(_BUILD_ID, raised.exception.details["unregistered_build"]["build_id"])
+        self.assertEqual("stale_revision", raised.exception.details["reason"])
         self.assertEqual(1, len(self.repository.saved))
 
-    def test_post_staging_validation_failure_does_not_persist(self) -> None:
+    def test_post_staging_validation_failure_preserves_issues_and_build_identification(self) -> None:
         self.validator.reports.extend(
             (
                 ValidationReport(),
@@ -145,7 +150,21 @@ class ProjectModelicaServiceTests(unittest.TestCase):
         with self.assertRaises(EngineError) as raised:
             self.service.compile_and_register(self.project, self.request)
         self.assertEqual(ErrorCode.CONFIG_ERROR, raised.exception.code)
+        self.assertEqual("pre_persist", raised.exception.details["stage"])
+        self.assertEqual(_BUILD_ID, raised.exception.details["unregistered_build"]["build_id"])
+        self.assertEqual("DUPLICATE_ASSET_ID", raised.exception.details["issues"][0]["code"])
         self.assertEqual([], self.repository.saved)
+
+    def test_project_io_persistence_failure_keeps_build_identification(self) -> None:
+        self.repository.save_error = EngineError(ErrorCode.PROJECT_IO_ERROR, "写入失败")
+
+        with self.assertRaises(EngineError) as raised:
+            self.service.compile_and_register(self.project, self.request)
+
+        self.assertEqual(ErrorCode.PROJECT_IO_ERROR, raised.exception.code)
+        self.assertEqual("project_persistence", raised.exception.details["stage"])
+        self.assertEqual(_BUILD_ID, raised.exception.details["unregistered_build"]["build_id"])
+        self.assertEqual(1, len(self.repository.saved))
 
 
 def _staged_build() -> ModelicaStagedBuild:
