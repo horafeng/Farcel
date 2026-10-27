@@ -90,3 +90,15 @@ FMU runtime、Graph/Worker 和 Project schema 均未修改。
 一个手动触发或自托管 Windows OMC 1.26.3 的可选 workflow：设置上述两个环境变量，
 运行本矩阵和既有真实测试，并把 OMC 版本、平台和 unittest 输出作为 artifact。该建议
 尚未在本阶段实施。
+
+## 6. Phase 9.5B 的独立 GitHub CI 证据
+
+上述建议已在独立的可选 workflow 中实现；默认 backend CI 仍不安装 OMC。带
+`[omc-ci]` 的验证在
+[GitHub Actions run #40471491499](https://github.com/horafeng/Farcel/actions/runs/40471491499)
+真实执行成功：Windows NT `10.0.26100.0` x64、Python `3.13.16`、FMPy `0.3.31`、
+OpenModelica `1.26.3`，实际探测到的路径为
+`C:\Program Files\OpenModelica1.26.3-64bit\bin\omc.exe`。该 Job 运行 31 个登记
+测试（16 个受 OMC 门控的真实用例和 15 个同模块安全用例），全部通过且 0 skipped；
+它包含本矩阵的二阶动态/纯代数模型，以及一阶、参数时序、Project、公共 API 和 CLI
+覆盖。诊断 artifact 仅包含环境摘要和 unittest 日志，不包含 FMU、DLL 或 OMC 安装目录。

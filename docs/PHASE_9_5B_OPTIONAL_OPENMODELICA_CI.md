@@ -77,9 +77,27 @@ FMU、DLL 或整个 OMC 安装目录。
 
 ## 5. 实际 CI 证据
 
-首次带 `[omc-ci]` 的开发分支 push 完成后，在此记录其 GitHub Actions URL、实际
-runner、`omc.exe` 路径、FMPy 版本和 31 项测试汇总。该段只记录真实执行结果，不能
-用本地开发机或默认 CI 的 skip 结果替代。
+首次配置验证在
+[run #40470064065](https://github.com/horafeng/Farcel/actions/runs/40470064065) 成功；
+完整环境回显与同一门禁的复验在
+[run #40471491499](https://github.com/horafeng/Farcel/actions/runs/40471491499) 成功。
+后者运行的提交为 `0215b6f8ad742f71770eebc6ab1f31bcf5239f03`，实际记录如下：
+
+| 项目 | 真实 GitHub Runner 结果 |
+|---|---|
+| 操作系统 | `Microsoft Windows NT 10.0.26100.0`，x64 |
+| Python | `3.13.16` |
+| OpenModelica | `OpenModelica v1.26.3 (64-bit)` |
+| 实际 `omc.exe` | `C:\Program Files\OpenModelica1.26.3-64bit\bin\omc.exe` |
+| FMPy | `0.3.31` |
+| 测试汇总 | 31 passed，0 skipped，耗时 315.650 s |
+| 真实 OMC 用例 | 16/16 已由测试 ID 门禁逐项确认 `ok` |
+| 安装 / 结构 / 运行 | 官方 action 安装、版本/x64/path 验证、真实 FMU 编译和 Farcel 运行均通过 |
+| 诊断 artifact | `modelica-omc-ci-diagnostics`，保留 7 天 |
+
+因此该记录不是本地开发机或默认 CI 的 skip 结果。测试包含一阶、二阶、纯代数模型，
+FMI 2.0 CS 结构与 Windows x64 DLL、参数覆盖、input schedule 一步时序、CSV、Project
+asset/provenance、公共 API 与安装后 CLI；数值阈值保持 Phase 9.4/9.5A 的既有断言。
 
 ## 6. 已知限制
 
