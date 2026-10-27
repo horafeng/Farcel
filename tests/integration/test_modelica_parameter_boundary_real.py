@@ -161,19 +161,22 @@ class ModelicaParameterBoundaryRealIntegrationTests(unittest.TestCase):
             compiled = self._compile_once(backend, root)
             fmu_sha256 = _sha256(compiled.fmu_path)
             source_sha256 = _sha256(MODEL)
-            config = _config(T=0.5, u=1.0, input_schedule=(InputUpdate(1.0, {"u": 2.0}),))
-
-            result = backend.run_fmu(compiled.fmu_path, config)
-
-            _assert_complete_series(self, result)
-            self.assertLessEqual(_maximum_scheduled_error(result, T=0.5), 0.03)
-            self.assertAlmostEqual(1.0, result.timestamps[100], places=12)
-            self.assertLessEqual(
-                abs(float(result.outputs["y"][100]) - _scheduled_response(1.0, T=0.5)),
-                0.03,
+            baseline = backend.run_fmu(compiled.fmu_path, _config(T=0.5, u=1.0))
+            switched = backend.run_fmu(
+                compiled.fmu_path,
+                _config(
+                    T=0.5,
+                    u=1.0,
+                    input_schedule=(InputUpdate(1.0, {"u": 2.0}),),
+                ),
             )
-            self.assertGreater(float(result.outputs["y"][101]), float(result.outputs["y"][100]))
-            self.assertEqual({"T": 0.5}, config.parameters)
+
+            _assert_complete_series(self, baseline)
+            _assert_complete_series(self, switched)
+            self.assertEqual(baseline.timestamps, switched.timestamps)
+            self.assertLessEqual(_maximum_error(baseline, T=0.5, u=1.0), 0.03)
+            self.assertLessEqual(_maximum_scheduled_error(switched, T=0.5), 0.03)
+            _assert_schedule_transition(self, baseline, switched)
             self.assertEqual(fmu_sha256, _sha256(compiled.fmu_path))
             self.assertEqual(source_sha256, _sha256(MODEL))
 
@@ -215,6 +218,33 @@ class ModelicaParameterBoundaryRealIntegrationTests(unittest.TestCase):
                 output_directory=output,
                 compiler_path=compiler_path,
             )
+        )
+
+
+class InputScheduleTimingGuardTests(unittest.TestCase):
+    """Deterministic one-step timing regression coverage without OpenModelica."""
+
+    def test_schedule_transition_guard_rejects_one_step_early_and_late_series(self) -> None:
+        times = (0.99, 1.0, 1.01)
+        baseline = {time: 1.0 - math.exp(-time / 0.5) for time in times}
+        correct = {
+            time: _scheduled_response(time, T=0.5)
+            for time in times
+        }
+        early = {
+            time: _response_after_switch(time, switch_time=0.99, T=0.5)
+            for time in times
+        }
+        late = dict(baseline)
+
+        self.assertEqual((), _schedule_transition_issue_codes(baseline, correct))
+        self.assertIn(
+            "PRE_SWITCH_DIVERGENCE",
+            _schedule_transition_issue_codes(baseline, early),
+        )
+        self.assertIn(
+            "POST_SWITCH_DELTA_TOO_SMALL",
+            _schedule_transition_issue_codes(baseline, late),
         )
 
 
@@ -265,6 +295,67 @@ def _maximum_scheduled_error(result, *, T: float) -> float:
         abs(float(value) - _scheduled_response(time, T=T))
         for time, value in zip(result.timestamps, result.outputs["y"])
     )
+
+
+def _assert_schedule_transition(
+    test: unittest.TestCase,
+    baseline,
+    switched,
+) -> None:
+    samples = {
+        time: (
+            float(baseline.outputs["y"][_index_at_time(baseline.timestamps, time)]),
+            float(switched.outputs["y"][_index_at_time(switched.timestamps, time)]),
+        )
+        for time in (0.99, 1.0, 1.01)
+    }
+    issues = _schedule_transition_issue_codes(
+        {time: values[0] for time, values in samples.items()},
+        {time: values[1] for time, values in samples.items()},
+    )
+    test.assertEqual((), issues)
+
+
+def _schedule_transition_issue_codes(
+    baseline: dict[float, float],
+    switched: dict[float, float],
+) -> tuple[str, ...]:
+    """Return deterministic failures for an input switch at t=1.0.
+
+    This test-only guard combines pre-switch equivalence, post-switch separation
+    and a tight local theory check.  It intentionally does not reuse the broad
+    full-trajectory tolerance, so a complete communication-step regression is
+    observable.
+    """
+
+    issues: list[str] = []
+    if any(abs(switched[time] - baseline[time]) > 0.003 for time in (0.99, 1.0)):
+        issues.append("PRE_SWITCH_DIVERGENCE")
+    if abs(switched[1.0] - _scheduled_response(1.0, T=0.5)) > 0.008:
+        issues.append("SWITCH_SAMPLE_THEORY_MISMATCH")
+    if switched[1.01] - baseline[1.01] <= 0.012:
+        issues.append("POST_SWITCH_DELTA_TOO_SMALL")
+    if abs(switched[1.01] - _scheduled_response(1.01, T=0.5)) > 0.008:
+        issues.append("POST_SWITCH_THEORY_MISMATCH")
+    return tuple(issues)
+
+
+def _index_at_time(timestamps: tuple[float, ...], expected: float) -> int:
+    matches = [
+        index
+        for index, time in enumerate(timestamps)
+        if math.isclose(time, expected, rel_tol=0.0, abs_tol=1e-12)
+    ]
+    if len(matches) != 1:
+        raise AssertionError(f"未能唯一定位时间样本 {expected}: {matches}")
+    return matches[0]
+
+
+def _response_after_switch(time: float, *, switch_time: float, T: float) -> float:
+    if time <= switch_time:
+        return 1.0 - math.exp(-time / T)
+    value_at_switch = 1.0 - math.exp(-switch_time / T)
+    return 2.0 + (value_at_switch - 2.0) * math.exp(-(time - switch_time) / T)
 
 
 def _omc_path() -> Path:

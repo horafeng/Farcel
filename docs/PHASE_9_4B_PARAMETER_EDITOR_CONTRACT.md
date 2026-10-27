@@ -19,8 +19,8 @@ backend.validate_config(metadata, config)
 | metadata 字段 | 前端用途 | 约束 |
 |---|---|---|
 | `name` | 控件标识、映射到配置键 | 不按名称推断类别。 |
-| `causality` | 判断 parameter、input、output 或只读项 | 是编辑权限的首要依据。 |
-| `variability` | 补充说明 fixed/tunable/continuous/discrete 等 FMI 声明 | 不单独赋予运行中写权限。 |
+| `causality` | 判断 parameter、input、output 或只读项 | 是编辑权限的必要条件，但不能单独决定可编辑性。 |
+| `variability` | 补充说明 fixed/tunable/continuous/discrete 等 FMI 声明 | 不单独赋予运行中写权限，也不替代后端验证。 |
 | `data_type` | 选择数值、布尔、字符串或枚举控件 | 仍以 `validate_config()` 结果为准。 |
 | `initial`、`start` | 显示 FMU 导出的初值/默认值 | 空值表示 FMU 未提供可显示默认值。 |
 | `minimum`、`maximum` | 控件范围提示、预校验 | 后端最终校验范围。 |
@@ -39,19 +39,21 @@ backend.validate_config(metadata, config)
 | output | `causality="output"` | 只读显示，可选为结果列 | `selected_outputs`，不写入变量 |
 | state/local/independent/未知 causality | 其余值 | 只读元数据；不提供普通覆写控件 | 无 |
 
-所有 `parameter` 都是“初始化前候选项”，不是运行时实时可调承诺。具体 FMU 是否
+`causality`、`variability`、类型、shape、范围和当前 runtime 支持必须共同考虑。
+所有 `parameter` 都只是“初始化前候选项”，不是运行时实时可调承诺。具体 FMU 是否
 接受某次设置最终由 FMI metadata、Farcel 校验和该 FMU 的 runtime 决定。
 
 ## 4. 当前类型与数组支持
 
 - 标量 `Real`/`Float32`/`Float64`：数值控件；值必须有限。
-- 整数、无符号整数与 `Enumeration`：整数/枚举控件；后端检查类型范围。
+- 整数、无符号整数与 `Enumeration`：整数控件或受限枚举控件；若 metadata 未提供
+  完整枚举选项，GUI 不得承诺能构造完整下拉列表。
 - `Boolean`：复选框。
 - `String`：文本框。
 - FMI 2 标量 parameter/input 使用相应 setter；FMI 3 支持当前 runtime 已实现的
   标量类型。
-- 数组 parameter/input 仅在当前 shape 可解析、元素类型与范围均合法时支持；控件
-  必须按照 `shape` 提供嵌套值，不能扁平化后猜测维度。
+- 数组 parameter/input 仅在当前 FMI 类型、runtime、shape 可解析且元素类型与范围
+  均支持时编辑；控件必须按照 `shape` 提供嵌套值，不能扁平化后猜测维度。
 - FMI 3 structuralParameter 当前仅接受标量整数/无符号整数/枚举；数组 structural
   parameter 及其他 structural 类型不能显示为可编辑。
 - 当前不支持的类型或 shape 应显示为只读和“当前版本不支持编辑”，而非将其塞入
@@ -75,10 +77,11 @@ config = SimulationConfig(
 )
 ```
 
-Co-Simulation runner 在每个 step 的开始检查 schedule。因此位于 `t=1.0` 的结果样本
-是旧输入从前一通信点积分到达的值；`[1.0, 1.01]` 这一步使用新输入。输入是零阶
-保持至下一次更新，不提供连续插值。时间必须严格递增、位于 `[start_time, stop_time)`，
-并与 `communication_step` 的通信点对齐。schedule 不能写 parameter、state 或 output。
+Co-Simulation runner 在每个 step 的开始检查 schedule。因此 `t=1.00` 的结果样本
+是旧输入从 `[0.99, 1.00]` 积分到达的值；切换在该样本后、区间 `[1.00, 1.01]` 的
+step 开始时设置，新输入的第一个可见输出样本是 `t=1.01`。输入是零阶保持至下一次
+更新，不提供连续插值。时间必须严格递增、位于 `[start_time, stop_time)`，并与
+`communication_step` 的通信点对齐。schedule 不能写 parameter、state 或 output。
 
 修改 `.mo`、方程、源码默认 parameter 值、FMI 版本或 FMU 类型需要重新编译并产生
 新 FMU/Project asset。对同一已编译 FMU 修改 `parameters`、`initial_inputs`、
