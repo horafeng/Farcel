@@ -86,16 +86,16 @@ FMU runtime、Graph/Worker 和 Project schema 均未修改。
 或纯代数模型在 OMC 编译、FMU 结构、Farcel 初始化或执行阶段的兼容性问题；这不构成
 对复杂事件、数组、多文件 Package、FMI 3 或 Model Exchange 的支持声明。
 
-若后续单独批准 Phase 9.5B，可在不修改默认 CI、也不自动安装 OMC 的前提下，提供
+本段保留的是 Phase 9.5A 当时的后续建议记录：若后续单独批准 Phase 9.5B，可在不修改默认 CI、也不自动安装 OMC 的前提下，提供
 一个手动触发或自托管 Windows OMC 1.26.3 的可选 workflow：设置上述两个环境变量，
 运行本矩阵和既有真实测试，并把 OMC 版本、平台和 unittest 输出作为 artifact。该建议
-尚未在本阶段实施。
+已由 Phase 9.5B 实施；实际 CI 证据见第 6 节。
 
 ## 6. Phase 9.5B 的独立 GitHub CI 证据
 
 上述建议已在独立的可选 workflow 中实现；默认 backend CI 仍不安装 OMC。带
 `[omc-ci]` 的验证在
-[GitHub Actions run #40471491499](https://github.com/horafeng/Farcel/actions/runs/40471491499)
+[GitHub Actions run #40473315209](https://github.com/horafeng/Farcel/actions/runs/40473315209)
 真实执行成功：Windows NT `10.0.26100.0` x64、Python `3.13.16`、FMPy `0.3.31`、
 OpenModelica `1.26.3`，实际探测到的路径为
 `C:\Program Files\OpenModelica1.26.3-64bit\bin\omc.exe`。该 Job 运行 31 个登记
