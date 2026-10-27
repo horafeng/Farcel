@@ -45,12 +45,13 @@ jobs:
           "FARCEL_RUN_OPENMODELICA_INTEGRATION=1" | Add-Content -LiteralPath $env:GITHUB_ENV
           "FARCEL_OPENMODELICA_OMC=$omc" | Add-Content -LiteralPath $env:GITHUB_ENV
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          @(
+          $environmentReport = @(
             "Windows=$([System.Environment]::OSVersion.VersionString)",
             "Python=$(& python --version)",
             "OMC_PATH=$omc",
             "OMC_VERSION=$version"
-          ) | Set-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+          )
+          $environmentReport | Tee-Object -FilePath artifacts/modelica-omc-ci-environment.txt
       - name: 构建并安装 wheel
         shell: pwsh
         run: |
@@ -62,7 +63,8 @@ jobs:
           if ($null -eq $wheel) { throw "未生成 Farcel wheel" }
           python -m pip install --force-reinstall $wheel.FullName
           python -m pip check
-          python -c "import fmpy; print(f'FMPy={fmpy.__version__}')" | Add-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+          $fmpyVersion = python -c "import fmpy; print(fmpy.__version__)"
+          "FMPy=$fmpyVersion" | Tee-Object -FilePath artifacts/modelica-omc-ci-environment.txt -Append
       - name: 确认导入来自已安装包
         shell: pwsh
         run: |
