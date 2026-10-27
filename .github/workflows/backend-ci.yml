@@ -12,6 +12,7 @@ on:
       - phase-7-work
       - phase-8-work
       - phase-9-modelica-integration
+      - phase-9-4-parameter-boundary
   pull_request:
     branches:
       - main
