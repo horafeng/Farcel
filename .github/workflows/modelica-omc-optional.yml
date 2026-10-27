@@ -1,0 +1,127 @@
+name: OpenModelica 真实兼容性验证（可选）
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - phase-9-4-parameter-boundary
+
+permissions:
+  contents: read
+
+jobs:
+  real-openmodelica:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[omc-ci]'))
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.13"
+      - name: 安装 OpenModelica 1.26.3（Windows x64）
+        uses: OpenModelica/setup-openmodelica@d7191bc0249c0c9a012cb8e16a43ae654d8bc26b # v1.0.7
+        with:
+          version: "1.26.3"
+          architecture: "64"
+      - name: 探测并验证 OpenModelica
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $omc = (Get-Command omc -ErrorAction Stop).Source
+          if (-not (Test-Path -LiteralPath $omc)) { throw "未找到已安装的 omc.exe: $omc" }
+          $version = (& $omc --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "omc --version 失败: $version" }
+          if ($version -notmatch "OpenModelica v?1\.26\.3\b") {
+            throw "OpenModelica 版本不匹配: $version"
+          }
+          if ([Environment]::Is64BitOperatingSystem -ne $true) {
+            throw "当前 GitHub Runner 不是 x64"
+          }
+          "FARCEL_RUN_OPENMODELICA_INTEGRATION=1" | Add-Content -LiteralPath $env:GITHUB_ENV
+          "FARCEL_OPENMODELICA_OMC=$omc" | Add-Content -LiteralPath $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          @(
+            "Windows=$([System.Environment]::OSVersion.VersionString)",
+            "Python=$(& python --version)",
+            "OMC_PATH=$omc",
+            "OMC_VERSION=$version"
+          ) | Set-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+      - name: 构建并安装 wheel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build --wheel
+          $wheel = Get-ChildItem -Path dist -Filter "farcel-*.whl" | Select-Object -First 1
+          if ($null -eq $wheel) { throw "未生成 Farcel wheel" }
+          python -m pip install --force-reinstall $wheel.FullName
+          python -m pip check
+          python -c "import fmpy; print(f'FMPy={fmpy.__version__}')" | Add-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+      - name: 确认导入来自已安装包
+        shell: pwsh
+        run: |
+          python -c "import pathlib, farcel; path = pathlib.Path(farcel.__file__).resolve(); print(path); assert 'site-packages' in str(path).lower(), path"
+      - name: 运行全部登记的真实 OpenModelica 测试
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $log = "artifacts/modelica-omc-ci-unittest.log"
+          python -m unittest -v `
+            tests.integration.test_openmodelica_feasibility `
+            tests.integration.test_openmodelica_compiler `
+            tests.integration.test_modelica_environment_public_api `
+            tests.integration.test_modelica_compile_public_api `
+            tests.integration.test_modelica_asset_staging `
+            tests.integration.test_modelica_cli_real `
+            tests.integration.test_modelica_project_cli_real `
+            tests.integration.test_modelica_parameter_boundary_real `
+            tests.integration.test_modelica_compatibility_matrix_real 2>&1 | Tee-Object -FilePath $log
+          $testExitCode = $LASTEXITCODE
+          $logText = Get-Content -Raw -LiteralPath $log
+          if ($testExitCode -ne 0) { throw "真实 OpenModelica unittest 失败，退出码 $testExitCode" }
+          if ($logText -match "skipped") { throw "真实 OpenModelica unittest 出现 skip，拒绝通过" }
+          $expectedRealTests = @(
+            "test_real_omc_fmu_compiles_and_runs_through_public_farcel_api",
+            "test_real_omc_compiles_and_farcel_runs_the_result",
+            "test_real_openmodelica_environment_is_available",
+            "test_compile_load_run_export_and_output_conflict",
+            "test_project_compile_register_reopen_run_and_relocate",
+            "test_real_snapshot_compile_stage_relocation_and_run",
+            "test_installed_cli_env_compile_inspect_run_and_conflict",
+            "test_installed_cli_migrates_compiles_lists_and_relocates",
+            "test_same_fmu_parameter_overrides_change_response_without_recompilation",
+            "test_initial_input_amplitude_is_independent_from_parameter_override",
+            "test_unsupported_compile_options_are_config_errors_before_omc_startup",
+            "test_project_registration_is_unchanged_by_parameter_overrides",
+            "test_invalid_parameter_and_input_configurations_are_rejected_before_runtime",
+            "test_input_schedule_switches_after_the_t_1_sample_without_recompilation",
+            "test_second_order_dynamic_model_compiles_runs_and_exports",
+            "test_algebraic_gain_model_compiles_loads_and_runs"
+          )
+          foreach ($testName in $expectedRealTests) {
+            if ($logText -notmatch ([regex]::Escape($testName) + ".*\.\.\. ok")) {
+              throw "预期真实 OpenModelica 测试未实际通过: $testName"
+            }
+          }
+          if ($logText -notmatch "Ran 31 tests") { throw "真实测试总数不符合预期（应为 31）" }
+          $okCount = ([regex]::Matches($logText, "\.\.\. ok")).Count
+          if ($okCount -ne 31) { throw "真实测试通过数不符合预期: $okCount" }
+          "EXPECTED_REAL_TESTS=16" | Add-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+          "TOTAL_TESTS=31" | Add-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+          "SKIPPED=0" | Add-Content -LiteralPath artifacts/modelica-omc-ci-environment.txt
+      - name: 上传 OpenModelica 诊断日志
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: modelica-omc-ci-diagnostics
+          path: |
+            artifacts/modelica-omc-ci-environment.txt
+            artifacts/modelica-omc-ci-unittest.log
+          if-no-files-found: warn
+          retention-days: 7
